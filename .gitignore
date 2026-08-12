@@ -1,0 +1,28 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+.output/
+.wxt/
+*.zip
+*.crx
+*.xpi
+
+# Test + coverage
+coverage/
+playwright-report/
+test-results/
+.playwright-mcp/
+
+# Tooling
+.idea/
+.vscode/
+*.log
+.env
+.env.*
+!.env.example
+
+# OS
+.DS_Store
+Thumbs.db
