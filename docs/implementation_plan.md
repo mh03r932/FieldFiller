@@ -38,10 +38,17 @@ matching · ND-9 → discriminated union. **One spike left.**
 | Scaffold WXT, TS strict, Chrome + Firefox from one source tree | C-002, C-003, C-004, NFR-017 |
 | Settings schema as a discriminated union on generator type, with the migration ladder stubbed | ND-9, DD-005, FR-073 |
 | Message protocol: field descriptors out, values plus provenance back | NFR-029, NFR-030, FR-069 |
-| CI: build, test, **uncompressed** page-agent size budget, disallowed-import check | NFR-003, NFR-011, **ND-4** |
+| CI: build, test, **uncompressed** page-agent size budget, disallowed-import check | NFR-003, **ND-4** |
+| **Reproducible build pipeline** — pinned lockfile, `SOURCE_DATE_EPOCH`, deterministic archive member order and timestamps, no build-time clock or randomness reaching the bundle, digest published per build | NFR-011, G4, UC-032 |
 | **Reference test page** — every control type, shadow root, cross-origin iframe, honeypot | the acceptance harness for every later phase |
 
 Nothing here ships. All of it is load-bearing.
+
+Reproducibility gets its own row because bundlers are not reproducible by default — they
+embed timestamps, order archive members by filesystem enumeration, and minify with passes
+that are not always stable. Left until later, the digests simply differ on every build and
+G4's verifiable-build claim collapses with nothing to show for it. It has to be true from the
+first build, not retrofitted before the first release.
 
 DD-001 resolving to persistent injection makes the page-agent size budget (NFR-003) the
 single most load-bearing non-functional requirement in the project: our code now runs on
@@ -110,6 +117,11 @@ property, and trust properties should exist before the thing is shareable.
 UC-013 is scheduled with rule authoring rather than after it: writing a regex or template
 blind is the worst moment in the reference's UX, and the preview is what makes rule authoring
 teachable.
+
+UC-012 carries a decision that is easy to miss: rule reordering must be operable from the
+keyboard to satisfy NFR-019. The reference used `react-beautiful-dnd`, now deprecated and
+with known accessibility regressions, so the drag implementation is a deliberate choice here
+rather than a default.
 
 ---
 

@@ -502,12 +502,35 @@ DD-003 is what makes it affordable.
 
 *(DD-001, DD-003 and DD-004 were resolved on 2026-08-12 — see "Resolved" above.)*
 
-**DD-002 — Sync storage shape.** *Blocks UC-029.*
+**DD-007 — Default keyboard shortcut.** *Blocks FR-005, UC-023.*
+FR-005 promises a default shortcut per scope, but the published reference **removed** its
+default in v4.1.0 (§7.1) and almost certainly for a reason: `Ctrl+Shift+F` collides with
+Firefox's find bar and with several IDEs, and `Cmd+Shift+F` collides on macOS depending on
+configuration. Three options: ship a default and accept the collision, ship none and require
+the user to assign one (the reference's current behaviour, and a discoverability problem —
+see UC-030), or pick a less contested combination. Needs a decision before UC-023.
+
+**DD-008 — Scope fallback when no form exists.** *Blocks UC-002.*
+"Fill this form" assumes a `<form>` ancestor. Modern applications routinely render form-like
+UI out of `<div>`s with no `<form>` at all, so `closest("form")` returns nothing and the
+reference silently does nothing. Options: fall back to filling the whole page, report that no
+form was found, or fall back to a heuristic container such as the nearest element with a form
+role. Silence is the one clearly wrong answer. Decide before UC-002 is drafted.
+
+**DD-002 — Sync storage shape and conflict resolution.** *Blocks UC-029.*
 `chrome.storage.sync` caps at **8 KB per item** and 102 KB total, with write-rate limits. The
 reference stores everything under a single `options` key — under `storage.sync` that would
 break for any user with a moderate rule set. Options: shard rules across keys, compress, or
 sync a manifest and keep bulk in `storage.local`. Needs a sizing exercise against a
 realistic 100-rule configuration.
+
+Quota is only half of it. Synchronised storage is last-writer-wins per key, so two devices
+editing within the same window silently discard one of the edits — and if the whole
+configuration lives under one key, editing *any* setting on device A discards *every*
+concurrent edit on device B. The same sharding that solves the quota problem also narrows the
+blast radius of a conflict, which is why the two must be decided together. The third option
+is to accept last-writer-wins explicitly and say so in the interface. Whatever is chosen has
+schema consequences, so it must be settled before Phase 5 freezes the schema.
 
 *(DD-003 and DD-004 were resolved on 2026-08-12 — see "Resolved" above.)*
 
