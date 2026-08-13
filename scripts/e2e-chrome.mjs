@@ -11,8 +11,21 @@
  *
  * The trigger is `action.onClicked` dispatched from the background's own
  * context. A real toolbar click cannot be synthesised — it happens in browser
- * chrome, outside any page — but the listener it invokes is the same one, so
- * everything downstream of the trigger is exercised for real.
+ * chrome, outside any page, where neither CDP's `Input` domain nor any page
+ * script can reach — but the listener it invokes is the same one, so everything
+ * downstream of the trigger is exercised for real.
+ *
+ * `dispatch()` is an undocumented member of Chrome's event objects. Verified
+ * present in Chrome for Testing 151: `Object.keys(chrome.action.onClicked)`
+ * yields `addListener, removeListener, hasListener, hasListeners, dispatch`.
+ * Being undocumented, it may be removed — which is what the explicit check below
+ * is for. It reports the absence as its own diagnosis rather than letting the
+ * run look like an engine that filled nothing.
+ *
+ * There is no better option available. The keyboard commands are handled by the
+ * browser rather than the page, so a synthesised key event never reaches them,
+ * and a message-based back door would mean shipping a test hook in production
+ * code to every user.
  *
  * Usage: node scripts/e2e-chrome.mjs   (after `pnpm run build`)
  *   CHROME_PATH=…  override the browser binary

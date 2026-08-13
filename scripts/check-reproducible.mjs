@@ -47,9 +47,28 @@ const REQUIRED_TARGETS = ['-chrome.zip', '-firefox.zip'];
 function buildAndDigest(label) {
   rmSync(OUTPUT_DIR, { recursive: true, force: true });
   console.log(`  building (${label})…`);
-  // `shell` on Windows, where pnpm resolves to pnpm.cmd and execFileSync cannot
-  // spawn it directly. CI is Ubuntu; this keeps local runs working on Windows.
-  execFileSync('pnpm', ['run', 'zip:all'], { cwd: ROOT, stdio: 'pipe', shell: process.platform === 'win32' });
+
+  try {
+    // `shell` on Windows, where pnpm resolves to pnpm.cmd and execFileSync cannot
+    // spawn it directly. CI is Ubuntu; this keeps local runs working on Windows.
+    execFileSync('pnpm', ['run', 'zip:all'], {
+      cwd: ROOT,
+      stdio: 'pipe',
+      encoding: 'utf8',
+      shell: process.platform === 'win32',
+    });
+  } catch (error) {
+    // Node does append the captured output to `error.message`, so the build's
+    // own error is not lost — but an uncaught throw prints it wrapped in a stack
+    // trace through this file, which is never the interesting part. A failing
+    // build should read as a failing build.
+    console.error(`\n✖ the ${label} build failed:\n`);
+    for (const [stream, content] of [['stdout', error.stdout], ['stderr', error.stderr]]) {
+      const text = String(content ?? '').trim();
+      if (text !== '') console.error(`  --- ${stream} ---\n${text}\n`);
+    }
+    process.exit(1);
+  }
 
   const digests = new Map();
   for (const name of readdirSync(OUTPUT_DIR).filter((f) => f.endsWith('.zip')).sort()) {
