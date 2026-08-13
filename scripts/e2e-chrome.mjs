@@ -101,9 +101,30 @@ let chrome;
 let cdp;
 
 const html = readFileSync(REFERENCE_PAGE, 'utf8');
+
+// A second origin, so the cross-origin frame is genuinely cross-origin (C-007).
+// `localhost` and `127.0.0.1` are different origins even on the same port, and
+// different ports would be enough on their own — using both makes the intent
+// unmistakable to anyone reading the assertion later.
+const crossOriginServer = createServer((_request, response) => {
+  response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+  response.end(
+    '<!doctype html><title>cross-origin</title>' +
+      '<label>Cross name <input name="xorigin_name" autocomplete="given-name"></label>' +
+      '<label>Cross email <input name="xorigin_email" type="email"></label>',
+  );
+});
+await new Promise((resolve) => crossOriginServer.listen(0, '127.0.0.1', resolve));
+const crossOriginUrl = `http://localhost:${crossOriginServer.address().port}/`;
+
 const server = createServer((_request, response) => {
   response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-  response.end(html);
+  response.end(
+    html.replace(
+      '<iframe id="cross-origin" title="cross-origin frame"',
+      `<iframe id="cross-origin" title="cross-origin frame" src="${crossOriginUrl}"`,
+    ),
+  );
 });
 await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
 const pageUrl = `http://127.0.0.1:${server.address().port}/`;
@@ -170,21 +191,57 @@ try {
 
   // The fill is a message round trip; give it room without making the test slow
   // when it succeeds.
+  // Collected from every frame, not only the top one. Each frame is its own CDP
+  // target with its own isolated worlds, so the values are read per target and
+  // merged — which is also the only way to see into a cross-origin frame.
+  const collectExpression = `JSON.stringify(Object.fromEntries(
+    (function walk(root, out) {
+      for (const el of root.querySelectorAll('input, textarea, select')) {
+        if (el.type === 'checkbox' || el.type === 'radio') out.push([el.name + ':' + el.value, el.checked]);
+        else if (el.multiple) out.push([el.name, [...el.selectedOptions].map((o) => o.value).join(',')]);
+        else out.push([el.name, el.value]);
+      }
+      for (const el of root.querySelectorAll('*')) if (el.shadowRoot) walk(el.shadowRoot, out);
+      // Same-origin and srcdoc frames are part of this target rather than
+      // separate ones, so their contents are only reachable through
+      // contentDocument. A cross-origin frame throws here and is read from its
+      // own target instead.
+      for (const frame of root.querySelectorAll('iframe')) {
+        try { if (frame.contentDocument) walk(frame.contentDocument, out); } catch {}
+      }
+      return out;
+    })(document, [])
+  ))`;
+
+  async function collect() {
+    const merged = {};
+    const { targetInfos } = await cdp.send('Target.getTargets');
+    const frames = targetInfos.filter(
+      (target) => target.type === 'iframe' && target.url.startsWith('http://'),
+    );
+
+    for (const target of [{ targetId }, ...frames]) {
+      try {
+        const session = await cdp.attach(target.targetId);
+        const result = await cdp.send(
+          'Runtime.evaluate',
+          { expression: collectExpression, returnByValue: true },
+          session,
+        );
+        Object.assign(merged, JSON.parse(result.result.value));
+      } catch {
+        // A frame that went away between listing and reading is not a failure of
+        // the fill; the assertions below decide what was required.
+      }
+    }
+    return merged;
+  }
+
   let filled = {};
   for (let attempt = 0; attempt < 40; attempt++) {
-    await sleep(150);
-    const result = await cdp.send('Runtime.evaluate', {
-      expression: `JSON.stringify(Object.fromEntries(
-        [...document.querySelectorAll('input, textarea, select')].map((el) => {
-          if (el.type === 'checkbox' || el.type === 'radio') return [el.name + ':' + el.value, el.checked];
-          if (el.multiple) return [el.name, [...el.selectedOptions].map((o) => o.value).join(',')];
-          return [el.name, el.value];
-        })
-      ))`,
-      returnByValue: true,
-    }, page);
-    filled = JSON.parse(result.result.value);
-    if (filled.given_name) break;
+    await sleep(200);
+    filled = await collect();
+    if (filled.given_name && filled.xorigin_name) break;
   }
 
   const check = (label, condition, detail) => {
@@ -269,6 +326,29 @@ try {
   check('the unrelated form was filled too, being on the same page',
     (filled.unrelated_note ?? '') !== '');
 
+  // FR-008: `querySelectorAll` does not descend into a shadow root, which is why
+  // every Lit/Stencil/Ionic design system is invisible to the reference.
+  check('open shadow roots are filled', (filled.shadow_name ?? '') !== '',
+    `shadow_name=${JSON.stringify(filled.shadow_name)}`);
+  // C-006: a closed root is unreachable by anyone, and we do not pretend
+  // otherwise. Its field must be absent from the results entirely.
+  check('closed shadow roots are left alone', filled.closed_shadow_name === undefined);
+
+  // FR-007 / C-007: both frames filled, including the cross-origin one, which
+  // can only be reached by injecting into that frame.
+  check('same-origin frames are filled', (filled.frame_name ?? '') !== '',
+    `frame_name=${JSON.stringify(filled.frame_name)}`);
+  check('cross-origin frames are filled', (filled.xorigin_name ?? '') !== '',
+    `xorigin_name=${JSON.stringify(filled.xorigin_name)}`);
+
+  // BR-001-1, the reason frames share one operation: a checkout whose card
+  // fields sit in a payment iframe must receive the same person as the billing
+  // fields in the parent document.
+  check('every frame received the same persona',
+    filled.given_name === filled.frame_name && filled.given_name === filled.xorigin_name &&
+    filled.given_name === filled.shadow_name,
+    `top=${filled.given_name} frame=${filled.frame_name} cross=${filled.xorigin_name} shadow=${filled.shadow_name}`);
+
   // Printed because coherence is far more convincing read than asserted: the
   // point of ND-1 is that these lines describe one person.
   console.log('\n  what landed on the page:');
@@ -279,6 +359,7 @@ try {
   failures.push(error instanceof Error ? error.message : String(error));
 } finally {
   server.close();
+  crossOriginServer.close();
   if (chrome !== undefined) {
     chrome.kill();
     const exited = await Promise.race([

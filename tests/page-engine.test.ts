@@ -53,6 +53,37 @@ describe('walk', () => {
     const names = collectCandidates(root).map((element) => element.getAttribute('name'));
     expect(names).toEqual(['a', 'b', 'c']);
   });
+
+  it('descends into an open shadow root', () => {
+    // FR-008. `querySelectorAll` does not cross a shadow boundary, which is why
+    // Lit, Stencil and Ionic design systems are entirely invisible to the
+    // reference (§7.3).
+    const root = fragment('<div id="host"></div><input name="light">');
+    const host = root.querySelector('#host')!;
+    host.attachShadow({ mode: 'open' }).innerHTML = '<input name="shadow">';
+
+    const names = collectCandidates(root).map((element) => element.getAttribute('name'));
+    expect(names).toContain('light');
+    expect(names).toContain('shadow');
+  });
+
+  it('descends into nested shadow roots', () => {
+    const root = fragment('<div id="outer"></div>');
+    const outer = root.querySelector('#outer')!.attachShadow({ mode: 'open' });
+    outer.innerHTML = '<div id="inner"></div>';
+    outer.querySelector('#inner')!.attachShadow({ mode: 'open' }).innerHTML = '<input name="deep">';
+
+    expect(collectCandidates(root).map((element) => element.getAttribute('name'))).toEqual(['deep']);
+  });
+
+  it('cannot see into a closed shadow root, and does not pretend to', () => {
+    // C-006: unreachable by any extension API, permanently. Documented honestly
+    // rather than worked around.
+    const root = fragment('<div id="host"></div>');
+    root.querySelector('#host')!.attachShadow({ mode: 'closed' }).innerHTML = '<input name="hidden">';
+
+    expect(collectCandidates(root)).toEqual([]);
+  });
 });
 
 describe('exclude', () => {

@@ -52,8 +52,12 @@ type Operation = {
   readonly random: Random;
   readonly tabId: number;
   readonly outcomes: FieldOutcomeCounts;
+  /** Frames that have reported, so a duplicate cannot be counted twice. */
+  readonly frames: Set<string>;
   /** Abandons the operation if no report ever arrives. */
-  readonly timeout: ReturnType<typeof setTimeout>;
+  timeout: ReturnType<typeof setTimeout>;
+  /** Fires once the reports have stopped arriving. */
+  settle: ReturnType<typeof setTimeout> | undefined;
 };
 
 type FieldOutcomeCounts = { filled: number; skipped: number; failed: number };
@@ -113,6 +117,8 @@ async function startFill(tabId: number, scope: FillScope): Promise<void> {
     random,
     tabId,
     outcomes: { filled: 0, skipped: 0, failed: 0 },
+    frames: new Set(),
+    settle: undefined,
     timeout: setTimeout(() => {
       trace(`fill ${operationId} timed out with no report; abandoning`);
       finish(operationId, tabId);
@@ -128,18 +134,13 @@ async function startFill(tabId: number, scope: FillScope): Promise<void> {
         scope,
         settings: agentSettings(settings),
       },
-      // The top frame only, for now. Without `frameId` this broadcasts to every
-      // frame — the agent is injected in all of them — and an operation ends on
-      // the *first* report it receives, which for a page with iframes means the
-      // remaining frames have their reports discarded and, if they are slow
-      // enough to ask after that point, receive no values at all.
+      // No `frameId`: this broadcasts to every frame in the tab, which is what
+      // FR-007 asks for. The operation now stays open until the reports go quiet
+      // (see SETTLE_MS) rather than ending on the first one, so every frame's
+      // outcomes are counted and a late frame still receives values.
       //
-      // Filling every frame is FR-007 and belongs to Phase 2, where it needs a
-      // completion policy this phase has no way to express: nothing tells the
-      // background how many frames were reached, so "the fill is over" has to be
-      // decided by a quorum and a timeout, not by counting replies. Restricting
-      // the scope is honest about that; broadcasting and finishing early is not.
-      { frameId: 0 },
+      // The broadcast resolves with whichever frame replies first and that reply
+      // is not used — completion is decided by the reports, not by this promise.
     );
   } catch (error) {
     // UC-001 A4: no agent in this tab — a page that loaded before the extension
@@ -164,10 +165,28 @@ async function startFill(tabId: number, scope: FillScope): Promise<void> {
  */
 const OPERATION_TIMEOUT_MS = 15_000;
 
+/**
+ * How long to keep an operation open after its most recent frame report.
+ *
+ * A page and its frames are one fill (BR-001-1), but nothing tells the
+ * background how many frames it reached: `tabs.sendMessage` broadcasts and
+ * returns one reply, frames cannot see each other, and asking the browser would
+ * need a permission NFR-008 forbids. So completion cannot be decided by counting
+ * replies — it is decided by the reports going quiet, with the hard timeout above
+ * as the backstop.
+ *
+ * Short enough that the badge is not visibly late, long enough to cover a frame
+ * that is slower than the parent because it is still parsing.
+ */
+const SETTLE_MS = 400;
+
 /** Ends an operation, discarding the persona and every generated value (NFR-031). */
 function finish(operationId: OperationId, tabId: number): void {
   const operation = operations.get(operationId);
-  if (operation !== undefined) clearTimeout(operation.timeout);
+  if (operation !== undefined) {
+    clearTimeout(operation.timeout);
+    if (operation.settle !== undefined) clearTimeout(operation.settle);
+  }
   operations.delete(operationId);
   filling.delete(tabId);
 }
@@ -248,18 +267,32 @@ export default defineBackground(() => {
     }
 
     {
+      // One report per frame. A duplicate — a frame that somehow reports twice —
+      // must not double the count the user is shown.
+      if (operation.frames.has(raw.report.frameUrl)) return;
+      operation.frames.add(raw.report.frameUrl);
       summarise(raw.report, operation.outcomes);
-      const { filled, skipped, failed } = operation.outcomes;
-      trace(`fill ${raw.operationId}: ${filled} filled, ${skipped} skipped, ${failed} failed`);
 
-      // BR-001-4: nothing to fill is a success, not a failure, and must be
-      // distinguishable from one.
-      void showBadge(
-        operation.tabId,
-        filled > 0 ? String(filled) : '0',
-        failed > 0 ? '#c0392b' : filled > 0 ? '#2f6fed' : '#8a8f98',
-      );
-      finish(raw.operationId, operation.tabId);
+      // Each frame reports independently and none waits for another
+      // (BR-001-5), so the operation closes when the reports stop arriving
+      // rather than when any particular one does.
+      if (operation.settle !== undefined) clearTimeout(operation.settle);
+      operation.settle = setTimeout(() => {
+        const { filled, skipped, failed } = operation.outcomes;
+        trace(
+          `fill ${raw.operationId}: ${filled} filled, ${skipped} skipped, ` +
+            `${failed} failed across ${operation.frames.size} frame(s)`,
+        );
+
+        // BR-001-4: nothing to fill is a success, not a failure, and must be
+        // distinguishable from one.
+        void showBadge(
+          operation.tabId,
+          filled > 0 ? String(filled) : '0',
+          failed > 0 ? '#c0392b' : filled > 0 ? '#2f6fed' : '#8a8f98',
+        );
+        finish(raw.operationId, operation.tabId);
+      }, SETTLE_MS);
     }
     return;
   });

@@ -37,6 +37,17 @@ const writtenByUs = new WeakSet<Element>();
 export default defineContentScript({
   matches: ['<all_urls>'],
   allFrames: true,
+  /**
+   * `<all_urls>` does not match `about:srcdoc` or `about:blank`, so without this
+   * the agent never reaches a frame written with `srcdoc` or one created empty
+   * and populated by script — which is how payment widgets, rich-text editors
+   * and a great many embedded forms are built. The frame simply came back
+   * unfilled, with nothing to indicate why.
+   *
+   * Such a frame inherits its parent's origin, so this grants no access the
+   * extension does not already have to the containing page.
+   */
+  matchAboutBlank: true,
   runAt: 'document_idle',
 
   main() {

@@ -145,6 +145,46 @@
       </fieldset>
     </form>
 
+    <!-- An open shadow root. `querySelectorAll` does not descend into one, so
+         every Lit/Stencil/Ionic design system is invisible to the reference
+         (§7.3, FR-008). A closed root stays unreachable by anyone (C-006). -->
+    <div id="shadow-host"></div>
+    <script>
+      const host = document.getElementById('shadow-host');
+      const shadow = host.attachShadow({ mode: 'open' });
+      shadow.innerHTML = `
+        <fieldset>
+          <legend>Inside an open shadow root (FR-008)</legend>
+          <label>Shadow name <input type="text" name="shadow_name" autocomplete="given-name"></label>
+          <label>Shadow email <input type="email" name="shadow_email"></label>
+        </fieldset>`;
+
+      // A closed root, to prove we do not reach into one and do not pretend to.
+      const closedHost = document.createElement('div');
+      document.body.append(closedHost);
+      closedHost.attachShadow({ mode: 'closed' }).innerHTML =
+        '<input type="text" name="closed_shadow_name">';
+    </script>
+
+    <!-- Frames. The same-origin one is inline; the cross-origin one is supplied
+         by the harness, because it needs a second origin to be cross-origin at
+         all (C-007, FR-007). Both must receive the same persona (BR-001-1). -->
+    <fieldset>
+      <legend>Same-origin iframe (FR-007)</legend>
+      <iframe
+        title="same-origin frame"
+        style="width:100%;height:120px;border:1px solid #ccc"
+        srcdoc="&lt;label&gt;Frame name &lt;input name=&quot;frame_name&quot; autocomplete=&quot;given-name&quot;&gt;&lt;/label&gt;
+                &lt;label&gt;Frame email &lt;input name=&quot;frame_email&quot; type=&quot;email&quot;&gt;&lt;/label&gt;"
+      ></iframe>
+    </fieldset>
+
+    <fieldset>
+      <legend>Cross-origin iframe (C-007) — populated by the harness</legend>
+      <iframe id="cross-origin" title="cross-origin frame"
+              style="width:100%;height:120px;border:1px solid #ccc"></iframe>
+    </fieldset>
+
     <!-- A second form using the same radio group name. Filling the first form
          must not touch this one, and radio-group resolution must not reach across
          the document to find it (ND-5, BR-005-3). -->
