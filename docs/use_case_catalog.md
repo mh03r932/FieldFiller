@@ -55,7 +55,7 @@ Legend — **Spec:** `Not started` · `Blocked` · `Drafted` · `Approved`
 | UC-020 | Configure Field Exclusions | Power User | Set ignore patterns and hidden/pre-filled behaviour | FR-034..036 | High | Not started |
 | UC-021 | Configure Domain Exclusions | Power User | List domains where the extension stays inert, or is never injected at all | FR-037, FR-074 | High | Not started |
 | UC-022 | Configure Fill Behaviour Defaults | Power User | Set default max length, consent and confirmation keywords, event dispatch | FR-014, FR-015, FR-024, FR-049 | Medium | Not started |
-| UC-023 | Configure Triggers | Power User | Toggle the context menu and reach browser shortcut settings | FR-050 | Medium | Not started |
+| UC-023 | Configure Triggers | Power User | Toggle the context menu and reach browser shortcut settings | FR-005, FR-050 | Medium | Not started — carries DD-007 |
 | UC-024 | Persist and Propagate Settings | *(included)* | Durably store a settings change and apply it to open tabs without reload | FR-051, NFR-021 | High | **Drafted** |
 
 ## Portability
@@ -72,7 +72,7 @@ Legend — **Spec:** `Not started` · `Blocked` · `Drafted` · `Approved`
 
 | ID | Use Case | Primary Actor | Goal | Traces to | Priority | Spec |
 |---|---|---|---|---|---|---|
-| UC-030 | Review Keyboard Shortcuts | Tester | See current bindings and reach the browser page that changes them | FR-005, FR-060 | Medium | Not started |
+| UC-030 | Review Keyboard Shortcuts | Tester | See current bindings, see which scopes are unbound, and reach the browser page that changes them | FR-005, FR-060 | Medium | Not started — carries DD-007 |
 | UC-031 | Review the Changelog | Tester | Understand what changed in this version | FR-061 | Low | Not started |
 | UC-032 | Verify the Published Build | Auditor | Confirm the store package matches the public tagged source | FR-062, FR-063, NFR-011 | High | Not started |
 | UC-033 | Undo the Last Fill | Tester | Restore values a fill overwrote | FR-064 | Low | Deferred |
@@ -100,6 +100,33 @@ ported. Three of them change a use case's shape and must be settled before it is
 | **ND-1** Per-record vs. per-field generation | UC-004 | Whether the engine synthesises one coherent identity per fill. Retrofitting this later is a rewrite. |
 | **ND-2** Source-scoped matching vs. flattened blob | UC-004, UC-009, UC-018 | The rule data model and the rule authoring UI both depend on the answer. |
 | **ND-9** Discriminated union vs. overloaded `template` | UC-009, UC-026, UC-027 | The settings schema, and therefore the Fake Filler importer's mapping. |
+
+## Obligations Carried by Unwritten Specs
+
+Some decisions land before the use case that implements them is specified. They are recorded
+here so the spec work picks them up rather than rediscovering the question.
+
+### DD-007 — keyboard shortcuts → UC-023, UC-030
+
+Resolved 2026-08-13 (`docs/vision.md` §9). Ships `Ctrl/Cmd+Shift+Y` for fill-all and
+`Ctrl/Cmd+Shift+Period` for fill-this-form; fill-this-input ships unbound.
+
+**UC-023 must specify:**
+
+- The extension cannot set or change a keyboard binding itself. This surface signposts the
+  browser's own shortcuts settings; it does not control them. A control that looks like it
+  rebinds a key, but only opens a settings page, is a lie the interface tells.
+- The toolbar button is the zero-configuration path and is never disabled by this surface.
+  Whatever the user does to triggers here, the product's main action stays one click away.
+
+**UC-030 must specify:**
+
+- Scopes with no binding are shown as explicitly unbound, not omitted. Fill-this-input ships
+  unbound by choice, and a user who cannot see that it exists will never bind it — which is
+  precisely the failure the reference has, shipping everything unbound with no prompt.
+- Bindings are read from the browser rather than from our settings, because the user may have
+  changed them and the browser is the authority.
+- The route to the browser's shortcuts settings is one action from here.
 
 ## Order of Work
 

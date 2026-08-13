@@ -444,8 +444,8 @@ and the differentiators in §3, not on the name.
 These need resolution during detailed use case work. Each is flagged on the use case it
 blocks.
 
-> **Status as of 2026-08-12:** DD-001, DD-003 and DD-004 are resolved; ND-1, ND-2 and ND-9
-> are decided (see §7.4). DD-002, DD-005 and DD-006 remain open.
+> **Status as of 2026-08-13:** DD-001, DD-003, DD-004 and DD-007 are resolved; ND-1, ND-2
+> and ND-9 are decided (see §7.4). DD-002, DD-005, DD-006 and DD-008 remain open.
 
 ### Resolved
 
@@ -478,6 +478,39 @@ history" warning), one code path instead of two, and no per-fill injection laten
 **Still available later without rework:** ship broad access as an opt-in runtime permission
 with a narrower default. Deferred, not rejected — noted so the door stays open.
 
+**DD-007 — Default keyboard shortcuts. RESOLVED.**
+
+| Scope | Shipped default | Note |
+|---|---|---|
+| Fill all inputs (UC-001) | `Ctrl+Shift+Y` / `Cmd+Shift+Y` | Collides with the Downloads library on Firefox for Linux only; Windows and macOS Firefox use `Ctrl+J`/`Cmd+J`. Accepted, and reassignable. |
+| Fill this form (UC-002) | `Ctrl+Shift+Period` / `Cmd+Shift+Period` | **Provisional.** Substituted for the originally chosen `;`, which is not a legal key — see below. |
+| Fill this input (UC-003) | *none* | User-assigned through the browser's shortcuts settings. |
+
+`Ctrl+Shift+F` is abandoned deliberately: it collides with Firefox's find bar and with the
+find-in-files binding of most editors, which is very likely why the reference removed its own
+default in v4.1.0 (§7.1).
+
+**Why not `;`.** Chrome's extension commands API accepts only `A`–`Z`, `0`–`9`, `Comma`,
+`Period`, `Home`, `End`, `PageUp`, `PageDown`, `Space`, `Insert`, `Delete`, the arrow keys and
+the media keys. Semicolon, slash and brackets are not permitted, and a manifest declaring one
+is rejected at load. `Period` is the nearest legal key and is not bound by either browser.
+
+**How FR-005 is now read.** The commitment is *at least one scope carries a shipped default,
+and every other scope is assignable through the browser's own shortcuts settings* — not a
+default for all three. Two considerations drive that. Chrome permits a limited number of
+suggested bindings, so spending them on the two least ambiguous scopes is the better trade.
+And "fill this input" is the scope most naturally reached by right-clicking the field itself,
+so a shipped binding for it earns the least.
+
+**What this obliges elsewhere:**
+
+- The toolbar button remains the zero-configuration path. A user who never opens settings and
+  never learns a shortcut still gets the product's main action in one click. Keyboard defaults
+  are a convenience for people who fill forms all day, not the route in.
+- UC-030 becomes load-bearing rather than decorative: with one scope deliberately unbound, the
+  shortcuts page is how a user discovers that it can be bound at all. The reference ships
+  *nothing* bound and offers no prompt, which is why most of its users never assign one.
+
 **DD-003 — Generation runs in the background. RESOLVED.**
 The page agent walks, classifies and applies; it carries no corpus. Field descriptors go to
 the background over one message round-trip per fill, and values come back. Rationale and
@@ -501,14 +534,6 @@ DD-003 is what makes it affordable.
 ### Open
 
 *(DD-001, DD-003 and DD-004 were resolved on 2026-08-12 — see "Resolved" above.)*
-
-**DD-007 — Default keyboard shortcut.** *Blocks FR-005, UC-023.*
-FR-005 promises a default shortcut per scope, but the published reference **removed** its
-default in v4.1.0 (§7.1) and almost certainly for a reason: `Ctrl+Shift+F` collides with
-Firefox's find bar and with several IDEs, and `Cmd+Shift+F` collides on macOS depending on
-configuration. Three options: ship a default and accept the collision, ship none and require
-the user to assign one (the reference's current behaviour, and a discoverability problem —
-see UC-030), or pick a less contested combination. Needs a decision before UC-023.
 
 **DD-008 — Scope fallback when no form exists.** *Blocks UC-002.*
 "Fill this form" assumes a `<form>` ancestor. Modern applications routinely render form-like
