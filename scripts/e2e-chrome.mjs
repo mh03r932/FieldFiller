@@ -54,6 +54,9 @@ const CHROME_CANDIDATES = [
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+/** Filled-field count for tests/fixtures/reference.html. See the badge check. */
+const EXPECTED_FILLED = 33;
+
 /**
  * Playwright's pinned Chromium, if it has been downloaded.
  *
@@ -164,10 +167,19 @@ const crossOriginUrl = `http://localhost:${crossOriginServer.address().port}/`;
 const server = createServer((_request, response) => {
   response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
   response.end(
-    html.replace(
-      '<iframe id="cross-origin" title="cross-origin frame"',
-      `<iframe id="cross-origin" title="cross-origin frame" src="${crossOriginUrl}"`,
-    ),
+    html
+      .replace(
+        '<iframe id="cross-origin" title="cross-origin frame"',
+        `<iframe id="cross-origin" title="cross-origin frame" src="${crossOriginUrl}"`,
+      )
+      // Deliberately the *same* URL as the frame above, with no query string to
+      // tell them apart. A distinguishing query would give the two frames
+      // different `location.href` values and the collision under test would not
+      // occur at all.
+      .replace(
+        '<iframe id="cross-origin-twin" title="second frame, same URL"',
+        `<iframe id="cross-origin-twin" title="second frame, same URL" src="${crossOriginUrl}"`,
+      ),
   );
 });
 await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
@@ -314,10 +326,23 @@ try {
   }
 
   let filled = {};
+  let badgeSeen = '';
   for (let attempt = 0; attempt < 40; attempt++) {
     await sleep(200);
     filled = await collect();
-    if (filled.given_name && filled.xorigin_name) break;
+
+    // Sampled during the poll, not after it: the badge is transient by design
+    // (DD-006 — it reverts so the profile and domain-off indicators can own it),
+    // so a single read once the poll finishes reliably finds it already cleared.
+    if (badgeSeen === '') {
+      const badge = await cdp.send('Runtime.evaluate', {
+        expression: `chrome.tabs.query({}).then((tabs) => chrome.action.getBadgeText({ tabId: tabs[0].id }))`,
+        awaitPromise: true, returnByValue: true,
+      }, workerSession);
+      badgeSeen = String(badge.result.value ?? '');
+    }
+
+    if (filled.given_name && filled.xorigin_name && badgeSeen !== '') break;
   }
 
   const check = (label, condition, detail) => {
@@ -417,6 +442,7 @@ try {
   check('cross-origin frames are filled', (filled.xorigin_name ?? '') !== '',
     `xorigin_name=${JSON.stringify(filled.xorigin_name)}`);
 
+
   // BR-001-1, the reason frames share one operation: a checkout whose card
   // fields sit in a payment iframe must receive the same person as the billing
   // fields in the parent document.
@@ -429,6 +455,19 @@ try {
     filled.given_name === filled.frame_name && filled.given_name === filled.xorigin_name &&
     filled.given_name === filled.shadow_name,
     `top=${filled.given_name} frame=${filled.frame_name} cross=${filled.xorigin_name} shadow=${filled.shadow_name}`);
+
+  // The badge is the only surface that exposes the *report* path, and the report
+  // path is where a frame's outcomes are aggregated. A frame whose report is
+  // discarded still gets filled — the descriptor round trip is independent — so
+  // the DOM cannot show that its outcomes were lost. The count can.
+  const reported = Number(badgeSeen);
+
+  // Golden for this fixture: every field the engine fills across the top
+  // document, both cross-origin frames, the srcdoc frame and the shadow root.
+  // If you add a fillable control to reference.html, this number moves — that is
+  // the point of it, and the failure message says which way.
+  check('the badge counts every frame\'s outcomes', reported === EXPECTED_FILLED,
+    `badge showed "${badgeSeen}", expected ${EXPECTED_FILLED} — a frame's report was lost if it is short`);
 
   // Printed because coherence is far more convincing read than asserted: the
   // point of ND-1 is that these lines describe one person.

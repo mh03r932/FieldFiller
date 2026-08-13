@@ -34,6 +34,16 @@ import { applyValue } from '@/lib/page/apply';
  */
 const writtenByUs = new WeakSet<Element>();
 
+/**
+ * This frame's identity, for the life of this agent.
+ *
+ * A random token rather than `location.href`, because a URL does not identify a
+ * frame: two iframes with the same `src` are ordinary, and every srcdoc frame
+ * calls itself `about:srcdoc`. The background deduplicates reports on this, and
+ * keying that on a URL silently drops the second frame's outcomes.
+ */
+const FRAME_ID = crypto.randomUUID();
+
 export default defineContentScript({
   matches: ['<all_urls>'],
   allFrames: true,
@@ -63,6 +73,14 @@ export default defineContentScript({
           return;
         }
 
+        // Acknowledged synchronously, before the walk begins. Answering nothing
+        // leaves the sender's promise unspecified — measured on Chrome 151 it
+        // resolves with `undefined`, which the background cannot tell apart from
+        // an agent that ignored the instruction, and nothing guarantees Firefox
+        // or a later Chrome behaves the same. The fill itself is not awaited
+        // here: a listener that keeps the port open for the whole walk would
+        // block the sender for as long as the page takes.
+        sendResponse({ kind: 'accepted', frame: FRAME_ID });
         void fill(message);
       },
     );
@@ -161,11 +179,24 @@ async function fill(request: Extract<ToAgentMessage, { kind: 'fill' }>): Promise
   }
 
   if (descriptors.length > 0) {
-    const response: unknown = await browser.runtime.sendMessage({
-      kind: 'descriptors',
-      operationId,
-      descriptors,
-    } satisfies FromAgentMessage);
+    // Wrapped, like every other boundary here. The background may have been
+    // evicted, the extension may be mid-reload, and the frame may be navigating
+    // — none of which is this frame's failure to handle, but all of which reject
+    // and would otherwise surface as an unhandled rejection that loses the whole
+    // report.
+    let response: unknown;
+    try {
+      response = await browser.runtime.sendMessage({
+        kind: 'descriptors',
+        operationId,
+        descriptors,
+      } satisfies FromAgentMessage);
+    } catch (error) {
+      response = undefined;
+      for (const descriptor of descriptors) {
+        outcomes.push({ ref: descriptor.ref, status: 'failed', cause: String(error) });
+      }
+    }
 
     if (isValuesResponse(response)) {
       for (const value of response.values) {
@@ -191,9 +222,15 @@ async function fill(request: Extract<ToAgentMessage, { kind: 'fill' }>): Promise
     }
   }
 
-  await browser.runtime.sendMessage({
-    kind: 'report',
-    operationId,
-    report: { frameUrl: location.href, outcomes },
-  } satisfies FromAgentMessage);
+  try {
+    await browser.runtime.sendMessage({
+      kind: 'report',
+      operationId,
+      report: { frame: FRAME_ID, frameUrl: location.href, outcomes },
+    } satisfies FromAgentMessage);
+  } catch {
+    // Nothing left to do with this: the report is the last act of the fill, and
+    // the background's own timeout closes an operation whose report never
+    // lands. Swallowed deliberately rather than left to reject unhandled.
+  }
 }

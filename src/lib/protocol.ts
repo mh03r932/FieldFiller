@@ -166,8 +166,25 @@ export type ExclusionReason =
   | 'no-selectable-option'
   | 'unclassifiable';
 
+/**
+ * Identifies one frame for the life of its page agent.
+ *
+ * Minted by the agent rather than derived from the frame's URL, because a URL is
+ * not unique: two iframes with the same `src` are ordinary — the same embedded
+ * form twice, or a frame showing the page that contains it — and every srcdoc
+ * frame reports `about:srcdoc`. Keyed on the URL, the second such frame's report
+ * is discarded as a duplicate: its outcomes go uncounted, and because a
+ * discarded report does not extend the settle window, a frame slower than
+ * SETTLE_MS can have the operation closed before its values arrive.
+ *
+ * Carries no information about the page — it is a random token, not an address.
+ */
+export type FrameId = string;
+
 /** One frame's account of a fill. Frames report independently (BR-001-5). */
 export type FrameReport = {
+  readonly frame: FrameId;
+  /** For the log and the report only; never used for identity. */
   readonly frameUrl: string;
   readonly outcomes: readonly FieldOutcome[];
 };
@@ -184,6 +201,17 @@ export type ToAgentMessage =
 
 export type FromAgentMessage =
   | { readonly kind: 'pong'; readonly frameUrl: string }
+  /**
+   * Sent synchronously when a fill instruction arrives, before the walk starts.
+   *
+   * Its only job is to make the sender's promise resolve with something. A
+   * listener that answers nothing leaves the reply unspecified — measured on
+   * Chrome 151 it resolves with `undefined`, which is indistinguishable from an
+   * agent that ignored the message, and the behaviour is not guaranteed to be
+   * the same on Firefox or in a later Chrome. Acknowledging turns "did anything
+   * receive this?" from an inference into an answer.
+   */
+  | { readonly kind: 'accepted'; readonly frame: FrameId }
   /** The descriptor batch — the request half of the single round trip. */
   | {
       readonly kind: 'descriptors';
@@ -276,6 +304,7 @@ function isFrameReport(value: unknown): value is FrameReport {
   if (typeof value !== 'object' || value === null) return false;
   const candidate = value as Record<string, unknown>;
   return (
+    typeof candidate['frame'] === 'string' &&
     typeof candidate['frameUrl'] === 'string' &&
     Array.isArray(candidate['outcomes']) &&
     // Each outcome, not just the array. A report from an older agent could carry
@@ -301,11 +330,14 @@ export function isFromAgentMessage(value: unknown): value is FromAgentMessage {
     descriptors?: unknown;
     report?: unknown;
     frameUrl?: unknown;
+    frame?: unknown;
   };
 
   switch (candidate.kind) {
     case 'pong':
       return typeof candidate.frameUrl === 'string';
+    case 'accepted':
+      return typeof candidate.frame === 'string';
     case 'descriptors':
       return (
         typeof candidate.operationId === 'string' &&

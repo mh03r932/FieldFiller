@@ -126,7 +126,14 @@ async function startFill(tabId: number, scope: FillScope): Promise<void> {
   });
 
   try {
-    await browser.tabs.sendMessage(
+    // The reply is an acknowledgement from whichever frame answers first, and it
+    // is what makes UC-001 A4 decidable. A rejection means no agent received the
+    // instruction at all — no content script in this tab, because the page
+    // predates the install or the browser forbids acting on it. Without the
+    // acknowledgement the resolved value is unspecified: measured on Chrome 151
+    // a listener that answers nothing still resolves, with `undefined`, so
+    // "nobody is listening" and "everybody heard me" would look identical.
+    const acknowledgement: unknown = await browser.tabs.sendMessage(
       tabId,
       {
         kind: 'fill',
@@ -135,13 +142,19 @@ async function startFill(tabId: number, scope: FillScope): Promise<void> {
         settings: agentSettings(settings),
       },
       // No `frameId`: this broadcasts to every frame in the tab, which is what
-      // FR-007 asks for. The operation now stays open until the reports go quiet
+      // FR-007 asks for. The operation stays open until the reports go quiet
       // (see SETTLE_MS) rather than ending on the first one, so every frame's
       // outcomes are counted and a late frame still receives values.
-      //
-      // The broadcast resolves with whichever frame replies first and that reply
-      // is not used — completion is decided by the reports, not by this promise.
     );
+
+    if (!isFromAgentMessage(acknowledgement) || acknowledgement.kind !== 'accepted') {
+      // Reached the tab, but nothing that speaks this protocol answered — an
+      // agent from a previous version of the extension, most likely, still
+      // running in a page that has not been reloaded since the update. The fill
+      // is left to the timeout rather than cancelled here, because an older
+      // agent may still complete it.
+      trace(`tab ${tabId} answered the fill without acknowledging it`);
+    }
   } catch (error) {
     // UC-001 A4: no agent in this tab — a page that loaded before the extension
     // was installed, or one the browser does not permit acting on. Reported as
@@ -270,7 +283,9 @@ export default defineBackground(() => {
   // with `sendResponse` and an explicit `return true`, which is the one form
   // both browsers agree on for an asynchronous reply.
   browser.runtime.onMessage.addListener((raw: unknown, _sender, sendResponse) => {
-    if (!isFromAgentMessage(raw) || raw.kind === 'pong') return;
+    // `pong` and `accepted` are replies to something the background asked, not
+    // messages it must act on — they arrive through `sendResponse`, not here.
+    if (!isFromAgentMessage(raw) || raw.kind === 'pong' || raw.kind === 'accepted') return;
 
     // An unknown operation id is not an error: the background may have been
     // evicted and restarted since the fill began, taking the persona with it.
@@ -287,8 +302,14 @@ export default defineBackground(() => {
     {
       // One report per frame. A duplicate — a frame that somehow reports twice —
       // must not double the count the user is shown.
-      if (operation.frames.has(raw.report.frameUrl)) return;
-      operation.frames.add(raw.report.frameUrl);
+      // Keyed on the frame's own token, never its URL. Two iframes with the same
+      // `src` are ordinary and every srcdoc frame calls itself `about:srcdoc`,
+      // so a URL key discards the second frame's report — its outcomes go
+      // uncounted, and since a discarded report does not extend the settle
+      // window, a frame slower than SETTLE_MS can have the operation closed
+      // before its values arrive.
+      if (operation.frames.has(raw.report.frame)) return;
+      operation.frames.add(raw.report.frame);
       summarise(raw.report, operation.outcomes);
 
       // Each frame reports independently and none waits for another

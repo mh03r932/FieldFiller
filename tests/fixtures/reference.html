@@ -185,6 +185,18 @@
               style="width:100%;height:120px;border:1px solid #ccc"></iframe>
     </fieldset>
 
+    <!-- A second frame with the *same* URL as the one above. Two embedded forms
+         from one source is ordinary, and it is the case that breaks any scheme
+         identifying a frame by its address: the second frame's report is
+         discarded as a duplicate, so its fields go uncounted and, if it is
+         slower than the settle window, unfilled. Its inputs carry distinct
+         names so the harness can tell the two frames apart. -->
+    <fieldset>
+      <legend>A second frame at the same URL (frame identity, not frame address)</legend>
+      <iframe id="cross-origin-twin" title="second frame, same URL"
+              style="width:100%;height:120px;border:1px solid #ccc"></iframe>
+    </fieldset>
+
     <!-- A second form using the same radio group name. Filling the first form
          must not touch this one, and radio-group resolution must not reach across
          the document to find it (ND-5, BR-005-3). -->
