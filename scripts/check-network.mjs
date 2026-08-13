@@ -16,6 +16,20 @@
  * to exercise, and it cannot observe requests originating in the background
  * context without browser-level instrumentation.
  *
+ * **What this scan cannot prove.** It matches text, so it cannot see a call
+ * assembled at runtime: `globalThis['fet' + 'ch']`, a name aliased through a
+ * variable, or anything reached by property lookup on a computed string. The
+ * common indirect forms are matched below, but no pattern list closes that class
+ * — and neither would an AST walk, which would still lose the value of a
+ * computed member expression.
+ *
+ * What actually closes it is upstream of here: the extension ships no runtime
+ * dependency at all, `scripts/check-imports.mjs` fails the build on any package
+ * entering the page agent that is not on an explicit allowlist, and NFR-007
+ * forbids the remote-code constructs that would be needed to introduce one
+ * later. This scan is the last line, not the only one, and reading it as
+ * exhaustive would be a mistake.
+ *
  * Usage: node scripts/check-network.mjs   (after `pnpm run build:all`)
  */
 import { readFileSync, existsSync, readdirSync, statSync } from 'node:fs';
@@ -27,17 +41,27 @@ const OUTPUT_DIR = join(ROOT, '.output');
 const TARGETS = ['chrome-mv3', 'firefox-mv3'];
 
 /**
- * Every API that can originate a request. Matched on word boundaries: a property
- * named `fetchSettings` is not a network call, and a gate that cries wolf on it
- * gets switched off.
+ * Every API this build must not contain: the ones that can originate a request,
+ * and the remote-code constructs NFR-007 forbids alongside them. Named for what
+ * it forbids rather than for network alone, because a reader scanning for "which
+ * network APIs are blocked" would otherwise miss that `eval` is in the list.
+ *
+ * Matched on word boundaries: a property named `fetchSettings` is not a network
+ * call, and a gate that cries wolf on one gets switched off.
  */
-const NETWORK_APIS = [
+const FORBIDDEN_APIS = [
   /\bfetch\s*\(/,
   /\bXMLHttpRequest\b/,
   /\bWebSocket\b/,
   /\bEventSource\b/,
   /\bsendBeacon\b/,
   /\bnavigator\s*\.\s*sendBeacon\b/,
+  // Indirect call forms. `(0, fetch)(url)` is what a bundler emits when it
+  // preserves an indirect reference, and bracket access is the hand-written
+  // equivalent. These do not make the scan exhaustive — see the note below — but
+  // they cover the forms that arise in practice rather than only in theory.
+  /\(\s*0\s*,\s*(?:fetch|eval)\s*\)/,
+  /\[\s*["'](?:fetch|eval|XMLHttpRequest|WebSocket|EventSource|sendBeacon)["']\s*\]/,
   // NFR-007: no remote code. Listed here because the two failures arrive
   // together — remote code is fetched before it is run.
   /\bimportScripts\s*\(/,
@@ -64,6 +88,18 @@ const ALLOWED_URL_PREFIXES = [
 
 const SCANNED_EXTENSIONS = new Set(['.js', '.mjs', '.html', '.css', '.json']);
 const URL_PATTERN = /\bhttps?:\/\/[^\s"'`)<>\\]+/g;
+
+/**
+ * The API scan applies to code, not to data.
+ *
+ * Shipped JSON is the i18n catalog and the manifest: a description or a message
+ * string that happens to contain "fetch(" is text, not a call, and a gate that
+ * fails on a translator's wording gets switched off. Same reasoning that keeps
+ * the URL scan out of JavaScript, applied the other way round.
+ */
+function scansForApis(file) {
+  return extname(file) !== '.json';
+}
 
 /**
  * The URL scan applies to markup, styles and the manifest — not to JavaScript.
@@ -109,10 +145,12 @@ for (const target of TARGETS) {
     const shown = relative(OUTPUT_DIR, file);
     scannedFiles++;
 
-    for (const api of NETWORK_APIS) {
-      const match = api.exec(source);
-      if (match !== null) {
-        violations.push(`${shown}: reachable network/remote-code API \`${match[0].trim()}\` (NFR-033, NFR-007)`);
+    if (scansForApis(file)) {
+      for (const api of FORBIDDEN_APIS) {
+        const match = api.exec(source);
+        if (match !== null) {
+          violations.push(`${shown}: reachable network/remote-code API \`${match[0].trim()}\` (NFR-033, NFR-007)`);
+        }
       }
     }
 

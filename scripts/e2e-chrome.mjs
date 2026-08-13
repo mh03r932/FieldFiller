@@ -99,6 +99,9 @@ async function connect(url) {
       const { sessionId } = await this.send('Target.attachToTarget', { targetId, flatten: true });
       return sessionId;
     },
+    close() {
+      socket.close();
+    },
   };
 }
 
@@ -226,6 +229,12 @@ try {
     })(document, [])
   ))`;
 
+  // Sessions are reused across polls rather than reattached each time. The poll
+  // runs up to forty times, and attaching per iteration leaks a session per
+  // frame per attempt — harmless here only because the browser is killed
+  // afterwards, which is not a property worth relying on.
+  const sessions = new Map();
+
   async function collect() {
     const merged = {};
     const { targetInfos } = await cdp.send('Target.getTargets');
@@ -235,7 +244,11 @@ try {
 
     for (const target of [{ targetId }, ...frames]) {
       try {
-        const session = await cdp.attach(target.targetId);
+        let session = sessions.get(target.targetId);
+        if (session === undefined) {
+          session = await cdp.attach(target.targetId);
+          sessions.set(target.targetId, session);
+        }
         const result = await cdp.send(
           'Runtime.evaluate',
           { expression: collectExpression, returnByValue: true },
@@ -244,7 +257,9 @@ try {
         Object.assign(merged, JSON.parse(result.result.value));
       } catch {
         // A frame that went away between listing and reading is not a failure of
-        // the fill; the assertions below decide what was required.
+        // the fill; the assertions below decide what was required. Its session is
+        // dropped so a replacement frame with the same id attaches cleanly.
+        sessions.delete(target.targetId);
       }
     }
     return merged;
@@ -371,6 +386,10 @@ try {
 } catch (error) {
   failures.push(error instanceof Error ? error.message : String(error));
 } finally {
+  // Closed explicitly, matching both smoke harnesses. Relying on process exit to
+  // tidy up works right until something wants to run two of these in one
+  // process.
+  try { cdp?.close(); } catch { /* already gone with the browser */ }
   server.close();
   crossOriginServer.close();
   if (chrome !== undefined) {

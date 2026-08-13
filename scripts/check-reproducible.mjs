@@ -79,10 +79,15 @@ function buildAndDigest(label) {
     (suffix) => ![...digests.keys()].some((name) => name.endsWith(suffix)),
   );
   if (missing.length > 0) {
-    throw new Error(
-      `the ${label} build produced no package for: ${missing.join(', ')} ` +
-        `(found ${digests.size > 0 ? [...digests.keys()].join(', ') : 'nothing'})`,
-    );
+    // Printed and exited rather than thrown, for the same reason the build
+    // failure above is: an uncaught throw wraps the message in a stack trace
+    // through this file, and the stack is never the interesting part. This path
+    // had been left throwing while the other was fixed — the inconsistency was
+    // the bug.
+    console.error(`\n✖ the ${label} build produced no package for: ${missing.join(', ')}`);
+    console.error(`  found: ${digests.size > 0 ? [...digests.keys()].join(', ') : 'nothing'}\n`);
+    console.error('  Both targets must ship, or "reproducible" is a claim about half a release.');
+    process.exit(1);
   }
   return digests;
 }

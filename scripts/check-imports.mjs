@@ -81,7 +81,16 @@ function resolveLocal(specifier, importer) {
     return null;
   }
 
-  const candidates = [base, `${base}.ts`, `${base}.tsx`, join(base, 'index.ts')];
+  // A specifier that resolves to nothing is treated as a bare package name and
+  // fails the allowlist, so an incomplete candidate list produces a confusing
+  // failure about a "package" that is actually a local barrel.
+  const candidates = [
+    base,
+    `${base}.ts`,
+    `${base}.tsx`,
+    join(base, 'index.ts'),
+    join(base, 'index.tsx'),
+  ];
   for (const candidate of candidates) {
     if (existsSync(candidate) && statSync(candidate).isFile()) return candidate;
   }
