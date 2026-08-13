@@ -239,10 +239,49 @@ try {
     }
     if (state.manifestVersion !== 3) failures.push(`expected MV3, loaded MV${state.manifestVersion}`);
     if (!state.hasAction) failures.push('no toolbar action in the loaded manifest (FR-004)');
-    if (state.commands.length !== 3) {
-      failures.push(`expected 3 commands, Chrome accepted ${state.commands.length}: ${state.commands.join(', ')}`);
-    } else {
-      console.log(`✔ commands accepted: ${state.commands.join(', ')}`);
+
+    // DD-007, checked against what Chrome actually *bound* rather than what the
+    // manifest asked for. `commands.getAll` is the same source the browser's
+    // shortcuts page reads, and the two can disagree: a suggested key that is
+    // illegal, or already claimed by another extension, is dropped silently and
+    // leaves the manifest looking perfectly correct.
+    //
+    // The expected shortcut is matched loosely because the string is formatted
+    // per platform — "⇧⌘Y" on macOS, "Ctrl+Shift+Y" elsewhere. What matters is
+    // which scopes are bound and which is deliberately not.
+    const bound = await cdp.send(
+      'Runtime.evaluate',
+      { expression: 'chrome.commands.getAll().then(JSON.stringify)', awaitPromise: true, returnByValue: true },
+      session,
+    );
+    const commands = new Map(
+      JSON.parse(bound.result.value).map((command) => [command.name, command.shortcut ?? '']),
+    );
+
+    const expected = [
+      { name: 'fill-all-inputs', endsWith: 'Y', note: 'bound by DD-007' },
+      { name: 'fill-current-form', endsWith: '.', note: 'bound by DD-007, Period substituted for the illegal Semicolon' },
+      // Not an oversight: DD-007 ships this scope unbound, because the control
+      // is most naturally reached by right-clicking the field itself. UC-030 is
+      // how the user discovers it can be bound at all — so a shortcut appearing
+      // here would mean the decision had been quietly reversed.
+      { name: 'fill-selected-input', endsWith: null, note: 'deliberately unbound' },
+    ];
+
+    for (const { name, endsWith, note } of expected) {
+      const shortcut = commands.get(name);
+      if (shortcut === undefined) {
+        failures.push(`command "${name}" is missing from the loaded extension`);
+      } else if (endsWith === null) {
+        if (shortcut !== '') failures.push(`"${name}" is bound to ${shortcut}, but DD-007 ships it unbound`);
+        else console.log(`✔ ${name}: unbound (${note})`);
+      } else if (shortcut === '') {
+        failures.push(`"${name}" has no shortcut — Chrome dropped the suggested key (${note})`);
+      } else if (!shortcut.endsWith(endsWith)) {
+        failures.push(`"${name}" is bound to ${shortcut}, expected a binding ending in "${endsWith}"`);
+      } else {
+        console.log(`✔ ${name}: ${shortcut} (${note})`);
+      }
     }
     if (state.lastError !== null) failures.push(`runtime.lastError after startup: ${state.lastError}`);
 
