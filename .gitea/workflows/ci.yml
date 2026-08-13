@@ -34,9 +34,13 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      # No `version` input on purpose. The action refuses to run when a version
+      # is given here *and* `packageManager` is set in package.json, and
+      # package.json is the one that belongs: it pins 11.2.0 exactly, where
+      # `version: 11` floats across minor releases. The package manager is an
+      # input to the reproducible build (NFR-011), so it is pinned in the tree
+      # rather than in the workflow, and local runs use the same version CI does.
       - uses: pnpm/action-setup@v4
-        with:
-          version: 11
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -64,9 +68,13 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      # No `version` input on purpose. The action refuses to run when a version
+      # is given here *and* `packageManager` is set in package.json, and
+      # package.json is the one that belongs: it pins 11.2.0 exactly, where
+      # `version: 11` floats across minor releases. The package manager is an
+      # input to the reproducible build (NFR-011), so it is pinned in the tree
+      # rather than in the workflow, and local runs use the same version CI does.
       - uses: pnpm/action-setup@v4
-        with:
-          version: 11
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
