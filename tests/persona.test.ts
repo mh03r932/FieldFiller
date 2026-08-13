@@ -84,6 +84,48 @@ describe('default generator', () => {
     expect(textOf(value).length).toBeLessThanOrEqual(5);
   });
 
+  it('keeps a password valid when maxLength forces it shorter', () => {
+    // Plain slicing takes the tail off, where the symbol and the digits sit — so
+    // a constrained field would receive a value failing exactly the policy
+    // ND-11 exists to satisfy: shortened, and useless.
+    for (const maxLength of [8, 10, 12]) {
+      const password = textOf(
+        generateValue(descriptor({ kind: 'password', constraints: { maxLength } }), persona, random),
+      );
+      expect(password.length).toBeLessThanOrEqual(maxLength);
+      expect(password, `maxLength ${maxLength}`).toMatch(/[a-z]/);
+      expect(password, `maxLength ${maxLength}`).toMatch(/[A-Z]/);
+      expect(password, `maxLength ${maxLength}`).toMatch(/[0-9]/);
+      expect(password, `maxLength ${maxLength}`).toMatch(/[^A-Za-z0-9]/);
+    }
+  });
+
+  it('keeps a shortened password equal to its confirmation field', () => {
+    // UC-006 has to survive the shortening: both fields carry the same ceiling,
+    // so both must arrive at the same value.
+    const constraints = { maxLength: 10 };
+    expect(
+      textOf(generateValue(descriptor({ kind: 'password', sources: { name: 'pw' }, constraints }), persona, random)),
+    ).toBe(
+      textOf(
+        generateValue(
+          descriptor({ kind: 'password', sources: { name: 'confirm_pw' }, constraints }),
+          persona,
+          random,
+        ),
+      ),
+    );
+  });
+
+  it('does not produce NaN from a non-numeric min or max', () => {
+    // Constraints are attribute strings, so they hold whatever the page wrote.
+    const value = textOf(
+      generateValue(descriptor({ kind: 'number', constraints: { min: 'abc', max: 'xyz' } }), persona, random),
+    );
+    expect(value).not.toContain('NaN');
+    expect(Number.isFinite(Number(value))).toBe(true);
+  });
+
   it('honours minLength', () => {
     const value = generateValue(
       descriptor({ kind: 'text', autocomplete: 'given-name', constraints: { minLength: 40 } }),

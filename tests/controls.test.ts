@@ -5,6 +5,7 @@ import { describe as describeField } from '@/lib/page/identify';
 import { applyValue } from '@/lib/page/apply';
 import { createPersona, seededRandom } from '@/lib/persona/persona';
 import { generateValue } from '@/lib/generators/default-generator';
+import { generateBatch } from '@/lib/generators/batch';
 import type { ControlKind, FieldDescriptor, FieldValue } from '@/lib/protocol';
 
 /** Phase 2: every control kind, the full exclusion set, and confirmation fields. */
@@ -150,6 +151,79 @@ describe('options (D3)', () => {
       expect(value.values.length).toBeLessThanOrEqual(3);
       // Each chosen at most once.
       expect(new Set(value.values).size).toBe(value.values.length);
+    }
+  });
+});
+
+/**
+ * A radio group is one decision, not one decision per button.
+ *
+ * These generate for every member and apply every result, because that is the
+ * only arrangement in which the bug was visible: each member carries the whole
+ * group's options, so generating per descriptor makes the members disagree — and
+ * since applying a choice means "tick me if I am the chosen one", two members
+ * choosing each other leave nothing ticked at all.
+ *
+ * The earlier test missed it by handing both radios the same `values`, which is
+ * the answer the fix produces. It asserted the conclusion instead of deriving it.
+ */
+describe('radio groups are decided once per group', () => {
+  const groupPersona = createPersona(seededRandom(5));
+
+  /** What `generateBatch` does in the background: one answer per group token. */
+  function fillGroup(html: string, seed: number): HTMLInputElement[] {
+    const root = fragment(html);
+    const radios = [...root.querySelectorAll<HTMLInputElement>('input[type="radio"]')];
+    const random = seededRandom(seed);
+
+    // Mirrors the agent exactly: an excluded member never becomes a descriptor
+    // and is never applied to, but a disabled radio is still *listed* in the
+    // group's options — so the generator has to be what refuses to pick it.
+    //
+    // Critically, this calls the real `generateBatch` over the whole set rather
+    // than generating once and fanning the answer out by hand. Restating the fix
+    // in the test is how the original bug survived its own test: the grouping is
+    // the thing under test, so the test must not perform it.
+    const fillable = radios.flatMap((radio, index) => {
+      const classification = classifyStructural(radio, context());
+      if (!classification.fillable) return [];
+      return [{ radio, descriptor: describeField(radio, index, classification.kind, 'group-0') }];
+    });
+
+    const values = generateBatch(
+      fillable.map((entry) => entry.descriptor),
+      groupPersona,
+      random,
+    );
+    for (const [index, entry] of fillable.entries()) {
+      applyValue(entry.radio, values[index]!, { dispatchEvents: true });
+    }
+    return radios;
+  }
+
+  it.each([2, 3, 5])('always selects exactly one of %i options', (count) => {
+    const html = `<form>${Array.from(
+      { length: count },
+      (_, index) => `<input type="radio" name="pick" value="v${index}">`,
+    ).join('')}</form>`;
+
+    // Every seed in a range, not a sample: the failure this guards against was
+    // stochastic, and a stochastic test for a stochastic bug is how it survived
+    // the first time.
+    for (let seed = 0; seed < 300; seed++) {
+      const radios = fillGroup(html, seed);
+      const checked = radios.filter((radio) => radio.checked);
+      expect(checked, `seed ${seed} selected ${checked.length}`).toHaveLength(1);
+    }
+  });
+
+  it('never selects a disabled member', () => {
+    for (let seed = 0; seed < 200; seed++) {
+      const radios = fillGroup(
+        '<form><input type="radio" name="p" value="a"><input type="radio" name="p" value="b" disabled></form>',
+        seed,
+      );
+      expect(radios[1]!.checked).toBe(false);
     }
   });
 });

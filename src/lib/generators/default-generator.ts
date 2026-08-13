@@ -271,9 +271,13 @@ function scalarValue(
   switch (descriptor.kind) {
     case 'number':
     case 'range': {
-      const low = Number(min ?? 0);
-      const high = Number(max ?? (descriptor.kind === 'range' ? 100 : 1000));
-      const increment = Number(step ?? 1) || 1;
+      // Constraints are attribute strings, so they are whatever the page wrote:
+      // `min="abc"` parses to NaN, which propagates through the arithmetic and
+      // serialises as the literal string "NaN" — a value no numeric field
+      // accepts. Anything non-finite falls back to the default it displaced.
+      const low = finite(min, 0);
+      const high = finite(max, descriptor.kind === 'range' ? 100 : 1000);
+      const increment = finite(step, 1) || 1;
       // Snapped to the step from `min`, which is what the browser's own
       // validation checks — an unsnapped value in a stepped field is rejected.
       const steps = Math.floor((random() * (high - low)) / increment);
@@ -305,6 +309,13 @@ function scalarValue(
   }
 }
 
+/** A finite number from an untrusted attribute string, or the fallback. */
+function finite(value: string | undefined, fallback: number): number {
+  if (value === undefined) return fallback;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
 function isoDate(random: Random): string {
   const year = 1970 + Math.floor(random() * 55);
   const month = 1 + Math.floor(random() * 12);
@@ -327,9 +338,35 @@ function constrain(value: string, descriptor: FieldDescriptor): string {
     result = result.padEnd(minLength, 'x');
   }
   if (maxLength !== undefined && result.length > maxLength) {
-    result = result.slice(0, maxLength);
+    // A password must survive its own ceiling. Plain slicing takes the tail
+    // off — where the symbol and digits happen to sit — so a field with
+    // `maxlength="10"` would receive a value that fails exactly the registration
+    // policy ND-11 exists to satisfy: constrained, and useless.
+    result = descriptor.kind === 'password' ? fitPassword(result, maxLength) : result.slice(0, maxLength);
   }
   return result;
+}
+
+/**
+ * Shortens a password while keeping one of each character class.
+ *
+ * Rebuilt from the original's own characters rather than generated afresh, so
+ * two fields with the same ceiling still agree — which is what keeps "confirm
+ * password" mirroring correctly (UC-006) when both carry a `maxlength`.
+ *
+ * Below four characters no policy of this kind can be met. The control's own
+ * limit still wins, because a value the page rejects for length is worse than
+ * one it rejects for composition (BR-004-7).
+ */
+function fitPassword(password: string, maxLength: number): string {
+  if (maxLength < 4) return password.slice(0, maxLength);
+
+  const upper = /[A-Z]/.exec(password)?.[0] ?? 'A';
+  const digit = /[0-9]/.exec(password)?.[0] ?? '7';
+  const symbol = /[^A-Za-z0-9]/.exec(password)?.[0] ?? '!';
+  const lower = password.replace(/[^a-z]/g, '');
+
+  return `${upper}${lower.slice(0, maxLength - 3)}${digit}${symbol}`.slice(0, maxLength);
 }
 
 /** Every matching source as one lower-cased haystack, for the hint patterns. */

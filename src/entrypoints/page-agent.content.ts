@@ -9,7 +9,7 @@ import {
   type ToAgentMessage,
 } from '@/lib/protocol';
 import { collectCandidates } from '@/lib/page/walk';
-import { classifyStructural, matchesIgnorePattern } from '@/lib/page/exclude';
+import { classifyStructural, matchesIgnorePattern, radioGroup } from '@/lib/page/exclude';
 import { describe } from '@/lib/page/identify';
 import { applyValue } from '@/lib/page/apply';
 
@@ -111,6 +111,26 @@ async function fill(request: Extract<ToAgentMessage, { kind: 'fill' }>): Promise
   const outcomes: FieldOutcome[] = [];
   let ref = 0;
 
+  /**
+   * One token per actual radio group, assigned here because this is the only
+   * side that can resolve real membership: `radioGroup` scopes by the owning
+   * form, so two forms using the same `name` get two tokens (BR-005-3). The
+   * background keys on the token, and gives every member of a group the same
+   * answer.
+   */
+  const groupTokens = new Map<Element, string>();
+  let nextGroup = 0;
+  const groupTokenFor = (element: Element): string | undefined => {
+    if (!(element instanceof HTMLInputElement) || element.type !== 'radio') return undefined;
+
+    const existing = groupTokens.get(element);
+    if (existing !== undefined) return existing;
+
+    const token = `group-${nextGroup++}`;
+    for (const member of radioGroup(element)) groupTokens.set(member, token);
+    return token;
+  };
+
   for (const element of collectCandidates(document)) {
     const current = ref++;
 
@@ -129,7 +149,7 @@ async function fill(request: Extract<ToAgentMessage, { kind: 'fill' }>): Promise
       continue;
     }
 
-    const descriptor = describe(element, current, structural.kind);
+    const descriptor = describe(element, current, structural.kind, groupTokenFor(element));
 
     if (patterns.length > 0 && matchesIgnorePattern(identityOf(descriptor), patterns)) {
       outcomes.push({ ref: current, status: 'skipped', reason: 'ignored-pattern' });

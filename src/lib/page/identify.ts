@@ -12,7 +12,13 @@ import { radioGroup } from './exclude';
  * impossible, a class attribute can trigger a rule meant for a name, and the
  * report cannot say which source matched.
  */
-export function describe(element: Element, ref: number, kind: ControlKind): FieldDescriptor {
+export function describe(
+  element: Element,
+  ref: number,
+  kind: ControlKind,
+  /** The radio group token, resolved by the caller against real membership. */
+  group?: string,
+): FieldDescriptor {
   return {
     ref,
     kind,
@@ -37,7 +43,7 @@ export function describe(element: Element, ref: number, kind: ControlKind): Fiel
       required: element.hasAttribute('required') ? true : undefined,
     }),
     ...optional('options', optionsOf(element, kind)),
-    ...optional('group', groupOf(element, kind)),
+    ...optional('group', kind === 'radio' ? group : undefined),
   };
 }
 
@@ -67,12 +73,6 @@ function optionsOf(element: Element, kind: ControlKind): readonly ControlOption[
   }
 
   return undefined;
-}
-
-function groupOf(element: Element, kind: ControlKind): string | undefined {
-  if (kind !== 'radio') return undefined;
-  const name = (element as HTMLInputElement).name;
-  return name === '' ? undefined : name;
 }
 
 /**

@@ -99,8 +99,18 @@ export type FieldDescriptor = {
   /** For selects and radio groups. Absent for every other kind. */
   readonly options?: readonly ControlOption[];
   /**
-   * A radio group's shared name, resolved within the control's own form
-   * (BR-005-3). Present only on radios.
+   * Identifies the radio group this control belongs to. Present only on radios.
+   *
+   * A token assigned by the agent, not the group's `name`. Two forms on one page
+   * may legitimately use the same name for unrelated groups (BR-005-3), so
+   * keying on the name would merge them and let one group's choice decide the
+   * other's. The agent resolves real membership through `element.form` and
+   * hands out one token per actual group.
+   *
+   * The background generates one choice per token and gives every member the
+   * same answer. Without that, each radio picks independently: they disagree,
+   * and for a two-option group the members choose *each other* about a quarter
+   * of the time, leaving nothing selected at all.
    */
   readonly group?: string;
 };
@@ -250,10 +260,29 @@ function isDescriptor(value: unknown): value is FieldDescriptor {
   );
 }
 
+const OUTCOME_STATUSES = new Set(['filled', 'skipped', 'failed']);
+
+function isOutcome(value: unknown): value is FieldOutcome {
+  if (typeof value !== 'object' || value === null) return false;
+  const candidate = value as Record<string, unknown>;
+  return (
+    typeof candidate['ref'] === 'number' &&
+    typeof candidate['status'] === 'string' &&
+    OUTCOME_STATUSES.has(candidate['status'])
+  );
+}
+
 function isFrameReport(value: unknown): value is FrameReport {
   if (typeof value !== 'object' || value === null) return false;
   const candidate = value as Record<string, unknown>;
-  return typeof candidate['frameUrl'] === 'string' && Array.isArray(candidate['outcomes']);
+  return (
+    typeof candidate['frameUrl'] === 'string' &&
+    Array.isArray(candidate['outcomes']) &&
+    // Each outcome, not just the array. A report from an older agent could carry
+    // a status this version does not know, and the whole point of validating at
+    // the boundary is that nothing downstream has to wonder.
+    candidate['outcomes'].every(isOutcome)
+  );
 }
 
 /**

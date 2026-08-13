@@ -4,7 +4,7 @@ import { message, type MessageKey } from '@/lib/platform/i18n';
 import { getSettings } from '@/lib/platform/settings-store';
 import { agentSettings } from '@/lib/settings';
 import { createPersona, seededRandom, type Persona, type Random } from '@/lib/persona/persona';
-import { generateValue } from '@/lib/generators/default-generator';
+import { generateBatch } from '@/lib/generators/batch';
 import {
   isFromAgentMessage,
   type FillScope,
@@ -217,8 +217,28 @@ async function showBadge(tabId: number, text: string, colour: string): Promise<v
 }
 
 function summarise(report: FrameReport, counts: FieldOutcomeCounts): void {
-  for (const outcome of report.outcomes) counts[outcome.status]++;
+  for (const outcome of report.outcomes) {
+    // An explicit switch rather than `counts[outcome.status]++`. The status
+    // arrives from a page agent that may be a previous version of this
+    // extension, so it is a claim rather than a guarantee — and indexing a plain
+    // object with an unvalidated string is how `__proto__` and `constructor`
+    // find their way into a counter. An unrecognised status is ignored, which is
+    // also what makes adding a status a visible change here rather than a
+    // silently miscounted one.
+    switch (outcome.status) {
+      case 'filled':
+        counts.filled++;
+        break;
+      case 'skipped':
+        counts.skipped++;
+        break;
+      case 'failed':
+        counts.failed++;
+        break;
+    }
+  }
 }
+
 
 export default defineBackground(() => {
   browser.runtime.onInstalled.addListener(() => {
@@ -259,9 +279,7 @@ export default defineBackground(() => {
     if (operation === undefined) return;
 
     if (raw.kind === 'descriptors') {
-      const values = raw.descriptors.map((descriptor) =>
-        generateValue(descriptor, operation.persona, operation.random),
-      );
+      const values = generateBatch(raw.descriptors, operation.persona, operation.random);
       sendResponse({ kind: 'values', operationId: raw.operationId, values } satisfies ValuesResponse);
       return true;
     }
