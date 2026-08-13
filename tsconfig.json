@@ -1,0 +1,22 @@
+{
+  // C-002: strict mode, non-negotiable. WXT's generated base already sets
+  // `strict`; the additions below are the checks it leaves off that we want on
+  // from the first file rather than after the engine exists.
+  "extends": "./.wxt/tsconfig.json",
+  "compilerOptions": {
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "exactOptionalPropertyTypes": true,
+    "verbatimModuleSyntax": true
+  },
+  "include": [
+    ".",
+    ".wxt/types/**/*",
+    "scripts/**/*"
+  ],
+  "exclude": [
+    ".output",
+    "node_modules"
+  ]
+}

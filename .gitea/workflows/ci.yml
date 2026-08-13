@@ -1,0 +1,104 @@
+# FieldFiller CI.
+#
+# Two jobs on purpose. `quality` answers "is the source sound?" and `package`
+# answers "is the artefact shippable?" — the second is where every claim the
+# project makes publicly gets enforced, so a failure there should be legible
+# without reading past a compile error.
+#
+# The gates in `package` are not hygiene. Each one keeps a stated claim true:
+#   · size        → G6 and NFR-003, quoted publicly as 40 KB vs the reference's 480 KB
+#   · imports     → ND-4, the import edge that shipped Firebase into every page
+#   · network     → G3 and NFR-033, "no outbound request, ever"
+#   · reproducible → G4 and NFR-011, the digest an auditor checks
+#
+# They run from the first commit rather than before the first release because
+# every one of them is cheap to satisfy now and expensive to retrofit: a
+# reproducible build bolted on at the end means the digests simply differ, with
+# nothing to show for it.
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      # Frozen: the lockfile is an input to the reproducible build (NFR-011), so
+      # an install that is allowed to resolve differently from the committed tree
+      # would make the published digest unverifiable.
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm run compile
+
+      - name: Lint
+        run: pnpm run lint
+
+      - name: Unit tests
+        run: pnpm test
+
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Both targets from one source tree (NFR-017). Building only Chromium would
+      # hide exactly the divergences C-003 and C-004 exist to cover.
+      - name: Build Chrome and Firefox
+        run: pnpm run build:all
+
+      - name: Gate — page agent size, import graph, network absence
+        run: pnpm run gate:all
+
+      # Two clean builds, digests compared. Runs on every push rather than only
+      # on tags: what breaks reproducibility is a dependency bump, and the useful
+      # time to learn that is on the commit that bumped it.
+      - name: Gate — reproducible build
+        run: pnpm run verify:reproducible
+
+      - name: Publish artefact digests
+        run: pnpm run digest
+
+      - name: Upload packages
+        uses: actions/upload-artifact@v3
+        with:
+          name: fieldfiller-packages
+          path: |
+            .output/*.zip
+            .output/SHA256SUMS
+          if-no-files-found: error
