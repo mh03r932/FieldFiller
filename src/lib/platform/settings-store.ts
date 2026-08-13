@@ -14,7 +14,7 @@ import { DEFAULT_SETTINGS, parseSettings, type Settings } from '../settings';
  * storage changes, so on any doubt — a restart, a change from another context —
  * storage wins.
  *
- * Phase 1 only reads. Writing, validation, propagation to open tabs and the
+ * Reads only, for now. Writing, validation, propagation to open tabs and the
  * debounce (BR-024-7) arrive in Phase 4 with the settings UI that needs them.
  */
 

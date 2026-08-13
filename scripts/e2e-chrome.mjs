@@ -2,7 +2,7 @@
 /**
  * The walking skeleton, end to end in a real Chrome: serve the reference page,
  * invoke a fill the way the toolbar does, and check what actually landed in the
- * DOM (NFR-014, Phase 1).
+ * DOM (NFR-014).
  *
  * Distinct from `smoke-chrome.mjs`, which asks whether the extension *loaded*.
  * This asks whether it *works* — the whole pipeline, background → agent →

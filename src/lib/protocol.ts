@@ -10,7 +10,7 @@
  * the persona exist before any frame is asked for anything (BR-004-1a).
  */
 
-/** The three fill scopes. Phase 1 implements only `all-inputs` (UC-001). */
+/** The three fill scopes. Only `all-inputs` is implemented (UC-001); the rest are Phase 3. */
 export type FillScope = 'all-inputs' | 'current-form' | 'selected-input';
 
 /**

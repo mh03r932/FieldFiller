@@ -21,10 +21,11 @@ import {
  * onto a fill. The page agent walks and applies; nothing that carries data
  * crosses into it (DD-003).
  *
- * Phase 1 implements the toolbar trigger and the page scope (UC-001). The
- * keyboard and context-menu channels are registered and still inert: they reach
- * the same scopes and must produce identical results when they land, because a
- * channel chooses which scopes it can reach and nothing else (BR-001-6).
+ * All three trigger channels reach the page scope (UC-001). The form and
+ * single-control scopes are registered on the menu and the commands but not yet
+ * implemented — when they land they must produce results identical to the same
+ * scope reached any other way, because a channel chooses which scopes it can
+ * reach and nothing else (BR-001-6).
  */
 
 const MENU_ITEMS: ReadonlyArray<{ id: FillScope; titleMessage: MessageKey }> = [

@@ -5,7 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>FieldFiller reference page</title>
     <!--
-      The acceptance harness for every phase (implementation plan, Phase 0).
+      The acceptance harness for every phase (implementation plan, Phase 0)
+      onwards. `scripts/e2e-chrome.mjs` fills this page in a real browser and
+      asserts what landed.
 
       It is deliberately hostile in specific, enumerated ways, because each of
       those ways corresponds to a defect in the reference implementation or a
@@ -19,9 +21,10 @@
         · maxlength / minlength               → D4 / BR-004-7: the reference discards its own cap
         · related identity fields             → ND-1: the whole point is that these agree
 
-      Phase 1 fills the text controls here. The controls it cannot yet fill are
-      present already, so that adding a kind is visible as a change in the report
-      rather than as a change to the fixture.
+      Every control here is filled today. Controls for behaviour that is not
+      built yet stay in the fixture rather than being added alongside the code, so
+      that gaining a capability shows up as a change in the report rather than as
+      a change to the fixture.
     -->
     <style>
       body { font: 16px/1.5 system-ui, sans-serif; margin: 2rem auto; max-width: 44rem; }
@@ -99,8 +102,8 @@
         <input type="submit" value="Submit" />
         <button type="button" name="cancel">Cancel</button>
 
-        <!-- Positioned off-screen: a honeypot. Phase 2 excludes it (FR-071, ND-16);
-             Phase 1 fills it, which the report will show honestly. -->
+        <!-- Positioned off-screen: a honeypot (FR-071, ND-16). It must be left
+             alone, and the e2e asserts exactly that. -->
         <label class="honeypot">Leave this empty
           <input type="text" name="company_url_hp" />
         </label>

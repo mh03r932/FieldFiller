@@ -66,10 +66,12 @@ export function seededRandom(seed: number): Random {
 }
 
 /**
- * A deliberately tiny corpus. Phase 2 replaces it with a real one, loaded once
- * per background lifetime and measured against the cold-start budget
- * (NFR-027..029). Phase 1 only needs enough to prove that coherence is a
- * property of the record rather than a correlation between generators.
+ * A deliberately tiny corpus, and still the placeholder one.
+ *
+ * The real corpus — loaded once per background lifetime and measured against the
+ * cold-start budget (NFR-027..029) — is outstanding, along with the spike that
+ * sizes it. What is here is enough to demonstrate the property that matters:
+ * coherence belongs to the record, not to a correlation between generators.
  */
 const FIRST_NAMES = ['Ada', 'Bram', 'Chidi', 'Dagny', 'Emil', 'Farida', 'Gwen', 'Hakim'];
 const LAST_NAMES = ['Ashworth', 'Beaumont', 'Calder', 'Devereux', 'Engström', 'Fairbairn'];

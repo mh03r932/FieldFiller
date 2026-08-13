@@ -4,11 +4,11 @@
  * came up: the background service worker registered, the manifest was accepted,
  * the i18n substitutions resolved, and the page agent was injected into a page.
  *
- * Dependency-free on purpose — it drives Chrome over the DevTools protocol using
- * Node's built-in WebSocket. A browser automation framework is the right tool for
- * Phase 1, where there is a fill to assert against a reference page (NFR-014);
- * pulling one in now, to check that a no-op extension loads, would be a large
- * dependency serving a small claim.
+ * Drives Chrome over the DevTools protocol using Node's built-in WebSocket.
+ * Playwright is present as a browser fetcher but not as a driver: it cannot test
+ * Firefox extensions at all, so a harness built on it would leave half of
+ * NFR-017's promise unverified. `e2e-chrome.mjs` is the counterpart that asserts
+ * a real fill.
  *
  * What it proves is narrow and worth having: an unloadable manifest is the single
  * most likely way this prototype is broken, and it is invisible to `wxt build`.

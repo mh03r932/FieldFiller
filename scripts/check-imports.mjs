@@ -38,15 +38,19 @@ const ALLOWED_PACKAGES = new Set([
 ]);
 
 /**
- * Source areas that belong to the background context only. Most do not exist
- * yet; they are listed now so the rule is in force the moment they do, rather
- * than being written after the first violation has already shipped.
+ * Source areas that belong to the background context only.
+ *
+ * Each ends in a separator so the prefix match cannot catch a sibling: without
+ * it, `src/lib/persona` also matches `src/lib/persona-helpers.ts`, and a
+ * perfectly legitimate import would be refused with a message about a
+ * background-only area it is not in. A gate that blocks correct code for a
+ * reason the reader cannot reproduce is worse than one that misses something.
  */
 const BACKGROUND_ONLY = [
-  'src/lib/corpus',
-  'src/lib/generators',
-  'src/lib/persona',
-  'src/lib/matcher',
+  'src/lib/corpus/',
+  'src/lib/generators/',
+  'src/lib/persona/',
+  'src/lib/matcher/',
 ];
 
 /**
@@ -133,7 +137,7 @@ while (queue.length > 0) {
     if (forbidden !== undefined) {
       violations.push(
         `${importer} imports '${specifier}' → ${relativePath}.\n` +
-          `    ${forbidden}/ is background-only: generation does not run in the page (DD-003).`,
+          `    ${forbidden} is background-only: generation does not run in the page (DD-003).`,
       );
       continue;
     }

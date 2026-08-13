@@ -3,8 +3,15 @@
 A browser extension that fills every form control on a page with plausible dummy data in one
 action, for developers and QA engineers who test forms.
 
-**Status: Phase 0 — scaffold.** The extension loads, registers all three fill scopes on all
-three trigger channels, and fills nothing. Every handler is a no-op awaiting Phase 1.
+**Status: the engine works.** A click on the toolbar button fills the page — every control
+kind, native constraints honoured, hidden fields and honeypots left alone, confirmation fields
+agreeing with their source, across nested frames and open shadow roots, all from one coherent
+persona. `pnpm e2e` asserts each of those against a real browser, and CI runs it on every
+change.
+
+Not yet built: the other two fill scopes, the settings UI, profiles, and import/export. The
+context menu and keyboard shortcuts are registered and reach the page scope; the narrower
+scopes behind them are Phase 3.
 
 Design documents live in [`docs/`](docs/): [vision](docs/vision.md),
 [requirements](docs/requirements.md), [use cases](docs/use_case_catalog.md), and the

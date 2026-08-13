@@ -6,9 +6,10 @@ import { radioGroup } from './exclude';
  * (BR-004-10, NFR-030).
  *
  * Sources are kept separate rather than concatenated into one blob (ND-2,
- * BR-004-5). Phase 1 has no rule matching, so nothing consumes them yet beyond
- * the autocomplete default — but the flattening is exactly the decision that
- * cannot be undone later: once patterns are written against a blob, anchoring is
+ * BR-004-5). There is no rule matching yet, so nothing consumes them beyond the
+ * autocomplete default and the identity hints — but the flattening is the one
+ * decision that cannot be undone later: once patterns are written against a blob,
+ * anchoring is
  * impossible, a class attribute can trigger a rule meant for a name, and the
  * report cannot say which source matched.
  */
