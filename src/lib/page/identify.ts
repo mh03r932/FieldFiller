@@ -48,8 +48,11 @@ function labelText(element: Element): string | undefined {
   const labels = (element as { labels?: NodeListOf<HTMLLabelElement> | null }).labels;
   if (labels === null || labels === undefined || labels.length === 0) return undefined;
 
-  // `textContent` is only nullable on `Node`; on an element it is always a
-  // string, so there is nothing to guard against here.
+  // No null guard because `textContent` is declared with asymmetric accessors in
+  // lib.dom: `get textContent(): string`, `set textContent(value: string | null)`.
+  // Reading it is non-nullable — the `| null` belongs to assignment. This is a
+  // property of the DOM lib's typing, not of `Element` versus `Node`, and
+  // `strictNullChecks` is on regardless (WXT's base config sets `strict`).
   const text = [...labels]
     .map((label) => label.textContent.trim())
     .filter((value) => value !== '')

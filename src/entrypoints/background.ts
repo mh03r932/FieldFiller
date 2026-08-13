@@ -52,6 +52,8 @@ type Operation = {
   readonly random: Random;
   readonly tabId: number;
   readonly outcomes: FieldOutcomeCounts;
+  /** Abandons the operation if no report ever arrives. */
+  readonly timeout: ReturnType<typeof setTimeout>;
 };
 
 type FieldOutcomeCounts = { filled: number; skipped: number; failed: number };
@@ -111,15 +113,34 @@ async function startFill(tabId: number, scope: FillScope): Promise<void> {
     random,
     tabId,
     outcomes: { filled: 0, skipped: 0, failed: 0 },
+    timeout: setTimeout(() => {
+      trace(`fill ${operationId} timed out with no report; abandoning`);
+      finish(operationId, tabId);
+    }, OPERATION_TIMEOUT_MS),
   });
 
   try {
-    await browser.tabs.sendMessage(tabId, {
-      kind: 'fill',
-      operationId,
-      scope,
-      settings: agentSettings(settings),
-    });
+    await browser.tabs.sendMessage(
+      tabId,
+      {
+        kind: 'fill',
+        operationId,
+        scope,
+        settings: agentSettings(settings),
+      },
+      // The top frame only, for now. Without `frameId` this broadcasts to every
+      // frame — the agent is injected in all of them — and an operation ends on
+      // the *first* report it receives, which for a page with iframes means the
+      // remaining frames have their reports discarded and, if they are slow
+      // enough to ask after that point, receive no values at all.
+      //
+      // Filling every frame is FR-007 and belongs to Phase 2, where it needs a
+      // completion policy this phase has no way to express: nothing tells the
+      // background how many frames were reached, so "the fill is over" has to be
+      // decided by a quorum and a timeout, not by counting replies. Restricting
+      // the scope is honest about that; broadcasting and finishing early is not.
+      { frameId: 0 },
+    );
   } catch (error) {
     // UC-001 A4: no agent in this tab — a page that loaded before the extension
     // was installed, or one the browser does not permit acting on. Reported as
@@ -131,8 +152,22 @@ async function startFill(tabId: number, scope: FillScope): Promise<void> {
   }
 }
 
+/**
+ * How long an operation may stay open before it is abandoned.
+ *
+ * A fill ends when its report arrives — but a report is not guaranteed to. If
+ * the frame navigates between sending its descriptors and sending its report,
+ * nothing ever comes back, and without this the tab stays in `filling` forever:
+ * every later fill on that tab is ignored as "already running", and the only
+ * cure is the service worker being evicted. An extension that silently stops
+ * working until the browser restarts it is worse than one that fails loudly.
+ */
+const OPERATION_TIMEOUT_MS = 15_000;
+
 /** Ends an operation, discarding the persona and every generated value (NFR-031). */
 function finish(operationId: OperationId, tabId: number): void {
+  const operation = operations.get(operationId);
+  if (operation !== undefined) clearTimeout(operation.timeout);
   operations.delete(operationId);
   filling.delete(tabId);
 }

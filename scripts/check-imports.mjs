@@ -21,7 +21,7 @@
  * Usage: node scripts/check-imports.mjs
  */
 import { readFileSync, existsSync, statSync } from 'node:fs';
-import { join, dirname, resolve, relative } from 'node:path';
+import { join, dirname, resolve, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -114,7 +114,12 @@ while (queue.length > 0) {
       continue;
     }
 
-    const relativePath = relative(ROOT, resolved);
+    // Separators normalised to POSIX before comparing. `relative()` yields
+    // backslashes on Windows, so a raw `startsWith('src/lib/generators')` would
+    // stop matching there — and this gate failing open is worse than it failing
+    // loudly, because nothing would announce that the rule had switched itself
+    // off.
+    const relativePath = relative(ROOT, resolved).split(sep).join('/');
     const forbidden = BACKGROUND_ONLY.find((area) => relativePath.startsWith(area));
     if (forbidden !== undefined) {
       violations.push(

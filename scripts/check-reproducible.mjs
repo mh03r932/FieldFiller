@@ -47,7 +47,9 @@ const REQUIRED_TARGETS = ['-chrome.zip', '-firefox.zip'];
 function buildAndDigest(label) {
   rmSync(OUTPUT_DIR, { recursive: true, force: true });
   console.log(`  building (${label})…`);
-  execFileSync('pnpm', ['run', 'zip:all'], { cwd: ROOT, stdio: 'pipe' });
+  // `shell` on Windows, where pnpm resolves to pnpm.cmd and execFileSync cannot
+  // spawn it directly. CI is Ubuntu; this keeps local runs working on Windows.
+  execFileSync('pnpm', ['run', 'zip:all'], { cwd: ROOT, stdio: 'pipe', shell: process.platform === 'win32' });
 
   const digests = new Map();
   for (const name of readdirSync(OUTPUT_DIR).filter((f) => f.endsWith('.zip')).sort()) {

@@ -42,6 +42,12 @@ const NETWORK_APIS = [
   // together — remote code is fetched before it is run.
   /\bimportScripts\s*\(/,
   /\bnew\s+Function\s*\(/,
+  // `eval` cannot originate a request by itself, so this is not a network hole.
+  // It is here because NFR-007 names it explicitly and a stated policy that no
+  // gate enforces is precisely the drift these gates exist to catch. It is also
+  // an unconditional store-review failure: C-012 forbids obfuscated code, and
+  // both stores treat `eval` in a bundle as exactly that.
+  /\beval\s*\(/,
 ];
 
 /**
