@@ -12,11 +12,22 @@ describe('isToAgentMessage', () => {
     expect(isToAgentMessage(PING)).toBe(true);
   });
 
+  it('accepts a fill instruction', () => {
+    expect(
+      isToAgentMessage({
+        kind: 'fill',
+        operationId: 'op-1',
+        scope: 'all-inputs',
+        settings: { dispatchEvents: true },
+      }),
+    ).toBe(true);
+  });
+
   it.each([
     ['null', null],
     ['undefined', undefined],
     ['a string', 'ping'],
-    ['an unknown kind', { kind: 'fill' }],
+    ['an unknown kind', { kind: 'defenestrate' }],
     ['an object with no kind', { frameUrl: 'https://example.test/' }],
   ])('rejects %s', (_label, value) => {
     expect(isToAgentMessage(value)).toBe(false);

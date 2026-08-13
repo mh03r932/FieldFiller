@@ -31,12 +31,15 @@
     "smoke:firefox": "node scripts/smoke-firefox.mjs",
     "smoke": "pnpm run smoke:chrome && pnpm run smoke:firefox",
     "digest": "node scripts/digest.mjs",
-    "verify:reproducible": "node scripts/check-reproducible.mjs"
+    "verify:reproducible": "node scripts/check-reproducible.mjs",
+    "e2e:chrome": "node scripts/e2e-chrome.mjs",
+    "e2e": "pnpm run e2e:chrome"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",
     "eslint": "^9.39.1",
     "globals": "^17.11.0",
+    "happy-dom": "^20.11.2",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.46.4",
     "vitest": "^4.1.10",

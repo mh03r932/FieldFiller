@@ -13,7 +13,12 @@ import { WxtVitest } from 'wxt/testing/vitest-plugin';
 export default defineConfig({
   plugins: [WxtVitest()],
   test: {
-    environment: 'node',
+    // The page-side engine is tested against a real DOM implementation rather
+    // than against mocks, because the behaviours that matter here are the DOM's
+    // own: `element.labels` resolving implicit labels, the prototype value
+    // setter, and `InputEvent` being a distinct type from `Event`. Mocking those
+    // would test the mock.
+    environment: 'happy-dom',
     include: ['tests/**/*.test.ts'],
     coverage: {
       // NFR-012 requires 90% line coverage of the engine and generators. The

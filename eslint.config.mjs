@@ -45,7 +45,17 @@ export default tseslint.config(
     // must be unit-testable without a browser host. Stated as a lint rule so a
     // convenience import is refused at the moment it is written, which is the
     // only moment it is cheap to refuse.
-    files: ['src/lib/engine/**/*.ts', 'src/lib/protocol.ts'],
+    // Every engine module, on both sides of the boundary: the page-side walk and
+    // apply, the background-side persona and generators, the shared protocol and
+    // the settings shape. `lib/platform/` is the only place allowed to know the
+    // extension API exists.
+    files: [
+      'src/lib/page/**/*.ts',
+      'src/lib/persona/**/*.ts',
+      'src/lib/generators/**/*.ts',
+      'src/lib/protocol.ts',
+      'src/lib/settings.ts',
+    ],
     rules: {
       'no-restricted-imports': [
         'error',

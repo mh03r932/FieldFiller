@@ -59,6 +59,25 @@ const ALLOWED_URL_PREFIXES = [
 const SCANNED_EXTENSIONS = new Set(['.js', '.mjs', '.html', '.css', '.json']);
 const URL_PATTERN = /\bhttps?:\/\/[^\s"'`)<>\\]+/g;
 
+/**
+ * The URL scan applies to markup, styles and the manifest — not to JavaScript.
+ *
+ * That is NFR-033's own scoping, and it is right. In HTML or CSS a URL *is* a
+ * request: `<img src>`, `@font-face`, a stylesheet link all fetch on sight, so
+ * finding one there is finding a network dependency. In JavaScript a URL is a
+ * string, and a string cannot fetch itself — the API scan above is what decides
+ * whether anything could request it.
+ *
+ * Scanning JS as well sounds stricter and is merely wrong: the extension
+ * generates a website address for `autocomplete="url"` fields, so a URL literal
+ * in the bundle is the product working, not a leak. A gate that fails on correct
+ * behaviour gets switched off, and then it protects nothing.
+ */
+function scansForUrls(file) {
+  const extension = extname(file);
+  return extension === '.html' || extension === '.css' || file.endsWith('manifest.json');
+}
+
 function walk(dir) {
   const files = [];
   for (const entry of readdirSync(dir)) {
@@ -91,10 +110,12 @@ for (const target of TARGETS) {
       }
     }
 
+    if (!scansForUrls(file)) continue;
+
     for (const match of source.matchAll(URL_PATTERN)) {
       const url = match[0];
       if (ALLOWED_URL_PREFIXES.some((prefix) => url.startsWith(prefix))) continue;
-      violations.push(`${shown}: external URL \`${url}\` in a shipped file (NFR-006, G3)`);
+      violations.push(`${shown}: external URL \`${url}\` in shipped markup (NFR-006, G3)`);
     }
   }
 }
