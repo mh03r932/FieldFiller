@@ -51,22 +51,46 @@ function notYetImplemented(scope: FillScope, channel: string): void {
   trace(`${channel} → fill ${scope} (not implemented)`);
 }
 
+/**
+ * Creates the three scope entries, clearing any previous set first.
+ *
+ * Awaited rather than given a callback. `removeAll(callback)` is Chromium's
+ * calling convention; Firefox's `browser.*` namespace is promise-only and
+ * validates argument schemas strictly, so the callback form risks throwing there
+ * — and the failure mode is silent, because a throw inside an `onInstalled`
+ * listener leaves the menus simply absent with nothing logged. A channel that
+ * works on one browser and quietly does not exist on the other is the exact
+ * divergence NFR-017 forbids.
+ *
+ * Failure is caught rather than propagated: `onInstalled` has no error path, so
+ * an unhandled rejection here would be reported by the browser as an extension
+ * error with no indication of which channel is missing.
+ */
+async function registerContextMenus(): Promise<void> {
+  try {
+    await browser.contextMenus.removeAll();
+
+    for (const item of MENU_ITEMS) {
+      browser.contextMenus.create({
+        id: item.id,
+        title: message(item.titleMessage),
+        // `editable` would be the natural filter for the selected-input scope,
+        // but the other two scopes apply anywhere on a page, so the contexts
+        // stay broad and the scope decides what it can reach.
+        contexts: ['page', 'editable'],
+      });
+    }
+    trace(`registered ${MENU_ITEMS.length} context menu entries`);
+  } catch (error) {
+    trace(`context menu registration failed: ${String(error)}`);
+  }
+}
+
 export default defineBackground(() => {
   // Menus survive across service-worker restarts, so creating them on every
   // startup would duplicate them. `onInstalled` is the only correct hook.
   browser.runtime.onInstalled.addListener(() => {
-    browser.contextMenus.removeAll(() => {
-      for (const item of MENU_ITEMS) {
-        browser.contextMenus.create({
-          id: item.id,
-          title: message(item.titleMessage),
-          // `editable` would be the natural filter for the selected-input
-          // scope, but the other two scopes apply anywhere on a page, so the
-          // contexts stay broad and the scope decides what it can reach.
-          contexts: ['page', 'editable'],
-        });
-      }
-    });
+    void registerContextMenus();
   });
 
   browser.contextMenus.onClicked.addListener((info) => {

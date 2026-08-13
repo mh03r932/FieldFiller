@@ -32,6 +32,18 @@ import { fileURLToPath } from 'node:url';
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const OUTPUT_DIR = join(ROOT, '.output');
 
+/**
+ * Every target that must appear in a build, as a suffix of its zip's filename.
+ *
+ * Named explicitly because equality is not enough on its own: two builds that
+ * both fail to emit the Firefox package agree perfectly, and a gate comparing
+ * only what it finds would call that reproducible. Absence has to be an error in
+ * its own right, or the check passes most confidently at the moment it has least
+ * to compare (the same false-pass the size gate guards against when a manifest
+ * declares no content script).
+ */
+const REQUIRED_TARGETS = ['-chrome.zip', '-firefox.zip'];
+
 function buildAndDigest(label) {
   rmSync(OUTPUT_DIR, { recursive: true, force: true });
   console.log(`  building (${label})…`);
@@ -41,7 +53,16 @@ function buildAndDigest(label) {
   for (const name of readdirSync(OUTPUT_DIR).filter((f) => f.endsWith('.zip')).sort()) {
     digests.set(name, createHash('sha256').update(readFileSync(join(OUTPUT_DIR, name))).digest('hex'));
   }
-  if (digests.size === 0) throw new Error('no .zip artefacts were produced');
+
+  const missing = REQUIRED_TARGETS.filter(
+    (suffix) => ![...digests.keys()].some((name) => name.endsWith(suffix)),
+  );
+  if (missing.length > 0) {
+    throw new Error(
+      `the ${label} build produced no package for: ${missing.join(', ')} ` +
+        `(found ${digests.size > 0 ? [...digests.keys()].join(', ') : 'nothing'})`,
+    );
+  }
   return digests;
 }
 
@@ -74,9 +95,13 @@ if (mismatches.length > 0) {
   process.exit(1);
 }
 
-if (!existsSync(join(OUTPUT_DIR, 'chrome-mv3'))) {
-  console.error('✖ the second build left no chrome-mv3 output behind.');
-  process.exit(1);
+// The second build is the one CI goes on to publish, so both unpacked outputs
+// have to survive this script rather than only the one that happens to be first.
+for (const target of ['chrome-mv3', 'firefox-mv3']) {
+  if (!existsSync(join(OUTPUT_DIR, target))) {
+    console.error(`✖ the second build left no ${target} output behind.`);
+    process.exit(1);
+  }
 }
 
 console.log('\n✔ reproducible: both builds produced byte-identical artefacts');

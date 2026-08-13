@@ -40,6 +40,9 @@ const CHROME_CANDIDATES = [
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+/** One of the ids `registerContextMenus` creates — see the menu probe below. */
+const MENU_PROBE_ID = 'all-inputs';
+
 /**
  * A free port, picked per run rather than fixed — a browser that outlived a
  * previous run would otherwise be found on a fixed port and quietly tested in
@@ -249,6 +252,36 @@ try {
     const extra = state.permissions.filter((permission) => !allowed.has(permission));
     if (extra.length > 0) failures.push(`permissions beyond NFR-008: ${extra.join(', ')}`);
     else console.log(`✔ permissions within NFR-008: ${state.permissions.join(', ')}`);
+
+    // The context menus actually registered (FR-006). There is no API that lists
+    // menu items, so this probes by trying to create one that should already
+    // exist: a duplicate id is refused, and that refusal is the evidence. A
+    // clean creation means `onInstalled` never got as far as registering.
+    //
+    // Worth asserting rather than assuming, because the failure it catches is
+    // silent — a throw inside an `onInstalled` listener leaves the menus absent
+    // and logs nothing, so the only symptom is an empty right-click menu.
+    const probe = await cdp.send(
+      'Runtime.evaluate',
+      {
+        expression: `new Promise((resolve) => {
+          chrome.contextMenus.create(
+            { id: ${JSON.stringify(MENU_PROBE_ID)}, title: 'probe', contexts: ['page'] },
+            () => resolve(chrome.runtime.lastError?.message ?? 'created'),
+          );
+        })`,
+        awaitPromise: true,
+        returnByValue: true,
+      },
+      session,
+    );
+    if (/duplicate/i.test(probe.result.value)) {
+      console.log(`✔ context menus registered (id "${MENU_PROBE_ID}" already taken)`);
+    } else {
+      failures.push(
+        `context menu "${MENU_PROBE_ID}" was not registered — creating it succeeded (${probe.result.value})`,
+      );
+    }
   }
 
   // 3. The page agent is injected. Its isolated world appears as a separate
