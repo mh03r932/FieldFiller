@@ -5,6 +5,7 @@ node_modules/
 dist/
 .output/
 .wxt/
+artefacts/
 *.zip
 *.crx
 *.xpi

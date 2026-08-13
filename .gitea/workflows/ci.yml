@@ -102,11 +102,22 @@ jobs:
       - name: Publish artefact digests
         run: pnpm run digest
 
+      # Staged into a plain directory rather than uploaded straight from
+      # `.output`. Two things about that path are hostile to the artifact
+      # action's globbing: `.output` is a dot-directory, and a multi-line `path:`
+      # arrives as one newline-joined string on this runner. Copying first
+      # removes both questions, and `cp` fails loudly here — naming which file is
+      # missing — instead of the upload reporting an empty match much later.
+      - name: Stage release artefacts
+        run: |
+          set -euo pipefail
+          mkdir -p artefacts
+          cp .output/*.zip .output/SHA256SUMS artefacts/
+          ls -l artefacts
+
       - name: Upload packages
         uses: actions/upload-artifact@v3
         with:
           name: fieldfiller-packages
-          path: |
-            .output/*.zip
-            .output/SHA256SUMS
+          path: artefacts
           if-no-files-found: error
