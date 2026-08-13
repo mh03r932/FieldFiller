@@ -1,4 +1,5 @@
-import type { ControlKind, FieldDescriptor } from '../protocol';
+import type { ControlKind, ControlOption, FieldDescriptor } from '../protocol';
+import { radioGroup } from './exclude';
 
 /**
  * Builds a control's descriptor — what it *is*, never what it holds
@@ -26,8 +27,52 @@ export function describe(element: Element, ref: number, kind: ControlKind): Fiel
     constraints: compact({
       maxLength: positiveLength(element, 'maxLength'),
       minLength: positiveLength(element, 'minLength'),
+      // Carried as strings because the DOM does: `min="2024-01-01"` on a date
+      // input and `min="1"` on a number are both meaningful, and parsing them
+      // here would force this module to know which kind it is looking at.
+      min: attribute(element, 'min'),
+      max: attribute(element, 'max'),
+      step: attribute(element, 'step'),
+      pattern: attribute(element, 'pattern'),
+      required: element.hasAttribute('required') ? true : undefined,
     }),
+    ...optional('options', optionsOf(element, kind)),
+    ...optional('group', groupOf(element, kind)),
   };
+}
+
+/**
+ * The choices a select or radio group offers.
+ *
+ * Disabled options are reported rather than filtered out, so the generator can
+ * say *why* nothing was selectable when every option is disabled. The reference
+ * tests option `i` for `disabled` and then selects a different random index
+ * entirely, so it picks disabled options and can never pick option 0 (D3).
+ */
+function optionsOf(element: Element, kind: ControlKind): readonly ControlOption[] | undefined {
+  if (kind === 'select-one' || kind === 'select-multiple') {
+    return [...(element as HTMLSelectElement).options].map((option) => ({
+      value: option.value,
+      label: option.textContent.trim(),
+      disabled: option.disabled,
+    }));
+  }
+
+  if (kind === 'radio') {
+    return radioGroup(element as HTMLInputElement).map((radio) => ({
+      value: radio.value,
+      label: labelText(radio) ?? radio.value,
+      disabled: radio.disabled,
+    }));
+  }
+
+  return undefined;
+}
+
+function groupOf(element: Element, kind: ControlKind): string | undefined {
+  if (kind !== 'radio') return undefined;
+  const name = (element as HTMLInputElement).name;
+  return name === '' ? undefined : name;
 }
 
 /**

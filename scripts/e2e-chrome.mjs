@@ -175,7 +175,11 @@ try {
     await sleep(150);
     const result = await cdp.send('Runtime.evaluate', {
       expression: `JSON.stringify(Object.fromEntries(
-        [...document.querySelectorAll('input, textarea')].map((el) => [el.name, el.value])
+        [...document.querySelectorAll('input, textarea, select')].map((el) => {
+          if (el.type === 'checkbox' || el.type === 'radio') return [el.name + ':' + el.value, el.checked];
+          if (el.multiple) return [el.name, [...el.selectedOptions].map((o) => o.value).join(',')];
+          return [el.name, el.value];
+        })
       ))`,
       returnByValue: true,
     }, page);
@@ -232,8 +236,38 @@ try {
   check('aria-disabled fields were left alone', filled.aria_disabled_field === '');
   check('hidden inputs were left alone', filled.csrf_token === 'untouched');
 
-  // Phase 2 kinds must not have been filled by accident.
-  check('number inputs are not yet filled', (filled.quantity ?? '') === '');
+  // Every control kind (Phase 2).
+  check('number inputs are filled within their constraints',
+    Number(filled.quantity) >= 1 && Number(filled.quantity) <= 10,
+    `quantity=${filled.quantity}`);
+  check('date inputs get a date the browser accepts', /^\d{4}-\d{2}-\d{2}$/.test(filled.start_date ?? ''),
+    `start_date=${filled.start_date}`);
+  check('selects choose a real option', ['gb', 'nl'].includes(filled.country ?? ''),
+    `country=${filled.country}`);
+  // D3: "Ireland" is disabled and must never be selected.
+  check('disabled options are never selected', filled.country !== 'ie', `country=${filled.country}`);
+  check('consent checkboxes are ticked', filled['terms:on'] === true,
+    `terms=${filled['terms:on']}`);
+  check('exactly one radio in the group is chosen',
+    [filled['contact:email'], filled['contact:post']].filter(Boolean).length === 1,
+    `email=${filled['contact:email']} post=${filled['contact:post']}`);
+
+  // UC-006 / D2 / ND-7: confirmations agree with their source, including one
+  // identified only by its label, and regardless of what sits between them.
+  check('confirm email matches the email', (filled.email ?? '') === (filled.confirm_email ?? ''),
+    `${filled.email} vs ${filled.confirm_email}`);
+  check('confirm password matches the password',
+    (filled.pw ?? '') !== '' && filled.pw === filled.pw_second,
+    `${filled.pw} vs ${filled.pw_second}`);
+
+  // FR-071 / ND-16: the honeypot is positioned off-screen and must be left alone.
+  check('the honeypot was not filled', (filled.company_url_hp ?? '') === '',
+    `company_url_hp=${JSON.stringify(filled.company_url_hp)}`);
+
+  // BR-005-3: the second form's radio shares the group name and must be untouched
+  // by a fill scoped to the page — it is a different group.
+  check('the unrelated form was filled too, being on the same page',
+    (filled.unrelated_note ?? '') !== '');
 
   // Printed because coherence is far more convincing read than asserted: the
   // point of ND-1 is that these lines describe one person.

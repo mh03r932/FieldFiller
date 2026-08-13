@@ -1,6 +1,19 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { collectCandidates } from '@/lib/page/walk';
-import { classify } from '@/lib/page/exclude';
+import { classifyStructural } from '@/lib/page/exclude';
+import type { FieldValue } from '@/lib/protocol';
+
+/** Defaults for the structural checks: honeypots skipped, pre-filled allowed. */
+const CONTEXT = {
+  skipHidden: false,
+  skipPreFilled: false,
+  writtenByUs: new WeakSet<Element>(),
+};
+
+const classify = (element: Element) => classifyStructural(element, CONTEXT);
+
+/** A text value, as the generator would produce it. */
+const textValue = (value: string): FieldValue => ({ ref: 0, as: 'text', value, provenance: 'test' });
 import { describe as describeField } from '@/lib/page/identify';
 import { applyValue } from '@/lib/page/apply';
 
@@ -179,7 +192,7 @@ describe('apply', () => {
       },
     });
 
-    applyValue(input, 'written', { dispatchEvents: false });
+    applyValue(input, textValue('written'), { dispatchEvents: false });
 
     expect(input.value).toBe('written');
     expect(trackerWrites).toBe(0);
@@ -194,7 +207,7 @@ describe('apply', () => {
       input.addEventListener(type, () => seen.push(type));
     }
 
-    applyValue(input, 'value', { dispatchEvents: true });
+    applyValue(input, textValue('value'), { dispatchEvents: true });
 
     expect(seen).toEqual(['focus', 'input', 'change', 'blur']);
   });
@@ -206,7 +219,7 @@ describe('apply', () => {
     input.addEventListener('input', (event) => (inputEvent = event));
     input.addEventListener('change', (event) => (changeEvent = event));
 
-    applyValue(input, 'value', { dispatchEvents: true });
+    applyValue(input, textValue('value'), { dispatchEvents: true });
 
     expect(inputEvent).toBeInstanceOf(InputEvent);
     expect(inputEvent?.bubbles).toBe(true);
@@ -221,7 +234,7 @@ describe('apply', () => {
     const seen: string[] = [];
     input.addEventListener('input', () => seen.push('input'));
 
-    applyValue(input, 'quiet', { dispatchEvents: false });
+    applyValue(input, textValue('quiet'), { dispatchEvents: false });
 
     expect(input.value).toBe('quiet');
     expect(seen).toEqual([]);
@@ -229,15 +242,29 @@ describe('apply', () => {
 
   it('fills a textarea through its own prototype setter', () => {
     const area = collectCandidates(fragment('<textarea></textarea>'))[0] as HTMLTextAreaElement;
-    applyValue(area, 'paragraph', { dispatchEvents: true });
+    applyValue(area, textValue('paragraph'), { dispatchEvents: true });
     expect(area.value).toBe('paragraph');
   });
 
-  it('throws for an element that holds no value, rather than failing silently', () => {
-    const div = fragment('<div contenteditable="true"></div>').firstElementChild!;
-    // Phase 2 gives contenteditable the same exclusion and event path as any
-    // other control (A7, D8). Until then it must fail loudly, and the caller
-    // isolates it per field (BR-004-11).
-    expect(() => applyValue(div, 'x', { dispatchEvents: false })).toThrow();
+  it('fills a content-editable region and fires input on it', () => {
+    // D8: the reference writes to contenteditable without any events at all, so
+    // React, Quill and ProseMirror never observe the change — and it skips the
+    // exclusion checks too, overwriting rich-text editors even with "ignore
+    // fields with content" enabled.
+    const div = fragment('<div contenteditable="true"></div>').firstElementChild as HTMLElement;
+    const seen: string[] = [];
+    for (const type of ['input', 'click']) div.addEventListener(type, () => seen.push(type));
+
+    applyValue(div, textValue('written'), { dispatchEvents: true });
+
+    expect(div.textContent).toBe('written');
+    expect(seen).toEqual(['input']);
+  });
+
+  it('throws for an element that can hold no value at all', () => {
+    const span = fragment('<span></span>').firstElementChild!;
+    // The caller isolates this per field, so one impossible control cannot end
+    // the run (BR-004-11).
+    expect(() => applyValue(span, textValue('x'), { dispatchEvents: false })).toThrow();
   });
 });

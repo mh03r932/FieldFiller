@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { createPersona, seededRandom } from '@/lib/persona/persona';
 import { generateValue } from '@/lib/generators/default-generator';
-import type { FieldDescriptor } from '@/lib/protocol';
+import type { FieldDescriptor, FieldValue } from '@/lib/protocol';
+
+/** Narrows to the text case, so a wrong-shaped value fails loudly rather than as undefined. */
+function textOf(value: FieldValue): string {
+  if (value.as !== 'text') throw new Error(`expected a text value, got "${value.as}"`);
+  return value.value;
+}
 
 function descriptor(overrides: Partial<FieldDescriptor> = {}): FieldDescriptor {
   return { ref: 0, kind: 'text', sources: {}, constraints: {}, ...overrides };
@@ -58,13 +64,13 @@ describe('default generator', () => {
 
   it('prefers the autocomplete purpose over the control kind', () => {
     const value = generateValue(descriptor({ kind: 'text', autocomplete: 'family-name' }), persona, random);
-    expect(value.value).toBe(persona.lastName);
+    expect(textOf(value)).toBe(persona.lastName);
     expect(value.provenance).toContain('autocomplete');
   });
 
   it('falls back to the control kind when no purpose is declared', () => {
     const value = generateValue(descriptor({ kind: 'email' }), persona, random);
-    expect(value.value).toBe(persona.email);
+    expect(textOf(value)).toBe(persona.email);
   });
 
   it('honours maxLength', () => {
@@ -75,7 +81,7 @@ describe('default generator', () => {
       persona,
       random,
     );
-    expect(value.value.length).toBeLessThanOrEqual(5);
+    expect(textOf(value).length).toBeLessThanOrEqual(5);
   });
 
   it('honours minLength', () => {
@@ -84,13 +90,13 @@ describe('default generator', () => {
       persona,
       random,
     );
-    expect(value.value.length).toBeGreaterThanOrEqual(40);
+    expect(textOf(value).length).toBeGreaterThanOrEqual(40);
   });
 
   it('generates a password a registration form would accept', () => {
     // ND-11: the reference produces eight lowercase letters — no digit, no
     // uppercase, no symbol — and so fails the forms the feature exists to fill.
-    const value = generateValue(descriptor({ kind: 'password' }), persona, random).value;
+    const value = textOf(generateValue(descriptor({ kind: 'password' }), persona, random));
     expect(value).toMatch(/[a-z]/);
     expect(value).toMatch(/[A-Z]/);
     expect(value).toMatch(/[0-9]/);
@@ -101,7 +107,7 @@ describe('default generator', () => {
   it('gives a textarea more than a single short phrase', () => {
     // ND-10: one global 20-character default means an unconstrained textarea
     // receives 20 characters, which is the reference's documented behaviour.
-    const value = generateValue(descriptor({ kind: 'textarea' }), persona, random).value;
+    const value = textOf(generateValue(descriptor({ kind: 'textarea' }), persona, random));
     expect(value.length).toBeGreaterThan(20);
   });
 

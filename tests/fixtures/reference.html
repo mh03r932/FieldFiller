@@ -107,7 +107,22 @@
       </fieldset>
 
       <fieldset>
-        <legend>Not yet fillable — Phase 2 control kinds</legend>
+        <legend>Confirmation fields — must agree with their source (UC-006, D2)</legend>
+        <label>Confirm email
+          <input type="email" name="confirm_email" />
+        </label>
+        <label>Password
+          <input type="password" name="pw" />
+        </label>
+        <!-- Identified only by its label, which is the case the reference's
+             name-only test misses entirely (D2). -->
+        <label>Confirm password
+          <input type="password" name="pw_second" />
+        </label>
+      </fieldset>
+
+      <fieldset>
+        <legend>Every other control kind</legend>
         <label>Country
           <select name="country">
             <option value="">Choose…</option>

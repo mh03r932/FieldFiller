@@ -9,7 +9,7 @@ import {
   type ToAgentMessage,
 } from '@/lib/protocol';
 import { collectCandidates } from '@/lib/page/walk';
-import { classify } from '@/lib/page/exclude';
+import { classifyStructural, matchesIgnorePattern } from '@/lib/page/exclude';
 import { describe } from '@/lib/page/identify';
 import { applyValue } from '@/lib/page/apply';
 
@@ -23,12 +23,20 @@ import { applyValue } from '@/lib/page/apply';
  * import gate enforces that, because the edge that ships an SDK into every page
  * arrives silently (ND-4).
  */
+
+/**
+ * Controls this agent wrote, for as long as this page lives.
+ *
+ * Identity only — a `WeakSet` cannot hold a value even in principle, which is
+ * how BR-005-7 is satisfied without touching NFR-010: we remember *which*
+ * controls we wrote, never *what* we wrote. Without it, "skip fields that
+ * already have content" would silently disable filling the same page twice.
+ */
+const writtenByUs = new WeakSet<Element>();
+
 export default defineContentScript({
   matches: ['<all_urls>'],
   allFrames: true,
-  // Default `document_idle`. Recording the right-clicked element (Phase 3) does
-  // not need an earlier hook — a right-click happens long after idle — and
-  // running earlier would spend NFR-005's 15 ms page-load budget for nothing.
   runAt: 'document_idle',
 
   main() {
@@ -51,17 +59,42 @@ export default defineContentScript({
 });
 
 /**
- * One frame's part in a fill.
+ * Compiles the ignore patterns once per fill (ND-15, NFR-025).
  *
- * The frame reports independently and never waits for another (BR-001-1,
- * BR-001-5). Its values come from a persona that already exists in the
- * background, so there is no barrier to coordinate and nothing to time out.
+ * The reference constructs a `RegExp` per element per rule, per fill — 500
+ * controls × 100 rules is 50,000 constructions in one run. An invalid pattern is
+ * skipped rather than fatal (UC-005 A5): one bad pattern must not stop the other
+ * exclusions from being applied.
  */
+function compilePatterns(sources: readonly string[]): { patterns: RegExp[]; invalid: string[] } {
+  const patterns: RegExp[] = [];
+  const invalid: string[] = [];
+  for (const source of sources) {
+    try {
+      patterns.push(new RegExp(source, 'i'));
+    } catch {
+      invalid.push(source);
+    }
+  }
+  return { patterns, invalid };
+}
+
+/** Every matching source of a control, as the strings patterns are tested against. */
+function identityOf(descriptor: FieldDescriptor): string[] {
+  // `describe` omits absent sources rather than storing them as undefined, so
+  // every value present here is a real string.
+  return Object.values(descriptor.sources);
+}
+
 async function fill(request: Extract<ToAgentMessage, { kind: 'fill' }>): Promise<void> {
   const { operationId, settings } = request;
+  const { patterns, invalid } = compilePatterns(settings.ignorePatterns);
 
-  // Element handles stay in this frame, keyed by the ref the descriptor carries.
-  // Nothing about the elements themselves crosses the boundary (NFR-030).
+  if (invalid.length > 0) {
+    // UC-005 A5: recorded once per fill, not once per field.
+    console.warn(`[fieldfiller] ignoring ${invalid.length} invalid ignore pattern(s)`);
+  }
+
   const elements = new Map<number, Element>();
   const descriptors: FieldDescriptor[] = [];
   const outcomes: FieldOutcome[] = [];
@@ -69,17 +102,31 @@ async function fill(request: Extract<ToAgentMessage, { kind: 'fill' }>): Promise
 
   for (const element of collectCandidates(document)) {
     const current = ref++;
-    const classification = classify(element);
 
-    if (!classification.fillable) {
+    // Structural checks first, so identity is only built for a control that
+    // survives them — the ordering UC-005 keeps for cost (BR-005-4).
+    const structural = classifyStructural(element, {
+      skipHidden: settings.skipHidden,
+      skipPreFilled: settings.skipPreFilled,
+      writtenByUs,
+    });
+
+    if (!structural.fillable) {
       // Recorded, never silently dropped — this is what lets a user tell
       // "nothing to fill" from "everything was ignored" (BR-005-8).
-      outcomes.push({ ref: current, status: 'skipped', reason: classification.reason });
+      outcomes.push({ ref: current, status: 'skipped', reason: structural.reason });
+      continue;
+    }
+
+    const descriptor = describe(element, current, structural.kind);
+
+    if (patterns.length > 0 && matchesIgnorePattern(identityOf(descriptor), patterns)) {
+      outcomes.push({ ref: current, status: 'skipped', reason: 'ignored-pattern' });
       continue;
     }
 
     elements.set(current, element);
-    descriptors.push(describe(element, current, classification.kind));
+    descriptors.push(descriptor);
   }
 
   if (descriptors.length > 0) {
@@ -90,18 +137,24 @@ async function fill(request: Extract<ToAgentMessage, { kind: 'fill' }>): Promise
     } satisfies FromAgentMessage);
 
     if (isValuesResponse(response)) {
-      for (const { ref: valueRef, value, provenance } of response.values) {
-        const element = elements.get(valueRef);
+      for (const value of response.values) {
+        const element = elements.get(value.ref);
         if (element === undefined) continue;
+
+        if (value.as === 'skip') {
+          outcomes.push({ ref: value.ref, status: 'skipped', reason: value.reason });
+          continue;
+        }
 
         // Per element, so one hostile control cannot end the run (BR-004-11,
         // FR-010). The reference lets a single throw abandon the rest of the
         // page (D10).
         try {
           applyValue(element, value, { dispatchEvents: settings.dispatchEvents });
-          outcomes.push({ ref: valueRef, status: 'filled', provenance });
+          writtenByUs.add(element);
+          outcomes.push({ ref: value.ref, status: 'filled', provenance: value.provenance });
         } catch (error) {
-          outcomes.push({ ref: valueRef, status: 'failed', cause: String(error) });
+          outcomes.push({ ref: value.ref, status: 'failed', cause: String(error) });
         }
       }
     }

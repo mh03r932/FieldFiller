@@ -24,11 +24,24 @@ export type Settings = {
 
   /** UC-004 A8. Off means values are written without the interaction sequence. */
   readonly dispatchEvents: boolean;
+  /** UC-005 step 6. On by default: filling a honeypot is what FR-071 exists to prevent. */
+  readonly skipHidden: boolean;
+  /**
+   * UC-005 step 7. Off by default, because the common case is filling a form
+   * repeatedly with fresh data (FR-075) — and our own earlier writes never count
+   * as content either way (BR-005-7).
+   */
+  readonly skipPreFilled: boolean;
+  /** Patterns whose match excludes a control (UC-005 step 5). */
+  readonly ignorePatterns: readonly string[];
 };
 
 export const DEFAULT_SETTINGS: Settings = {
   version: 1,
   dispatchEvents: true,
+  skipHidden: true,
+  skipPreFilled: false,
+  ignorePatterns: [],
 };
 
 /**
@@ -39,7 +52,12 @@ export const DEFAULT_SETTINGS: Settings = {
  * deliberately, one field at a time.
  */
 export function agentSettings(settings: Settings): AgentSettings {
-  return { dispatchEvents: settings.dispatchEvents };
+  return {
+    dispatchEvents: settings.dispatchEvents,
+    skipHidden: settings.skipHidden,
+    skipPreFilled: settings.skipPreFilled,
+    ignorePatterns: settings.ignorePatterns,
+  };
 }
 
 /**
@@ -57,9 +75,16 @@ export function parseSettings(stored: unknown): Settings {
   const candidate = stored as Partial<Record<keyof Settings, unknown>>;
   return {
     version: 1,
-    dispatchEvents:
-      typeof candidate.dispatchEvents === 'boolean'
-        ? candidate.dispatchEvents
-        : DEFAULT_SETTINGS.dispatchEvents,
+    dispatchEvents: boolean(candidate.dispatchEvents, DEFAULT_SETTINGS.dispatchEvents),
+    skipHidden: boolean(candidate.skipHidden, DEFAULT_SETTINGS.skipHidden),
+    skipPreFilled: boolean(candidate.skipPreFilled, DEFAULT_SETTINGS.skipPreFilled),
+    ignorePatterns: Array.isArray(candidate.ignorePatterns)
+      ? candidate.ignorePatterns.filter((entry): entry is string => typeof entry === 'string')
+      : DEFAULT_SETTINGS.ignorePatterns,
   };
+}
+
+/** One key's worth of coercion, so a single bad field cannot lose the rest. */
+function boolean(value: unknown, fallback: boolean): boolean {
+  return typeof value === 'boolean' ? value : fallback;
 }

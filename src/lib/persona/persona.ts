@@ -22,6 +22,16 @@
 export type Persona = {
   readonly firstName: string;
   readonly lastName: string;
+  /**
+   * The account password, part of the record rather than generated per field.
+   *
+   * This is what makes UC-006 nearly free: "confirm password" resolves to the
+   * same slot as "password", so the two agree by construction. The reference
+   * stashes the last generated value in a mutable `previousValue` shared by text
+   * *and* email fields and replays it, so any text input between the two
+   * silently clobbers what gets mirrored (ND-7).
+   */
+  readonly password: string;
   readonly fullName: string;
   readonly username: string;
   readonly email: string;
@@ -79,6 +89,25 @@ function pick<T>(items: readonly T[], random: Random): T {
   return items[Math.floor(random() * items.length)] as T;
 }
 
+/**
+ * A password that would actually pass a registration form.
+ *
+ * The reference's is `scrambledWord(8,8).toLowerCase()` — eight alternating
+ * lowercase letters, no digit, no uppercase, no symbol — which fails the very
+ * forms the feature exists to fill (ND-11). Per-field policy from `pattern` and
+ * `minlength` is applied by the generator on top of this.
+ */
+function password(random: Random): string {
+  const lower = 'abcdefghijkmnopqrstuvwxyz';
+  const upper = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
+  const digits = '23456789';
+  const symbols = '!@#$%&*';
+  const from = (set: string, count: number) =>
+    Array.from({ length: count }, () => set[Math.floor(random() * set.length)]).join('');
+
+  return `${from(upper, 1)}${from(lower, 8)}${from(digits, 3)}${from(symbols, 1)}`;
+}
+
 export function createPersona(random: Random): Persona {
   const firstName = pick(FIRST_NAMES, random);
   const lastName = pick(LAST_NAMES, random);
@@ -94,6 +123,7 @@ export function createPersona(random: Random): Persona {
   return {
     firstName,
     lastName,
+    password: password(random),
     fullName: `${firstName} ${lastName}`,
     username: slug.replace('.', ''),
     email: `${slug}@${domain}`,

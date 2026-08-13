@@ -22,8 +22,41 @@ export type FillScope = 'all-inputs' | 'current-form' | 'selected-input';
  */
 export type OperationId = string;
 
-/** The kinds of control Phase 1 can fill. Phase 2 brings the rest. */
-export type ControlKind = 'text' | 'email' | 'tel' | 'url' | 'search' | 'password' | 'textarea';
+/**
+ * Every control the engine can fill.
+ *
+ * Kept as a closed union rather than a string so that adding a control type is a
+ * compile error everywhere it must be handled — the generator, the applier and
+ * the sizing defaults — instead of a silent fallthrough to lorem ipsum.
+ */
+export type ControlKind =
+  | 'text'
+  | 'email'
+  | 'tel'
+  | 'url'
+  | 'search'
+  | 'password'
+  | 'textarea'
+  | 'number'
+  | 'range'
+  | 'date'
+  | 'datetime-local'
+  | 'month'
+  | 'week'
+  | 'time'
+  | 'color'
+  | 'checkbox'
+  | 'radio'
+  | 'select-one'
+  | 'select-multiple'
+  | 'contenteditable';
+
+/** One choice offered by a select or a radio group. */
+export type ControlOption = {
+  readonly value: string;
+  readonly label: string;
+  readonly disabled: boolean;
+};
 
 /**
  * What a control *is* — never what it currently holds (BR-004-10, NFR-030).
@@ -47,24 +80,57 @@ export type FieldDescriptor = {
   };
   /** The `autocomplete` token, a better identity signal than a regex on `id`. */
   readonly autocomplete?: string;
+  /**
+   * What the page's own validation will accept (D9, BR-004-7).
+   *
+   * The reference honours none of `step`, `minlength` or `pattern`, so it
+   * generates values the page then rejects — which defeats the entire purpose of
+   * filling the form.
+   */
   readonly constraints: {
     readonly maxLength?: number;
     readonly minLength?: number;
+    readonly min?: string;
+    readonly max?: string;
+    readonly step?: string;
+    readonly pattern?: string;
+    readonly required?: boolean;
   };
+  /** For selects and radio groups. Absent for every other kind. */
+  readonly options?: readonly ControlOption[];
+  /**
+   * A radio group's shared name, resolved within the control's own form
+   * (BR-005-3). Present only on radios.
+   */
+  readonly group?: string;
 };
 
-/** A generated value, with the provenance that explains where it came from. */
+/**
+ * A generated value, with the provenance that explains where it came from.
+ *
+ * A discriminated union rather than a bare string, because "the value" means
+ * genuinely different things per control: text to write, options to select, a
+ * box to tick. Collapsing those into a string would put the decision of how to
+ * interpret it in the applier, where the generator's intent is no longer
+ * available.
+ */
 export type FieldValue = {
   readonly ref: number;
-  readonly value: string;
   /**
-   * Why this value: which rule matched and on which source. Phase 1 has no
-   * rules, so this names the default generator that was chosen instead — the
-   * field exists from the start because a mis-fill nobody can explain is the
-   * defect ND-2 identifies (FR-069).
+   * Why this value: which rule matched and on which source. With no rules
+   * configured this names the default generator instead — the field exists from
+   * the start because a mis-fill nobody can explain is the defect ND-2
+   * identifies (FR-069).
    */
   readonly provenance: string;
-};
+} & (
+  | { readonly as: 'text'; readonly value: string }
+  /** Options to select, by value. One for a radio or single select, any number for a multi-select. */
+  | { readonly as: 'choice'; readonly values: readonly string[] }
+  | { readonly as: 'toggle'; readonly checked: boolean }
+  /** UC-004 A3.6: nothing selectable, so the control is left untouched. */
+  | { readonly as: 'skip'; readonly reason: ExclusionReason }
+);
 
 /** What happened to one control. Exactly one outcome each (FR-009, ND-14). */
 export type FieldOutcome =
@@ -82,6 +148,12 @@ export type ExclusionReason =
   | 'disabled'
   | 'readonly'
   | 'aria-disabled'
+  /** Not perceivable to a sighted user — which includes every honeypot (UC-005 A3). */
+  | 'hidden'
+  /** Already holds user content, and the user asked for those to be left alone. */
+  | 'pre-filled'
+  | 'ignored-pattern'
+  | 'no-selectable-option'
   | 'unclassifiable';
 
 /** One frame's account of a fill. Frames report independently (BR-001-5). */
@@ -128,6 +200,18 @@ export type ValuesResponse = {
 export type AgentSettings = {
   /** UC-004 A8: the user may turn the interaction sequence off entirely. */
   readonly dispatchEvents: boolean;
+  /** UC-005 step 6. Off means honeypots get filled, which is the point of it. */
+  readonly skipHidden: boolean;
+  /** UC-005 step 7. Our own earlier writes never count as content (BR-005-7). */
+  readonly skipPreFilled: boolean;
+  /**
+   * Patterns whose match excludes a control (UC-005 step 5).
+   *
+   * Sent as source strings and compiled once by the agent, never per field per
+   * pattern (ND-15, NFR-025). An invalid pattern is skipped rather than fatal
+   * (UC-005 A5).
+   */
+  readonly ignorePatterns: readonly string[];
 };
 
 export const PING: ToAgentMessage = { kind: 'ping' };
