@@ -445,7 +445,9 @@ These need resolution during detailed use case work. Each is flagged on the use 
 blocks.
 
 > **Status as of 2026-08-13:** DD-001, DD-003, DD-004 and DD-007 are resolved; ND-1, ND-2
-> and ND-9 are decided (see §7.4). DD-002, DD-005, DD-006 and DD-008 remain open.
+> and ND-9 are decided (see §7.4). **DD-008 resolved 2026-08-13.** DD-002, DD-005 and DD-006
+> remain open — and DD-006 now carries an obligation from DD-008: a result must name the scope
+> it filled, not only how many fields it filled.
 
 ### Resolved
 
@@ -511,6 +513,52 @@ so a shipped binding for it earns the least.
   shortcuts page is how a user discovers that it can be bound at all. The reference ships
   *nothing* bound and offers no prompt, which is why most of its users never assign one.
 
+**DD-008 — Scope when no `<form>` exists. RESOLVED.**
+
+"Fill this form" is resolved by a fixed ladder from the element the user pointed at. The first
+rule that matches wins, and the result names which one did.
+
+| | Rule | Rationale |
+|---|---|---|
+| 1 | `element.form` | The page said so |
+| 2 | Nearest ancestor `[role="form"]` or `<fieldset>` | The author said so, without a `<form>` tag |
+| 3 | Nearest ancestor containing the anchor **and a submit control** | A form is the thing you can submit |
+| 4 | *(anchored)* fill nothing and report why | An explicit narrowing must not be overridden |
+
+**The anchor**, in order: the right-clicked element; otherwise the focused element; otherwise
+the last control focused during this page's lifetime. The third exists because the case is
+common — tab through a form, click something else, then use the shortcut — and it costs
+nothing: it stores element identity only, exactly as the "written by us" set does
+(BR-005-7), so NFR-010 is untouched.
+
+**With no anchor at all** — the keyboard shortcut on a page the user has not touched — the
+scope is decided by how many form-like units the page has: exactly one, fill it; none, fill
+the page; two or more, fill the page.
+
+The asymmetry between rule 4 and the anchorless case is the whole design, and it is not an
+inconsistency. Widening after an anchor would override a narrowing the user expressed on
+purpose, which is why it refuses. Widening with no anchor overrides nothing, because no
+narrower intent was ever stated — and refusing there would mean the user pressed a key and
+watched nothing happen. Where two or more forms compete for an absent cursor, the page is
+chosen over the largest form because a superset cannot be wrong about which one was meant,
+while a guess silently fails whenever the other one was wanted.
+
+Rule 3 is preferred over the more obvious "nearest container holding more than one field"
+because it is both more accurate and explainable in one sentence: *the smallest block
+containing the field you pointed at and its submit button*. A scope the user cannot predict is
+the same defect as a rule they cannot predict (ND-2).
+
+**A correctness fix that applies regardless.** `closest("form")` is wrong even when a `<form>`
+is present: HTML associates a control with a form by the `form="id"` attribute too, which is
+how a modal or a sticky footer holds the submit button for fields outside it. `element.form`
+answers this natively. Same class of fix as `element.labels` over `label[for]` (ND-3).
+
+**What this obliges elsewhere.** The scope is now inferable three ways, so a fill result must
+state which scope ran — "6 fields in the form around your cursor" against "6 fields on the
+page". That is a requirement on **DD-006**, which remains open: a bare badge count cannot
+express it, so whatever feedback surface is chosen has to carry the scope as well as the
+count.
+
 **DD-003 — Generation runs in the background. RESOLVED.**
 The page agent walks, classifies and applies; it carries no corpus. Field descriptors go to
 the background over one message round-trip per fill, and values come back. Rationale and
@@ -535,13 +583,6 @@ DD-003 is what makes it affordable.
 
 *(DD-001, DD-003 and DD-004 were resolved on 2026-08-12 — see "Resolved" above.)*
 
-**DD-008 — Scope fallback when no form exists.** *Blocks UC-002.*
-"Fill this form" assumes a `<form>` ancestor. Modern applications routinely render form-like
-UI out of `<div>`s with no `<form>` at all, so `closest("form")` returns nothing and the
-reference silently does nothing. Options: fall back to filling the whole page, report that no
-form was found, or fall back to a heuristic container such as the nearest element with a form
-role. Silence is the one clearly wrong answer. Decide before UC-002 is drafted.
-
 **DD-002 — Sync storage shape and conflict resolution.** *Blocks UC-029.*
 `chrome.storage.sync` caps at **8 KB per item** and 102 KB total, with write-rate limits. The
 reference stores everything under a single `options` key — under `storage.sync` that would
@@ -565,6 +606,13 @@ first release, not after.
 
 **DD-006 — Result feedback surface.** Badge count, toast, or nothing. Affects UC-001..003
 postconditions.
+
+Constrained by DD-008: the scope of a fill is now inferable three ways, so the surface must
+convey *which* scope ran and not only how many fields were filled. A bare badge count cannot
+do that. It is also contended — the badge is where the active profile (UC-017) and domain-off
+(UC-008) indicators must live, and those are persistent facts that outrank a transient count.
+Phase 1 ships a count that reverts after a few seconds as a provisional answer; the decision
+is what replaces it.
 
 ---
 

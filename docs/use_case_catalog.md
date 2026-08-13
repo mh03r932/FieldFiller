@@ -19,7 +19,7 @@ Legend — **Spec:** `Not started` · `Blocked` · `Drafted` · `Approved`
 | ID | Use Case | Primary Actor | Goal | Traces to | Priority | Spec |
 |---|---|---|---|---|---|---|
 | UC-001 | Fill All Inputs on the Page | Tester | Populate every fillable control in the page and its frames in one action | FR-001, FR-004..010, FR-075 | High | **Drafted** |
-| UC-002 | Fill the Current Form | Tester | Populate only the `<form>` containing the cursor | FR-002, FR-004..006, FR-009, FR-010 | High | Not started |
+| UC-002 | Fill the Current Form | Tester | Populate the form the cursor is in, resolved by the DD-008 ladder where the page declares no `<form>` | FR-002, FR-004..006, FR-009, FR-010 | High | Not started |
 | UC-003 | Fill the Selected Input | Tester | Populate only the control under the cursor | FR-003, FR-004..006, FR-009, FR-010 | High | Not started |
 | UC-004 | Determine the Value for a Field | *(included)* | Identify a field, select the winning rule, generate and apply a value | FR-011..013, FR-019..023, FR-025, FR-027..032, FR-065..069 | High | **Drafted** |
 | UC-005 | Exclude a Field from Filling | *(included)* | Decide that a field must be left untouched | FR-033..036, FR-071, FR-075 | High | **Drafted** |
