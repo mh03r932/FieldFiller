@@ -32,6 +32,7 @@
  *   HEADFUL=1      show the window
  */
 import { spawn } from 'node:child_process';
+import { createRequire } from 'node:module';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { createServer } from 'node:http';
@@ -53,11 +54,38 @@ const CHROME_CANDIDATES = [
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+/**
+ * Playwright's pinned Chromium, if it has been downloaded.
+ *
+ * Used as a browser *locator* only — the driving below is still plain CDP. It is
+ * preferred over whatever Chrome the machine happens to have so that a local run
+ * and a CI run exercise the same build: "works on my machine" is otherwise a
+ * statement about an unpinned browser.
+ */
+function playwrightChromium() {
+  try {
+    const require = createRequire(import.meta.url);
+    const path = require('playwright').chromium.executablePath();
+    return existsSync(path) ? path : undefined;
+  } catch {
+    // Not installed. The candidate list below still applies.
+    return undefined;
+  }
+}
+
 function findChrome() {
   const fromEnv = process.env['CHROME_PATH'];
   if (fromEnv !== undefined && existsSync(fromEnv)) return fromEnv;
+
+  const pinned = playwrightChromium();
+  if (pinned !== undefined) return pinned;
+
   const found = CHROME_CANDIDATES.find((candidate) => existsSync(candidate));
-  if (found === undefined) throw new Error('No Chrome or Chromium found. Set CHROME_PATH.');
+  if (found === undefined) {
+    throw new Error(
+      'No Chrome or Chromium found. Run `pnpm exec playwright install chromium`, or set CHROME_PATH.',
+    );
+  }
   return found;
 }
 
@@ -153,6 +181,10 @@ try {
     `--load-extension=${EXTENSION_DIR}`,
     `--disable-extensions-except=${EXTENSION_DIR}`,
     ...(process.env['HEADFUL'] === '1' ? [] : ['--headless=new']),
+    // CI containers run as root, where Chrome's sandbox refuses to start, and
+    // their /dev/shm is typically too small for the renderer. Applied only when
+    // CI is set, so a developer's machine keeps the sandbox it should have.
+    ...(process.env['CI'] === undefined ? [] : ['--no-sandbox', '--disable-dev-shm-usage']),
     '--no-first-run', '--no-default-browser-check', 'about:blank',
   ], { stdio: 'ignore' });
 
@@ -164,8 +196,20 @@ try {
   }
   cdp = await connect(wsUrl);
 
-  const { targetId } = await cdp.send('Target.createTarget', { url: pageUrl });
+  // Navigate the tab Chrome already opened rather than creating a second one, so
+  // the browser has exactly one tab. The trigger below then identifies it by
+  // being the only one, instead of by being focused — focus is not a property a
+  // headless browser under `--no-sandbox` reliably has, and when it went missing
+  // the fill was dispatched to a tab that was not the reference page and every
+  // assertion failed at once, as though the engine had stopped working.
+  const initial = (await cdp.send('Target.getTargets')).targetInfos.find(
+    (target) => target.type === 'page',
+  );
+  const targetId =
+    initial?.targetId ?? (await cdp.send('Target.createTarget', { url: 'about:blank' })).targetId;
   const page = await cdp.attach(targetId);
+  await cdp.send('Page.enable', {}, page);
+  await cdp.send('Page.navigate', { url: pageUrl }, page);
   await cdp.send('Runtime.enable', {}, page);
   await sleep(1500);
 
@@ -185,9 +229,13 @@ try {
   // NFR-008 forbids that permission. Production never needs this — the click
   // hands the listener its tab — so the awkwardness is the harness's alone.
   const triggered = await cdp.send('Runtime.evaluate', {
-    expression: `chrome.tabs.query({ active: true, lastFocusedWindow: true }).then((tabs) => {
-      const tab = tabs[0] ?? undefined;
-      if (tab === undefined) return 'no active tab';
+    expression: `chrome.tabs.query({}).then((tabs) => {
+      // The only tab, not the focused one. Without the \`tabs\` permission Chrome
+      // withholds \`url\` from every tab it returns, so identity has to come from
+      // there being exactly one — which is why the harness navigates the initial
+      // tab rather than opening a second.
+      const tab = tabs.length === 1 ? tabs[0] : tabs.find((candidate) => candidate.active);
+      if (tab === undefined) return 'no tab to fill among ' + tabs.length;
       if (typeof chrome.action.onClicked.dispatch !== 'function') {
         return 'chrome.action.onClicked.dispatch is not available in this Chrome';
       }
@@ -372,7 +420,12 @@ try {
   // BR-001-1, the reason frames share one operation: a checkout whose card
   // fields sit in a payment iframe must receive the same person as the billing
   // fields in the parent document.
+  // The emptiness check is not redundant: when the fill did not run at all, every
+  // surface holds "" and "they all agree" passed while nothing had been filled.
+  // An equality assertion over possibly-absent values has to require presence
+  // too, or it is loudest exactly when it is least true.
   check('every frame received the same persona',
+    (filled.given_name ?? '') !== '' &&
     filled.given_name === filled.frame_name && filled.given_name === filled.xorigin_name &&
     filled.given_name === filled.shadow_name,
     `top=${filled.given_name} frame=${filled.frame_name} cross=${filled.xorigin_name} shadow=${filled.shadow_name}`);

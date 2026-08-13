@@ -63,6 +63,78 @@ jobs:
       - name: Unit tests
         run: pnpm test
 
+  # NFR-014: the Chromium end-to-end suite runs on every change, and Firefox on
+  # every release candidate. This job is the requirement — before it existed, the
+  # browsers only ran on a developer's machine by hand, which meant the checks
+  # covering the most integration risk were the ones CI could not enforce.
+  #
+  # `playwright` is a devDependency here purely as a browser fetcher: the
+  # harnesses drive Chrome over CDP and Firefox over WebDriver BiDi themselves,
+  # because Playwright cannot test Firefox extensions at all and a Chromium-only
+  # harness would leave half of NFR-017's promise unverified.
+  browser:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: pnpm/action-setup@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Cache browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: browsers-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            browsers-${{ runner.os }}-
+
+      - name: Install Chromium
+        # `--with-deps` also installs the apt packages headless Chrome needs,
+        # which are not cacheable and are the usual reason a browser job fails on
+        # a fresh runner.
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Build the Chromium package
+        run: pnpm run build
+
+      - name: Extension loads (Chromium)
+        run: |
+          export CHROME_PATH="$(node -e 'console.log(require("playwright").chromium.executablePath())')"
+          pnpm run smoke:chrome
+
+      - name: End-to-end fill (Chromium)
+        # The whole pipeline against the reference page: every control kind, the
+        # exclusions, confirmation fields, both frame kinds and an open shadow
+        # root — all from one persona.
+        run: |
+          export CHROME_PATH="$(node -e 'console.log(require("playwright").chromium.executablePath())')"
+          pnpm run e2e:chrome
+
+      # Firefox on release candidates only, per NFR-014. Installed from Mozilla
+      # directly rather than through Playwright, whose Firefox is a patched build
+      # that does not expose the remote agent the BiDi harness attaches to.
+      - name: Install Firefox
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          set -euo pipefail
+          curl -sSL -o /tmp/firefox.tar.xz \
+            'https://download.mozilla.org/?product=firefox-latest-ssl&os=linux64&lang=en-US'
+          tar -xJf /tmp/firefox.tar.xz -C /tmp
+
+      - name: Extension loads (Firefox)
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          pnpm run build:firefox
+          FIREFOX_PATH=/tmp/firefox/firefox pnpm run smoke:firefox
+
   package:
     runs-on: ubuntu-latest
     steps:

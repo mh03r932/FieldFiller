@@ -23,8 +23,9 @@ pnpm compile          # typecheck (TS strict)
 pnpm lint
 pnpm test             # unit tests
 pnpm build:all        # both targets into .output/
-pnpm gate:all         # the three CI gates, against the built output
+pnpm gate:all         # the CI gates, against the built output
 pnpm smoke            # load the built extension in a real Chrome and Firefox
+pnpm e2e              # fill the reference page in a real Chrome, assert what landed
 ```
 
 ## What CI enforces
@@ -39,11 +40,18 @@ publicly from quietly becoming false.
 | `gate:network` | NFR-033, NFR-007 — no `fetch`/`XHR`/`WebSocket`/`EventSource`/`sendBeacon`, no external URL, no remote code | G3 is absolute: "no outbound request, ever." An absolute claim needs a gate. |
 | `verify:reproducible` | NFR-011, G4 — two clean builds, digests compared | The published digest is what an auditor checks. Retrofitted later, the digests simply differ with nothing to show for it. |
 
-The smoke tests (`pnpm smoke`) load the real packages in real browsers and are local-only for
-now: they check that the extension installs, that Chrome accepts all three keyboard commands,
-that Firefox honours the `gecko.id`, and that the page agent reaches a page. The full
-end-to-end suite NFR-014 asks for arrives in Phase 1 with the reference test page, which is
-the first point at which there is a fill to assert.
+Browsers run in CI as well, which is NFR-014: the Chromium end-to-end fill on every change,
+Firefox on release candidates. `pnpm smoke` checks that the extension installs, that Chrome
+accepts all three keyboard commands, that Firefox honours the `gecko.id`, and that the page
+agent reaches a page. `pnpm e2e` drives a real fill against the reference page and asserts
+what landed — every control kind, the exclusions, confirmation fields, both frame kinds and an
+open shadow root, all from one persona.
+
+Both drive the browsers directly: CDP for Chrome, WebDriver BiDi for Firefox. Playwright is a
+devDependency purely as a browser fetcher, because it cannot test Firefox extensions at all
+and a Chromium-only harness would leave half of NFR-017's promise unverified. Run
+`pnpm exec playwright install chromium` once and the harnesses locate that pinned build
+themselves, so a local run and a CI run exercise the same browser.
 
 ## Layout
 

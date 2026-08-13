@@ -20,6 +20,7 @@
  *   HEADFUL=1      show the window, for debugging this script
  */
 import { spawn } from 'node:child_process';
+import { createRequire } from 'node:module';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { createServer } from 'node:http';
@@ -56,12 +57,37 @@ async function freePort() {
   return port;
 }
 
+/**
+ * Playwright's pinned Chromium, if it has been downloaded.
+ *
+ * Used as a browser *locator* only — the driving below is still plain CDP. It is
+ * preferred over whatever Chrome the machine happens to have so that a local run
+ * and a CI run exercise the same build: "works on my machine" is otherwise a
+ * statement about an unpinned browser.
+ */
+function playwrightChromium() {
+  try {
+    const require = createRequire(import.meta.url);
+    const path = require('playwright').chromium.executablePath();
+    return existsSync(path) ? path : undefined;
+  } catch {
+    // Not installed. The candidate list below still applies.
+    return undefined;
+  }
+}
+
 function findChrome() {
   const fromEnv = process.env['CHROME_PATH'];
   if (fromEnv !== undefined && existsSync(fromEnv)) return fromEnv;
+
+  const pinned = playwrightChromium();
+  if (pinned !== undefined) return pinned;
+
   const found = CHROME_CANDIDATES.find((candidate) => existsSync(candidate));
   if (found === undefined) {
-    throw new Error('No Chrome or Chromium found. Set CHROME_PATH to the executable.');
+    throw new Error(
+      'No Chrome or Chromium found. Run `pnpm exec playwright install chromium`, or set CHROME_PATH.',
+    );
   }
   return found;
 }
@@ -174,6 +200,11 @@ try {
       `--disable-extensions-except=${EXTENSION_DIR}`,
       // Extensions require the new headless mode; the old one ignored them.
       ...(process.env['HEADFUL'] === '1' ? [] : ['--headless=new']),
+      // CI containers run as root, where Chrome's sandbox refuses to start, and
+      // their /dev/shm is typically too small for the renderer. Applied only
+      // when CI is set, so a developer's machine keeps the sandbox it should
+      // have.
+      ...(process.env['CI'] === undefined ? [] : ['--no-sandbox', '--disable-dev-shm-usage']),
       '--no-first-run',
       '--no-default-browser-check',
       'about:blank',
