@@ -11,7 +11,7 @@ import {
 import { collectCandidates } from '@/lib/page/walk';
 import { classifyStructural, matchesIgnorePattern, radioGroup } from '@/lib/page/exclude';
 import { describe } from '@/lib/page/identify';
-import { applyValue } from '@/lib/page/apply';
+import { applyValue, verifyWrite } from '@/lib/page/apply';
 
 /**
  * The page agent — persistently injected into every frame of every page
@@ -221,6 +221,21 @@ async function fill(request: Extract<ToAgentMessage, { kind: 'fill' }>): Promise
         // page (D10).
         try {
           applyValue(element, value, { dispatchEvents: settings.dispatchEvents });
+
+          // FR-076: read it back before claiming it. `applyValue` dispatches its
+          // events synchronously, so a page that reverts us from a handler has
+          // already done so — and a control the page rewrote between describing
+          // it and filling it no longer holds what was chosen for it.
+          const verified = verifyWrite(element, value);
+          if (!verified.landed) {
+            outcomes.push({ ref: value.ref, status: 'failed', cause: verified.reason });
+            continue;
+          }
+
+          // Only once the write is known to have survived. `writtenByUs` is what
+          // stops pre-filled exclusion from treating our own values as the
+          // user's (BR-005-7); recording a control we did not actually fill
+          // would make the *page's* content look like ours on the next fill.
           writtenByUs.add(element);
           outcomes.push({ ref: value.ref, status: 'filled', provenance: value.provenance });
         } catch (error) {

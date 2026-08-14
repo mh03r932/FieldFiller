@@ -60,7 +60,11 @@ const EXPECTED = {
   'c9 · a normalised number counts as filled': { now: 'pass', fixedBy: undefined },
   'c10 · a custom combobox is answered': { now: 'fail', fixedBy: 'C' },
   'c10 · the hidden carrier was not written directly': { now: 'pass', fixedBy: undefined },
-  'report · filled count does not exceed what the page holds': { now: 'fail', fixedBy: 'A' },
+  // Landed 2026-08-15 with FR-076. Kept as a `pass` row rather than deleted: it
+  // is the regression guard for write verification, and the only surface that
+  // exposes the report at all is this count.
+  'report · a control cleared while we write it is not counted as filled': { now: 'pass', fixedBy: undefined },
+  'report · filled count does not exceed what the page holds': { now: 'fail', fixedBy: 'B' },
 };
 
 const CHROME_CANDIDATES = [
@@ -160,6 +164,9 @@ const pageUrl = `http://127.0.0.1:${server.address().port}/`;
 
 /** case name → true when the observed page satisfies it. */
 const results = new Map();
+
+/** The report's arithmetic, printed each run so the honesty gap is visible. */
+let counts;
 
 try {
   const debugPort = await freePort();
@@ -286,6 +293,8 @@ try {
     throw new Error('nothing was filled at all — this is not a cascade failure, the fill did not run');
   }
 
+  counts = { badge: badge === '' ? '—' : Number(badge), holding: seen.holding, fillable: seen.fillable };
+
   const record = (name, condition, detail) => results.set(name, { ok: Boolean(condition), detail });
 
   record('c1 · dependent select filled from its rewritten options',
@@ -348,9 +357,29 @@ try {
     seen.c10_currency === '' || seen.c10_display !== 'Select…',
     `carrier=${JSON.stringify(seen.c10_currency)} shows=${JSON.stringify(seen.c10_display)}`);
 
-  // Step A's whole point, in one number. The badge counts what the engine says
-  // it filled; `holding` counts what the page actually holds. A report claiming
-  // more than the page has is the silent failure UC-034 exists to remove.
+  // The report's honesty, in one subtraction. The badge counts what the engine
+  // says it filled; `holding` counts what the page actually holds. A report
+  // claiming more than the page has is the silent failure UC-034 exists to
+  // remove — and it is measured in two steps, because the two halves are fixed
+  // by different work.
+  //
+  // Step A sees only what happens synchronously: `applyValue` dispatches its
+  // events before returning, so a handler that clears the field has already run
+  // when the readback happens. Two controls here revert on a *timer* instead —
+  // c6's property wipe at 120 ms and c8's node replacement at 100 ms — and no
+  // amount of reading back at write time can see those. They are what BR-034-2's
+  // second verification, at the end of the fill, exists for.
+  //
+  // Measured: 10 claimed against 7 held before FR-076, 9 against 7 after. The
+  // one that went away is c7's synchronous revert, which is exactly step A's
+  // claim and nothing more.
+  const ASYNCHRONOUS_REVERTS = 2;
+
+  record('report · a control cleared while we write it is not counted as filled',
+    badge !== '' && Number(badge) - seen.holding <= ASYNCHRONOUS_REVERTS,
+    `badge=${badge} holding=${seen.holding} — overcount ${Number(badge) - seen.holding},` +
+      ` at most ${ASYNCHRONOUS_REVERTS} expected until the end-of-fill check lands`);
+
   record('report · filled count does not exceed what the page holds',
     badge !== '' && Number(badge) <= seen.holding,
     `badge=${badge} holding=${seen.holding} of ${seen.fillable} fillable`);
@@ -382,6 +411,14 @@ const advances = [];
 let asExpected = 0;
 
 console.log('\n  UC-034 — dependent fields, against the current engine\n');
+if (counts !== undefined) {
+  // Printed every run, not only on failure. The report's honesty is one
+  // subtraction, and it is the number that moves as DD-009 lands.
+  console.log(
+    `  report: ${counts.badge} claimed filled · ${counts.holding} holding a value` +
+      ` · ${counts.fillable} fillable\n`,
+  );
+}
 for (const [name, expectation] of Object.entries(EXPECTED)) {
   const result = results.get(name);
   if (result === undefined) {

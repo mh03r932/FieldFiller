@@ -15,7 +15,7 @@ const classify = (element: Element) => classifyStructural(element, CONTEXT);
 /** A text value, as the generator would produce it. */
 const textValue = (value: string): FieldValue => ({ ref: 0, as: 'text', value, provenance: 'test' });
 import { describe as describeField } from '@/lib/page/identify';
-import { applyValue } from '@/lib/page/apply';
+import { applyValue, verifyWrite } from '@/lib/page/apply';
 
 /**
  * The page-side engine, tested without a browser extension host.
@@ -297,5 +297,149 @@ describe('apply', () => {
     // The caller isolates this per field, so one impossible control cannot end
     // the run (BR-004-11).
     expect(() => applyValue(span, textValue('x'), { dispatchEvents: false })).toThrow();
+  });
+});
+
+/**
+ * FR-076. The half of UC-034 that needs no loop: having written is not the same
+ * as having been written to.
+ *
+ * The cases below split into two halves that pull in opposite directions, which
+ * is the whole difficulty. A page that *rejected* our value must be reported as
+ * a failure; a page that merely *reformatted* it must not. Verification that
+ * gets the first half right by comparing strings gets the second half
+ * catastrophically wrong, reporting a correctly filled page as a wall of
+ * failures (BR-034-4).
+ */
+describe('verify', () => {
+  const choiceValue = (...values: string[]): FieldValue => ({
+    ref: 0, as: 'choice', values, provenance: 'test',
+  });
+  const toggleValue = (checked: boolean): FieldValue => ({
+    ref: 0, as: 'toggle', checked, provenance: 'test',
+  });
+
+  const write = (element: Element, value: FieldValue) => {
+    applyValue(element, value, { dispatchEvents: true });
+    return verifyWrite(element, value);
+  };
+
+  /** `new Option(…)` is not a happy-dom global; the long form is. */
+  const option = (value: string, label: string): HTMLOptionElement => {
+    const element = document.createElement('option');
+    element.value = value;
+    element.textContent = label;
+    return element;
+  };
+
+  it('accepts a value the page reformatted', () => {
+    // A reference field that uppercases itself, a currency mask, a phone mask:
+    // the page rewrote what we sent and *kept* it. That is a successful fill.
+    const input = fragment('<input>').firstElementChild as HTMLInputElement;
+    input.addEventListener('input', () => { input.value = input.value.toUpperCase(); });
+
+    expect(write(input, textValue('booking-ref')).landed).toBe(true);
+    expect(input.value).toBe('BOOKING-REF');
+  });
+
+  it('accepts a value the control normalised on its own', () => {
+    // `007` in a number field reads back as `7`. Nothing rejected it.
+    const input = fragment('<input type="number" min="1" max="99">').firstElementChild as HTMLInputElement;
+    expect(write(input, textValue('007')).landed).toBe(true);
+  });
+
+  it('accepts a value that satisfies the control\'s own constraints', () => {
+    const input = fragment('<input maxlength="8" minlength="2">').firstElementChild as HTMLInputElement;
+    expect(write(input, textValue('fits')).landed).toBe(true);
+  });
+
+  // Not tested here: a value longer than `maxlength`. The platform reports
+  // `tooLong` only for a value the *user* dirtied, so a browser calls an
+  // over-long programmatic write valid — while happy-dom sets the flag anyway.
+  // A test either way would assert the test environment rather than the engine.
+  // The generator honours the constraint before we get here (D4, BR-004-7), and
+  // `e2e-chrome.mjs` asserts that against a real browser.
+
+  it('reports a value the page cleared', () => {
+    // The reset-loop page: a handler that empties the field on every input.
+    // Before FR-076 this counted as filled and the badge said so.
+    const input = fragment('<input>').firstElementChild as HTMLInputElement;
+    input.addEventListener('input', () => { input.value = ''; });
+
+    const result = write(input, textValue('coupon'));
+    expect(result).toEqual({ landed: false, reason: 'value-did-not-take' });
+  });
+
+  it('reports a value the control cannot hold', () => {
+    const input = fragment('<input type="number" min="1" max="10">').firstElementChild as HTMLInputElement;
+    const result = write(input, textValue('500'));
+    expect(result).toEqual({ landed: false, reason: 'invalid-for-control' });
+  });
+
+  it('reports a selection whose options were rewritten underneath it', () => {
+    // UC-034 A1, the case DD-009 exists for: the option chosen from the
+    // descriptor no longer exists by the time it is applied. The select falls
+    // back to its placeholder, and without this it is reported as filled.
+    const select = fragment(
+      '<select><option value="">Choose…</option><option value="dev">Devon</option></select>',
+    ).firstElementChild as HTMLSelectElement;
+
+    select.addEventListener('change', () => {
+      select.replaceChildren(option('', 'Choose…'), option('ut', 'Utrecht'));
+    });
+
+    const result = write(select, choiceValue('dev'));
+    expect(result).toEqual({ landed: false, reason: 'options-changed' });
+  });
+
+  it('accepts a selection that took', () => {
+    const select = fragment(
+      '<select><option value="">Choose…</option><option value="dev">Devon</option></select>',
+    ).firstElementChild as HTMLSelectElement;
+    expect(write(select, choiceValue('dev')).landed).toBe(true);
+  });
+
+  it('reports a multi-select that took only some of its options', () => {
+    // Counted as sets, not by length: two of the three asked for is not the
+    // instruction, and the difference is visible to the user submitting it.
+    const select = fragment(
+      '<select multiple><option value="a">A</option><option value="b">B</option></select>',
+    ).firstElementChild as HTMLSelectElement;
+
+    select.addEventListener('change', () => {
+      for (const option of select.options) option.selected = option.value === 'a';
+    });
+
+    const result = write(select, choiceValue('a', 'b'));
+    expect(result).toEqual({ landed: false, reason: 'selection-did-not-take' });
+  });
+
+  it('accepts a checkbox in the state it was set to', () => {
+    const box = fragment('<input type="checkbox">').firstElementChild as HTMLInputElement;
+    expect(write(box, toggleValue(true)).landed).toBe(true);
+  });
+
+  it('reports a checkbox whose page refused the click', () => {
+    // A page calling `preventDefault` on the click keeps its checkbox unchanged
+    // — correct behaviour on its part, and a fill that did not happen on ours.
+    const box = fragment('<input type="checkbox">').firstElementChild as HTMLInputElement;
+    box.addEventListener('click', (event) => event.preventDefault());
+
+    const result = write(box, toggleValue(true));
+    expect(result).toEqual({ landed: false, reason: 'toggle-did-not-change' });
+  });
+
+  it('reports an emptied content-editable region', () => {
+    const div = fragment('<div contenteditable="true"></div>').firstElementChild as HTMLElement;
+    div.addEventListener('input', () => { div.textContent = ''; });
+
+    const result = write(div, textValue('written'));
+    expect(result).toEqual({ landed: false, reason: 'value-did-not-take' });
+  });
+
+  it('has nothing to verify for a control the generator skipped', () => {
+    const input = fragment('<input>').firstElementChild as HTMLInputElement;
+    const skip: FieldValue = { ref: 0, as: 'skip', reason: 'no-selectable-option', provenance: 'test' };
+    expect(verifyWrite(input, skip).landed).toBe(true);
   });
 });

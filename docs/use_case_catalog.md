@@ -117,7 +117,7 @@ obligations are listed rather than left to be rediscovered:
 | Owed by | Obligation |
 |---|---|
 | ~~**UC-034**~~ | ~~The whole decision.~~ **Discharged 2026-08-14** into `use_cases/UC-034.md`. |
-| **UC-001** *(drafted)* | A fill no longer ends when the first walk does. The postcondition becomes "settled or capped", and A7's "a second invocation is ignored" now has to say what happens when the second invocation arrives *during a cascade* rather than during a walk. |
+| **UC-001** *(drafted)* | ~~Filled means verified.~~ **Discharged 2026-08-15 with FR-076.** Still owed from step B: a fill no longer ends when the first walk does, so the postcondition becomes "settled or capped", and A7's "a second invocation is ignored" has to say what happens when the second invocation arrives *during a cascade* rather than during a walk. |
 | **UC-004** *(drafted)* | Generation becomes idempotent per element within one operation (FR-080), and FR-082 adds a persona-preferred option choice with its own provenance. Neither changes the rule-matching flow; both change what "generate" is allowed to depend on. |
 | **UC-005** *(drafted)* | A new exclusion reason for "we filled this earlier in this same operation", which must not be reported as `pre-filled`. Also: the perceivability check is now re-run on previously excluded controls at each settle, so its cost is paid more than once per fill. |
 | **UC-009** *(not started)* | Nothing directly — noted only because FR-082's fallback needs a provenance string, and provenance is authored alongside the rule model. |
