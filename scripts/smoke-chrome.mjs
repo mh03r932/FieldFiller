@@ -278,7 +278,12 @@ try {
     // leaves the manifest looking perfectly correct.
     //
     // The expected shortcut is matched loosely because the string is formatted
-    // per platform — "⇧⌘Y" on macOS, "Ctrl+Shift+Y" elsewhere. What matters is
+    // per platform in two dimensions. The *modifiers* differ — "⇧⌘Y" on macOS,
+    // "Ctrl+Shift+Y" elsewhere — and so does the *key name*: a non-letter key is
+    // reported as its glyph on macOS ("⌘⇧.") but as its name on Linux and
+    // Windows ("Ctrl+Shift+Period"). Measured on the Chrome for Testing build
+    // this harness pins, on both platforms. Letters have no separate name,
+    // which is why "Y" needs no alternatives and "Period" does. What matters is
     // which scopes are bound and which is deliberately not.
     const bound = await cdp.send(
       'Runtime.evaluate',
@@ -289,9 +294,11 @@ try {
       JSON.parse(bound.result.value).map((command) => [command.name, command.shortcut ?? '']),
     );
 
+    // `endsWith` is one acceptable suffix or several; the assertion passes if
+    // any of them matches. `null` keeps its meaning: deliberately unbound.
     const expected = [
-      { name: 'fill-all-inputs', endsWith: 'Y', note: 'bound by DD-007' },
-      { name: 'fill-current-form', endsWith: '.', note: 'bound by DD-007, Period substituted for the illegal Semicolon' },
+      { name: 'fill-all-inputs', endsWith: ['Y'], note: 'bound by DD-007' },
+      { name: 'fill-current-form', endsWith: ['.', 'Period'], note: 'bound by DD-007, Period substituted for the illegal Semicolon' },
       // Not an oversight: DD-007 ships this scope unbound, because the control
       // is most naturally reached by right-clicking the field itself. UC-030 is
       // how the user discovers it can be bound at all — so a shortcut appearing
@@ -308,8 +315,10 @@ try {
         else console.log(`✔ ${name}: unbound (${note})`);
       } else if (shortcut === '') {
         failures.push(`"${name}" has no shortcut — Chrome dropped the suggested key (${note})`);
-      } else if (!shortcut.endsWith(endsWith)) {
-        failures.push(`"${name}" is bound to ${shortcut}, expected a binding ending in "${endsWith}"`);
+      } else if (!endsWith.some((suffix) => shortcut.endsWith(suffix))) {
+        failures.push(
+          `"${name}" is bound to ${shortcut}, expected a binding ending in "${endsWith.join('" or "')}"`,
+        );
       } else {
         console.log(`✔ ${name}: ${shortcut} (${note})`);
       }
