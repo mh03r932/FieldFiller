@@ -61,6 +61,30 @@ the reference has none.
 **G6 — Small.** Page agent under 40 KB uncompressed, versus the reference's 480 KB. No data
 corpus and no SDK ships into the page.
 
+### Precedence when goals compete
+
+**G5 outranks every other quality attribute.** Where correctness and a non-functional budget
+cannot both be met, the budget yields and the shortfall is measured and recorded — not the
+other way round. A fill that is fast, small and wrong is a worse product than a fill that
+misses a millisecond target, because the wrong one is silent and the slow one is not.
+
+Two qualifications, because "correctness first" expands to cover everything if left
+unqualified:
+
+- **Coverage is not correctness.** A control the engine cannot drive and reports as skipped,
+  with a reason, is *correct* — it is incomplete. Filling it wrongly is the incorrect
+  outcome, and reporting it as filled when it was not is the worst one. So the size and
+  latency budgets legitimately outrank *reaching further*; they never outrank *telling the
+  truth about what was reached*.
+- **Bounded failure is the correct behaviour, not a compromise.** Where the engine cannot
+  finish — a page that fights back, a cascade deeper than the pass budget — stopping at a
+  declared limit and saying so is the correct outcome. Running unbounded in pursuit of
+  completeness is not more correct, it is merely unfinished.
+
+This ordering is deliberately stated once, here, rather than argued per decision. Every NFR
+in `docs/requirements.md` §2 carries a bare High/Medium priority with no tiebreak, which is
+what caused the question to be reopened on each design in turn.
+
 ---
 
 ## 4. Non-Goals
@@ -74,6 +98,13 @@ corpus and no SDK ships into the page.
 - **No scraping, recording, or replay of user input.**
 - **No Safari** in v1 (requires Xcode packaging and an Apple Developer account).
 - **No mobile browsers.**
+- **No modelling of a page's own validation relationships.** DD-009 makes the engine follow
+  dependencies the page expresses *in the DOM* — options rewritten, fields revealed, controls
+  enabled. It does not attempt dependencies the page keeps to itself: a postcode the server
+  checks against the chosen city, or a select whose options were all present from the start
+  but only some are valid given another answer. Nothing observable changes in either case, so
+  there is nothing to observe. Named here because "dependent fields" otherwise reads as
+  covering it.
 
 ---
 
@@ -94,8 +125,10 @@ corpus and no SDK ships into the page.
 
 ### 6.1 Component model
 
-Generation runs in the **background**, not in the page. The page agent walks and applies;
-it carries no data corpus. See DD-003 (resolved) in §9 for why.
+Generation runs in the **background**, not in the page. The page agent walks, applies,
+observes what the page does in response, and decides when the page has stopped changing; it
+carries no data corpus. See DD-003 (resolved) in §9 for why, and DD-009 for what the agent
+observes.
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
@@ -109,7 +142,7 @@ it carries no data corpus. See DD-003 (resolved) in §9 for why.
 │  ├── Persona    → one coherent fictional record per fill     │
 │  └── Generators + corpus (loaded once per session)           │
 └───────────────────────────┬──────────────────────────────────┘
-        executeScript       │  ▲  field descriptors ── one round-trip
+        executeScript       │  ▲  field descriptors ── one round-trip per pass
                             ▼  │  values + provenance
 ┌──────────────────────────────────────────────────────────────┐
 │ Page agent (content script — small, no corpus)               │
@@ -118,7 +151,9 @@ it carries no data corpus. See DD-003 (resolved) in §9 for why.
 │  ├── walk     → collect fillable elements (frames, shadow DOM)│
 │  ├── exclude  → disabled/readonly/hidden/prefilled/ignored   │
 │  ├── identify → name, id, class, label, aria, autocomplete   │
-│  └── apply    → framework-safe write + event sequence        │
+│  ├── apply    → framework-safe write + event sequence        │
+│  └── settle   → verify writes, observe the page's reaction,  │
+│                 re-fill what changed, stop at the cap        │
 └──────────────────────────────────────────────────────────────┘
 
 ┌──────────────────────────────────────────────────────────────┐
@@ -133,10 +168,19 @@ Two hard rules:
    descriptors plus settings and returns values. Both are unit-testable without an extension
    host. This is the main structural departure from the reference, where `ElementFiller`
    reaches into global `document` for radio groups and label lookups (ND-5).
-2. **The corpus never enters the page agent.** Measured: `@faker-js/faker` is 444 KB
-   minified even when a single locale is imported — its locale data is monolithic and does
-   not tree-shake. Parsing that in every frame of every page is exactly the mistake the
+2. **No corpus, no rule set and no persona in the page.** Measured: `@faker-js/faker` is
+   444 KB minified even when a single locale is imported — its locale data is monolithic and
+   does not tree-shake. Parsing that in every frame of every page is exactly the mistake the
    reference made with Firebase (ND-4). In the background it is parsed once per session.
+
+   This is the invariant, and it is narrower than "the agent is thin". The agent holds DOM
+   state and always has — the written-by-us set, the anchor element, and since DD-009 an
+   observer, element tokens and a pass counter. What must never cross is *data*: the corpus,
+   because it is enormous; the rule list and profiles, because the agent never uses them and
+   less exposed is less lost if a page ever compromises it (BR-024-4); the persona, because
+   it is the whole record and the page only ever needs the field in front of it. Logic in the
+   agent is kilobytes and is budgeted by NFR-003. Data in the agent is hundreds of kilobytes
+   and would reopen DD-001.
 
 The field descriptors crossing that boundary contain element names, ids and label text from
 the page. They never leave the device — this is an in-process message between two contexts
@@ -444,10 +488,11 @@ and the differentiators in §3, not on the name.
 These need resolution during detailed use case work. Each is flagged on the use case it
 blocks.
 
-> **Status as of 2026-08-13:** DD-001, DD-003, DD-004 and DD-007 are resolved; ND-1, ND-2
-> and ND-9 are decided (see §7.4). **DD-008 resolved 2026-08-13.** DD-002, DD-005 and DD-006
-> remain open — and DD-006 now carries an obligation from DD-008: a result must name the scope
-> it filled, not only how many fields it filled.
+> **Status as of 2026-08-14:** DD-001, DD-003, DD-004 and DD-007 are resolved; ND-1, ND-2
+> and ND-9 are decided (see §7.4). **DD-008 resolved 2026-08-13. DD-009 resolved 2026-08-14,
+> amending DD-003.** DD-002, DD-005 and DD-006 remain open — and DD-006 now carries two
+> obligations: from DD-008, a result must name the scope it filled; from DD-009, it must be
+> able to say that a fill stopped at its cap rather than finishing.
 
 ### Resolved
 
@@ -559,14 +604,244 @@ page". That is a requirement on **DD-006**, which remains open: a bare badge cou
 express it, so whatever feedback surface is chosen has to carry the scope as well as the
 count.
 
-**DD-003 — Generation runs in the background. RESOLVED.**
+**DD-003 — Generation runs in the background. RESOLVED.** *(Amended 2026-08-14 by DD-009.)*
 The page agent walks, classifies and applies; it carries no corpus. Field descriptors go to
-the background over one message round-trip per fill, and values come back. Rationale and
+the background over one message round-trip **per pass**, and values come back. Rationale and
 measurements in §6.1. Consequences: the corpus can be as rich as ND-1's full-persona
 coherence needs, and the page agent stays small enough that persistent injection (DD-001)
-remains defensible. Costs: one
-round-trip per fill, and an MV3 service-worker cold start on the first fill after idle, which
-is why NFR-002 is now split into warm and cold thresholds.
+remains defensible. Costs: the round trips, and an MV3 service-worker cold start on the first
+fill after idle, which is why NFR-002 is now split into warm and cold thresholds.
+
+**The invariant, restated so the amendment cannot erode it: the background never learns what
+the page *did*, only what it contains.** Descriptors in, values out. Every DOM semantic —
+what changed, whether a write survived, whether the page has stopped moving — stays on the
+page side of the boundary. That is what keeps generation a pure function and the background a
+stateless oracle, and it is the property that made multi-pass filling a change to one side
+rather than to both.
+
+**Re-examined 2026-08-14, when DD-009 turned one round trip into several. It holds, and the
+reasons are worth recording because the obvious objection is that the split now costs more.**
+
+- The split was never about round trips or about a thin agent — it was about the corpus.
+  DD-009 adds logic to the agent, not data. Nothing it adds moves the 444 KB measurement the
+  decision was taken on.
+- DD-003 and DD-001 are coupled, and only one is reopenable. Persistent `<all_urls>`
+  injection is defensible *because* the agent is 40 KB. Moving the corpus into the page ships
+  half a megabyte into every frame of every site — the exact criticism this project levels at
+  the reference in §2 and ND-4 — so unwinding DD-003 forces DD-001 open too, and DD-001 is
+  load-bearing for FR-003 on Chrome.
+- The eviction window narrows rather than widens. The worry is that a fill lasting seconds
+  rather than milliseconds gives the service worker more chance to be evicted mid-operation.
+  But an MV3 worker's idle timer is reset by each incoming message, and a cascade sends a
+  descriptor batch every few hundred milliseconds: a fill *with* passes keeps the worker
+  alive. The residual exposure is unchanged and is cold start on the first pass, which
+  NFR-027 already covers.
+- FR-080 pushes further the same way. Making generation a pure function of persona, token and
+  descriptor — which correctness required regardless — removes the last per-fill mutable
+  state from the background. A stateless oracle is easier to keep remote, not harder.
+
+**Considered and rejected: send the persona to the agent once, project it locally, and make
+later passes free of round trips.** It survives Phase 1 and dies in Phase 2. Rule matching,
+the regex generator, alphanumeric templates, randomised lists and policy-aware passwords are
+code plus the user's rule set, not a few hundred bytes of persona — so "just send the
+persona" becomes "ship the generators and the rule list", which is what `AgentSettings`
+withholds on purpose (BR-024-4). It also only covers persona-slot fields, a minority of any
+real form. Recorded because it is the obvious way to make passes cheap and will otherwise be
+re-proposed.
+
+**DD-009 — Fields whose content depends on an earlier answer. RESOLVED.**
+
+A single-pass fill assumes the page is finished changing by the time we walk it. Modern pages
+falsify that: choosing a country rewrites the state list, ticking a box reveals three fields,
+picking a plan enables a seat count. The reference has no answer at all — it walks once and
+leaves.
+
+**The single round trip and the 400 ms settle window were never invariants about the page.
+They were assumptions about how quickly a page stops changing, and single-page applications
+falsified them.** This decision turns both into backstops; everything in it exists to make
+the backstops honest rather than silent.
+
+#### What the problem decomposes into
+
+| | Sub-problem | Kind |
+|---|---|---|
+| **P1** | Stale options — a dependent control's options are rewritten after its controller is set | mechanical |
+| **P2** | Late fields — controls appear or become enabled only after an earlier choice | mechanical |
+| **P3** | Non-native widgets — the "select" is not a `<select>` | interaction |
+| **P4** | Semantic coherence — a valid pick may still be the wrong pick | generation |
+
+P1 and P2 are one problem wearing two coats: a snapshot against a living DOM. P3 is a
+different problem and gets a different mechanism. **P4 is not part of this decision** — it is
+a UC-004 generation concern (FR-082), only adjacent because cascading selects happen to be
+country/state/city. It is sequenced independently so this change does not wait on a
+data-shaped question.
+
+#### The decision: an event-driven fixpoint loop, owned by the page agent
+
+The agent applies, watches what the page does in response, fills exactly what changed,
+verifies every write survived, caps everything, and reports the caps. The background is
+unchanged in kind: it answers descriptor batches, several times per frame instead of once.
+
+The loop lives in the agent because the agent owns the DOM. Putting it in the background
+would mean shipping DOM observation semantics across a boundary that has no DOM, and would
+break the invariant restated under DD-003.
+
+#### The five mechanisms that make it stable rather than hopeful
+
+**1 · Element tokens, for identity *and* for value stability.** `ref` is positional per batch
+and meaningless across passes, so each element gets a token for the operation's lifetime,
+held in a `WeakMap`. The report carries one final outcome per token — a control filled in
+pass 1, wiped by the page, refilled in pass 2 counts once. This is the same problem `FrameId`
+solved one level up, and the same answer.
+
+The token must also reach the background, because generation draws from a stateful PRNG:
+re-describe an element in a later pass and it would otherwise receive a *different* value.
+An email refilled in pass 2 no longer matches the "confirm email" filled in pass 1, and
+FR-024 is broken by the loop itself, invisibly. So generation is seeded per token from the
+operation's seed (FR-080), making it idempotent within a fill and still fresh across fills
+(FR-075). This also defuses whole-node replacement: a framework that swaps a `<select>` out
+gets a new token and a second fill, but with the *same* value — the damage reduces from a
+double-fill to a double-count.
+
+**2 · Two signals, with different jobs.** This is the correction that matters most, because
+the intuitive design gets it wrong in both directions.
+
+- A `MutationObserver` decides **when to look** — `childList` on the document subtree plus a
+  narrow `attributeFilter` (`disabled`, `hidden`, `readonly`, `style`, `class`,
+  `aria-disabled`, `aria-busy`). It is a timing signal and nothing more.
+- A **verification sweep at quiescence decides what changed**, read from the DOM rather than
+  from mutation records.
+
+Mutation records cannot be the diff's only input, in both directions at once. A framework
+that reverts our write does it with a property assignment, which emits **no records at all** —
+so a `childList`-only observer can never see the reset loop it was chosen to catch. And
+"previously excluded, now eligible", which is most of P2, is usually an *attribute* change: a
+`disabled` lifted off a fieldset, a `hidden` removed, a `display:none` flipped.
+
+**3 · What earns a re-fill.** Not everything, every pass. A control re-enters the candidate
+set only if it is new; its option list changed; our written value did not survive; or it was
+excluded for a reason that no longer applies. A control the page cascaded to a sensible
+default is treated as content and left alone. A control still holding our value is left alone
+and keeps its earlier `filled` outcome — reported under its own exclusion reason, never as
+`pre-filled`, which would be a lie the badge would then repeat.
+
+**4 · Verification, twice.** Immediately after the write, to answer *did it take*; and again
+at final quiescence, to answer *did it survive*. Only the second can be honest about a page
+that reverts us, and it is why a control's outcome is decided at the end rather than when it
+was written.
+
+Verification is **per kind, never string equality**. `type=number` given `007` reads back `7`,
+`type=date` given a bad format reads back empty, `type=color` normalises case, `maxlength`
+truncates, and a currency mask turns `1234` into `$1,234.00`. Equality would report a page
+full of correctly-filled fields as failures. Toggles and selects verify exactly; text-like
+controls verify non-empty plus the constraints the descriptor already carries. A page that
+normalised our value filled successfully.
+
+The comparison happens entirely inside the agent, and neither the value read back nor the
+value it is compared against ever enters a descriptor or a report. NFR-010 and NFR-030 are
+untouched.
+
+**5 · The user always wins.** A cascade stretches a fill from milliseconds to seconds, which
+is long enough for a human to start typing into it. **No pass may write to a control the user
+has touched since the fill began, and any trusted user input ends the cascade.** The
+discrimination is exact and free: everything the agent dispatches, including the synthetic
+click a checkbox receives, carries `isTrusted: false`. This is the only failure in the whole
+design where the *user* is harmed rather than the fill being incomplete, so it is a rule and
+not a mitigation.
+
+#### Bounds, and why stopping is the correct answer
+
+Some pages cannot be resolved. A validation bug that reverts a select on every change, two
+controls that rewrite each other, a handler that throws on our synthetic event — each is a
+loop with no fixpoint. The engine stops at a declared limit and says so: a pass cap, a
+per-pass maximum wait, and a total cascade budget (NFR-034), with "capped" reported as its own
+fact — *"3 passes, 2 fields may be stale"* — rather than folded into the count. Per §3, a
+bounded honest failure is the correct outcome, not a compromise on the way to one.
+
+The caps are chosen from measured cascade depth across the fixture matrix, not from round
+numbers, and the fixtures are the specification: native cascade, chained cascade, debounced
+cascade, server-driven options, reset loop, circular dependency, whole-node replacement, and
+a property-only wipe — that last one being the regression test that the observer never became
+the diff.
+
+#### P3: non-native selects, best-effort with honesty
+
+Detected by `role="combobox"`, `role="listbox"`, `aria-haspopup="listbox"`, and the
+hidden-input-beside-a-combobox pattern. They become a new control kind, so the existing
+per-source identity machinery applies unchanged. Then a ladder, each rung verified by readback
+before it is trusted, and the whole ladder bounded by having recorded the focused element and
+scroll position first:
+
+1. **Keyboard**, the ARIA authoring pattern — focus, `ArrowDown` to open, read the options
+   from the now-open popup (a portaled popup lands in `document.body` and a document-scoped
+   query finds it), arrow to the choice, `Enter`, verify.
+2. **Click-open** — click the trigger, read the options, click the choice, verify.
+3. **Restore and give up honestly** — `Escape`, put focus and scroll back, and report the
+   control as skipped with a reason. A page left in a trapped modal state because we opened a
+   popup and walked away is a worse outcome than an unfilled field.
+
+Clicking a combobox trigger is consistent with ND-6 rather than an exception to it: a
+combobox trigger is a control a user actually clicks, which is the entire test ND-6 sets.
+
+**Deliberately not on the ladder: writing the hidden backing `<input type="hidden">`.** It is
+excluded by type for good reason, and writing it typically updates the form payload without
+updating the component's state — producing a UI reading "Select…" and a submission carrying
+"GB". That is worse than an honest skip, because it is wrong *and* invisible.
+
+P3 is the one part of this decision that yields to NFR-003. Reaching further is coverage, not
+correctness (§3), and the detection also widens the walk's candidate selector on every page —
+`div[role="combobox"]` is not `input, textarea, select, [contenteditable]` — spending latency
+budget everywhere to serve a minority of pages. It is gated on measuring that inflation
+first.
+
+#### Also considered and rejected
+
+- **Blind re-fill N times, or a fixed sleep between passes.** Both die on the debounced
+  cascade, which is the commonest case in the wild: too early and the options have not
+  arrived, too late and every fill pays for the worst page the user owns.
+- **Watching the page's own `fetch` to know when options arrive.** Patching `fetch` from the
+  agent is observable to the page, muddies G3's story even though it issues nothing itself,
+  and is strictly worse than observing the DOM that the fetch produces.
+- **Filling choice controls before text controls within a pass**, so controllers are set
+  first. The loop already covers it, and it makes the report's order unexplainable — a
+  predictability cost of the kind ND-2 exists to avoid.
+
+#### What this obliges elsewhere
+
+- **DD-003** is amended: one round trip per pass, with the stateless-oracle invariant restated
+  above so the amendment cannot be read as permission to move DOM semantics across.
+- **DD-006** gains a second obligation. A capped fill is a distinct outcome and a bare count
+  cannot express it, exactly as DD-008 made scope inexpressible in a count.
+- **NFR-001 is split rather than loosened.** The 500-controls-in-500 ms budget is what the
+  user perceives — the form visibly filling — and it stays, scoped to the first pass. Cascade
+  resolution gets its own budget (NFR-034) that is explicitly not part of the responsiveness
+  claim, so the §10 success criterion survives verbatim.
+- **NFR-029 is bounded rather than reworded**: 20 ms per round trip still, plus a cap on the
+  number of round trips per frame, so the total is derivable instead of asserted.
+- The background's operation timeout becomes a **sliding deadline** — last progress plus the
+  existing 15 s — rather than a larger fixed one. A bigger fixed timeout would make the
+  navigate-mid-fill case worse by locking the tab for longer; a sliding window frees a dead
+  agent as quickly as today and never abandons a working one. The absolute ceiling is derived
+  from the agent's own cascade budget so the two cannot disagree.
+- The observer and the token map are disconnected and dropped when the report is sent. An
+  observer left connected on every page the user visits is the permanent tax DD-001 already
+  made expensive (NFR-035).
+- The protocol grows **compatibly**: the token is an added field, `capped` and the pass count
+  are optional on a frame report, and their absence means "one pass". After an update, tabs
+  opened beforehand still run the previous build until they reload, so a report in the old
+  shape must keep validating — a commitment the protocol already makes and this must not
+  quietly withdraw.
+- The loop takes its scheduler as a parameter, the way the walk takes its root. Quiescence is
+  timing, NFR-015 requires the engine to be testable without a browser, and otherwise the
+  entire fixture matrix above can only run in the end-to-end harness.
+
+**Why this was affordable at all: ND-1.** Generation projects a pre-existing persona onto
+descriptors, so a field described in pass 3 resolves to the same persona slot as one described
+in pass 0. Under the reference's order-dependent mirroring (ND-7), a "confirm email" filled in
+a later pass would mirror whatever that pass happened to generate. Multi-pass filling would
+have been incoherent by construction. The decision to synthesise a record before touching the
+page — taken for §7.4's reasons, not for this one — is what made this change tractable two
+phases later.
 
 **DD-004 — Build framework: WXT. RESOLVED.**
 One config emits both targets, absorbing the `service_worker` vs `background.scripts` split
@@ -614,6 +889,13 @@ do that. It is also contended — the badge is where the active profile (UC-017)
 Phase 1 ships a count that reverts after a few seconds as a provisional answer; the decision
 is what replaces it.
 
+Constrained again by DD-009: a fill can now stop at its cap with fields left stale, and that
+is a third thing the surface must be able to say. "6 filled" and "6 filled, 2 may be stale"
+are different facts about the same page, and a user who cannot tell them apart is back to the
+reference's problem of not knowing whether anything went wrong. Three facts — scope, count,
+completeness — is past what a badge holds, which is now the strongest argument in the
+decision rather than an aside.
+
 ---
 
 ## 10. Success Criteria
@@ -622,7 +904,8 @@ is what replaces it.
 |---|---|
 | Parity | Fills a 60-field reference test page — every input type, `<select>`, `<textarea>`, `contenteditable`, shadow-root, cross-origin iframe — with no field left empty and no console error. |
 | Correctness | All ten defects in §7.2 have a regression test that fails against ported reference logic and passes against ours. |
-| Speed | 500 controls filled in under 500 ms. |
+| Dependent fields | A cascading country/state/city form ends with every dependent select holding a value from its *rewritten* option list, and a page that reverts every write is reported as capped with stale fields named — never as a clean fill. |
+| Speed | 500 controls filled in under 500 ms, measured on the first pass (DD-009). |
 | Size | Page agent under 40 KB minified and uncompressed, verified in CI on every build. |
 | Privacy | Zero outbound requests observed over a full session under DevTools network logging, verified in CI. |
 | Verifiability | Store artefact digest matches the CI-built release artefact digest. |

@@ -18,14 +18,15 @@ Legend — **Spec:** `Not started` · `Blocked` · `Drafted` · `Approved`
 
 | ID | Use Case | Primary Actor | Goal | Traces to | Priority | Spec |
 |---|---|---|---|---|---|---|
-| UC-001 | Fill All Inputs on the Page | Tester | Populate every fillable control in the page and its frames in one action | FR-001, FR-004..010, FR-075 | High | **Drafted** |
+| UC-001 | Fill All Inputs on the Page | Tester | Populate every fillable control in the page and its frames in one action | FR-001, FR-004..010, FR-075, FR-076, FR-078, FR-079 | High | **Drafted** *(revision owed — DD-009)* |
 | UC-002 | Fill the Current Form | Tester | Populate the form the cursor is in, resolved by the DD-008 ladder where the page declares no `<form>` | FR-002, FR-004..006, FR-009, FR-010 | High | Not started |
 | UC-003 | Fill the Selected Input | Tester | Populate only the control under the cursor | FR-003, FR-004..006, FR-009, FR-010 | High | Not started |
-| UC-004 | Determine the Value for a Field | *(included)* | Identify a field, select the winning rule, generate and apply a value | FR-011..013, FR-019..023, FR-025, FR-027..032, FR-065..069 | High | **Drafted** |
+| UC-004 | Determine the Value for a Field | *(included)* | Identify a field, select the winning rule, generate and apply a value | FR-011..013, FR-019..023, FR-025, FR-027..032, FR-065..069, FR-080, FR-082 | High | **Drafted** *(revision owed — FR-080, FR-082)* |
 | UC-005 | Exclude a Field from Filling | *(included)* | Decide that a field must be left untouched | FR-033..036, FR-071, FR-075 | High | **Drafted** |
 | UC-006 | Reuse a Value for a Confirmation Field | *(extends UC-004)* | Repeat the previously generated value in a confirmation field | FR-024, FR-032 | High | Not started |
 | UC-007 | Apply a URL Profile | *(extends UC-004)* | Give profile rules precedence over global rules on a matching page | FR-031, FR-045 | High | Not started |
 | UC-008 | Suspend Filling on an Excluded Domain | *(extends UC-001..003)* | Make the extension inert on domains the user has excluded | FR-037, FR-038, FR-074 | High | Not started |
+| UC-034 | Fill Fields That Depend on an Earlier Answer | *(included)* | Follow the page's own cascade — options rewritten, fields revealed, controls enabled — verifying each write and stopping honestly at a declared bound | FR-076..079, FR-081, DD-009 | High | Not started |
 
 ## Rules
 
@@ -106,8 +107,20 @@ ported. Three of them change a use case's shape and must be settled before it is
 Where a decision lands before the use case implementing it is specified, its obligations are
 recorded here so the spec work picks them up rather than rediscovering the question.
 
-*Currently empty.* **DD-007** was parked here on 2026-08-13 and discharged the same day into
+**DD-007** was parked here on 2026-08-13 and discharged the same day into
 `use_cases/UC-023.md` and `use_cases/UC-030.md`.
+
+**DD-009** (dependent and late-appearing fields, resolved 2026-08-14) is parked here. It
+lands before UC-034 exists and it reopens two specs that are already drafted, so its
+obligations are listed rather than left to be rediscovered:
+
+| Owed by | Obligation |
+|---|---|
+| **UC-034** *(to be written)* | The whole decision: the fixpoint loop, the two observation signals, what earns a re-fill, the pass and time bounds, and the combobox ladder with its restore rung. |
+| **UC-001** *(drafted)* | A fill no longer ends when the first walk does. The postcondition becomes "settled or capped", and A7's "a second invocation is ignored" now has to say what happens when the second invocation arrives *during a cascade* rather than during a walk. |
+| **UC-004** *(drafted)* | Generation becomes idempotent per element within one operation (FR-080), and FR-082 adds a persona-preferred option choice with its own provenance. Neither changes the rule-matching flow; both change what "generate" is allowed to depend on. |
+| **UC-005** *(drafted)* | A new exclusion reason for "we filled this earlier in this same operation", which must not be reported as `pre-filled`. Also: the perceivability check is now re-run on previously excluded controls at each settle, so its cost is paid more than once per fill. |
+| **UC-009** *(not started)* | Nothing directly — noted only because FR-082's fallback needs a provenance string, and provenance is authored alongside the rule model. |
 
 ## Order of Work
 
@@ -122,7 +135,7 @@ Summary:
 |---|---|
 | 0 · Decisions and foundations | none — spikes, scaffold, CI, reference test page |
 | 1 · Walking skeleton | UC-024, UC-005, UC-004, UC-001 *(all partial)* |
-| 2 · Engine completeness | UC-004, UC-005 *(full)*, UC-006 |
+| 2 · Engine completeness | UC-004, UC-005 *(full)*, UC-006, UC-034 |
 | 3 · Scopes and triggers | UC-002, UC-003, UC-008 |
 | 4 · Configuration | UC-024 *(full)*, UC-009..UC-013, UC-018..UC-023 |
 | 5 · Profiles | UC-014..UC-017, UC-007 |

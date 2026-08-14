@@ -29,8 +29,13 @@ separate passes, so this is the single ordering for both.
 *No user-visible output. Everything downstream is cheaper or more expensive based on this.*
 
 **Decided 2026-08-12:** DD-001 → persistent `<all_urls>` · DD-003 → generation in the
-background, thin page agent · DD-004 → WXT · ND-1 → full persona · ND-2 → source-scoped
-matching · ND-9 → discriminated union. **One spike left.**
+background, no corpus in the page agent · DD-004 → WXT · ND-1 → full persona · ND-2 →
+source-scoped matching · ND-9 → discriminated union. **One spike left.**
+
+**Decided 2026-08-14:** DD-009 → event-driven fixpoint loop in the page agent for dependent
+and late-appearing fields, amending DD-003 to one round trip per pass. Lands in Phase 2 as
+UC-034; it needs the full walk, exclusion and report machinery underneath it, and none of
+that exists before then.
 
 | Work | Closes |
 |---|---|
@@ -83,10 +88,43 @@ at the cost of a week rather than a quarter.
 | **UC-004** (full) | Record-first generation (ND-1); all input types; native constraints; source-scoped matching with provenance (ND-2); implicit labels; per-type sizing |
 | **UC-005** (full) | Hidden, pre-filled, ignore patterns, honeypot detection |
 | **UC-006** Reuse a Value for a Confirmation Field | Resolved against the record, not DOM order |
+| **UC-034** Fill Fields That Depend on an Earlier Answer | DD-009 — in three steps, below |
 | — | Fill report (FR-009), per-element error isolation (FR-010), nested frames, open shadow roots |
 
 At the end of this phase the extension does the job. Everything after it is control,
 convenience and trust.
+
+### UC-034 in three steps
+
+DD-009 is the largest single change in this phase and the only one that touches both sides of
+the DD-003 boundary. It is sequenced so that each step is shippable and the later ones cannot
+be trusted without the earlier ones.
+
+| Step | Brings | Depends on |
+|---|---|---|
+| **A · Honesty floor** | Per-kind write verification (FR-076), the stale/rejected outcome, `summarise` handling it. No NFR changes, no loop, shippable alone. | — |
+| **B · The fixpoint loop** | Element tokens and token-seeded generation (FR-080), the two observation signals, the re-fill rules, the pass and time bounds (FR-078, NFR-034), the trusted-input rule (FR-079), teardown (NFR-035), the sliding operation deadline, the compatible protocol delta. | A — a loop that cannot tell whether a write survived cannot decide what to re-fill |
+| **C · Combobox ladder** | FR-081, with the restore rung. | B, and a measurement |
+
+Step A first is not caution, it is a dependency: the loop's central decision — *does this
+control need another pass?* — is a verification question, so building the loop on an
+unverified report means building it on a guess.
+
+Step C is gated on a measurement rather than scheduled: widening the walk's candidate
+selector to find `role="combobox"` costs candidate-set size on **every** page, not only on
+pages that have one. Measure the inflation against the reference page before committing to it.
+Per `vision.md` §3, coverage yields to NFR-003 where correctness does not, so C is the part of
+DD-009 that gets cut if the budget binds — an honestly skipped combobox is a correct outcome.
+
+Each step declares a page-agent byte allowance and reads the CI size gate before and after.
+DD-001 makes NFR-003 the most load-bearing budget in the project, and DD-009 is the first
+change that spends it on logic rather than on breadth; a change that quietly eats a third of
+the remaining headroom is one nobody notices until the gate fails on something unrelated.
+
+FR-082 (persona-preferred options) is deliberately **not** here. It is UC-004 generation work
+that shares a motivating example with UC-034 — cascading country/state/city — and nothing
+else. Sequenced with the rest of UC-004 so the cascade work does not wait on an ISO
+normalisation table.
 
 ---
 
