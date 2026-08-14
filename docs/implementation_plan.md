@@ -118,16 +118,21 @@ Step A first is not caution, it is a dependency: the loop's central decision —
 control need another pass?* — is a verification question, so building the loop on an
 unverified report means building it on a guess.
 
-Step C is gated on a measurement rather than scheduled: widening the walk's candidate
-selector to find `role="combobox"` costs candidate-set size on **every** page, not only on
-pages that have one. Measure the inflation against the reference page before committing to it.
-Per `vision.md` §3, coverage yields to NFR-003 where correctness does not, so C is the part of
-DD-009 that gets cut if the budget binds — an honestly skipped combobox is a correct outcome.
+Step C is gated on a measurement rather than scheduled, and the measurement is a **latency**
+one: widening the walk's candidate selector to find `role="combobox"` grows the candidate set
+on **every** page, not only on pages that have one, so the cost lands on NFR-001's per-fill
+budget everywhere. Measure that inflation against the reference page before committing.
 
-Each step declares a page-agent byte allowance and reads the CI size gate before and after.
-DD-001 makes NFR-003 the most load-bearing budget in the project, and DD-009 is the first
-change that spends it on logic rather than on breadth; a change that quietly eats a third of
-the remaining headroom is one nobody notices until the gate fails on something unrelated.
+Per `vision.md` §3, coverage yields to a budget where correctness does not, so C is the part of
+DD-009 that gets cut if the measurement is bad — an honestly skipped combobox is a correct
+outcome.
+
+**Not** gated on NFR-003, which is where an earlier draft of this section pointed. Measured
+2026-08-14, the page agent is **10.73 KB of its 40 KB** budget, with the full walk, exclusion,
+identification and apply machinery in it. DD-009's loop and the ladder together are single-digit
+kilobytes against 29 KB of headroom. The size gate is still read before and after each step —
+it is the requirement that keeps DD-001 defensible, and a change that quietly eats a third of
+the headroom should be seen — but it is not the constraint that will decide C's fate.
 
 FR-082 (persona-preferred options) is deliberately **not** here. It is UC-004 generation work
 that shares a motivating example with UC-034 — cascading country/state/city — and nothing

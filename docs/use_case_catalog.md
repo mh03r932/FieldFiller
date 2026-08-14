@@ -26,7 +26,7 @@ Legend — **Spec:** `Not started` · `Blocked` · `Drafted` · `Approved`
 | UC-006 | Reuse a Value for a Confirmation Field | *(extends UC-004)* | Repeat the previously generated value in a confirmation field | FR-024, FR-032 | High | Not started |
 | UC-007 | Apply a URL Profile | *(extends UC-004)* | Give profile rules precedence over global rules on a matching page | FR-031, FR-045 | High | Not started |
 | UC-008 | Suspend Filling on an Excluded Domain | *(extends UC-001..003)* | Make the extension inert on domains the user has excluded | FR-037, FR-038, FR-074 | High | Not started |
-| UC-034 | Fill Fields That Depend on an Earlier Answer | *(included)* | Follow the page's own cascade — options rewritten, fields revealed, controls enabled — verifying each write and stopping honestly at a declared bound | FR-076..079, FR-081, DD-009 | High | Not started |
+| UC-034 | Fill Fields That Depend on an Earlier Answer | *(included)* | Follow the page's own cascade — options rewritten, fields revealed, controls enabled — verifying each write and stopping honestly at a declared bound | FR-076..079, FR-081, DD-009 | High | **Drafted** |
 
 ## Rules
 
@@ -116,7 +116,7 @@ obligations are listed rather than left to be rediscovered:
 
 | Owed by | Obligation |
 |---|---|
-| **UC-034** *(to be written)* | The whole decision: the fixpoint loop, the two observation signals, what earns a re-fill, the pass and time bounds, and the combobox ladder with its restore rung. |
+| ~~**UC-034**~~ | ~~The whole decision.~~ **Discharged 2026-08-14** into `use_cases/UC-034.md`. |
 | **UC-001** *(drafted)* | A fill no longer ends when the first walk does. The postcondition becomes "settled or capped", and A7's "a second invocation is ignored" now has to say what happens when the second invocation arrives *during a cascade* rather than during a walk. |
 | **UC-004** *(drafted)* | Generation becomes idempotent per element within one operation (FR-080), and FR-082 adds a persona-preferred option choice with its own provenance. Neither changes the rule-matching flow; both change what "generate" is allowed to depend on. |
 | **UC-005** *(drafted)* | A new exclusion reason for "we filled this earlier in this same operation", which must not be reported as `pre-filled`. Also: the perceivability check is now re-run on previously excluded controls at each settle, so its cost is paid more than once per fill. |

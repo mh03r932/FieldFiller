@@ -1,0 +1,428 @@
+#!/usr/bin/env node
+/**
+ * The scoreboard for DD-009.
+ *
+ * `e2e-chrome.mjs` asks whether the engine fills a page that holds still. This
+ * asks whether it can fill a page that answers back — the cases in UC-034's
+ * alternative flows, each one a shape that exists in the wild and that a
+ * single-pass fill gets wrong.
+ *
+ * **It is expectation-based, and passes while the expectations hold.** DD-009 is
+ * not built, so most cases below are expected to fail, and a run where they fail
+ * exactly as recorded exits 0. Three things make it exit 1:
+ *
+ *   · a case expected to pass that now fails — a regression;
+ *   · a case expected to fail that now passes — the step that fixes it has
+ *     landed, and its expectation is stale;
+ *   · the fill not running at all, which otherwise looks like every case failing
+ *     for its own reason.
+ *
+ * So this harness can be committed and run in CI today, and each of DD-009's
+ * three steps announces itself by flipping rows from `fail` to `pass`. The
+ * `EXPECTED` table below is the progress bar.
+ *
+ * Usage: node scripts/e2e-cascade.mjs   (after `pnpm run build`)
+ *   CHROME_PATH=…  override the browser binary
+ *   HEADFUL=1      show the window
+ */
+import { spawn } from 'node:child_process';
+import { createRequire } from 'node:module';
+import { createHash } from 'node:crypto';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { createServer } from 'node:http';
+import { tmpdir } from 'node:os';
+import { join, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
+const EXTENSION_DIR = join(ROOT, '.output', 'chrome-mv3');
+const FIXTURE = join(ROOT, 'tests', 'fixtures', 'cascade.html');
+
+/**
+ * What each case does *today*, on the single-pass engine.
+ *
+ * `pass` — works now, and must keep working. `fail` — the defect DD-009 exists
+ * to fix; the step named is the one expected to flip it.
+ *
+ * Editing a row here is the deliberate act of claiming a step has landed. Do it
+ * in the same change as the code, never ahead of it.
+ */
+const EXPECTED = {
+  'c1 · dependent select filled from its rewritten options': { now: 'fail', fixedBy: 'B' },
+  'c2 · chained cascade settles all three levels': { now: 'fail', fixedBy: 'B' },
+  'c3 · debounced cascade is waited for': { now: 'fail', fixedBy: 'B' },
+  'c4 · fields revealed by an answer are filled': { now: 'fail', fixedBy: 'B' },
+  'c5 · control enabled by an answer is filled': { now: 'fail', fixedBy: 'B' },
+  'c6 · a property-only wipe is noticed': { now: 'fail', fixedBy: 'B' },
+  'c7 · a page that always reverts still terminates the fill': { now: 'pass', fixedBy: undefined },
+  'c8 · a replaced control ends up holding a value': { now: 'fail', fixedBy: 'B' },
+  'c9 · a reformatted value counts as filled': { now: 'pass', fixedBy: undefined },
+  'c9 · a normalised number counts as filled': { now: 'pass', fixedBy: undefined },
+  'c10 · a custom combobox is answered': { now: 'fail', fixedBy: 'C' },
+  'c10 · the hidden carrier was not written directly': { now: 'pass', fixedBy: undefined },
+  'report · filled count does not exceed what the page holds': { now: 'fail', fixedBy: 'A' },
+};
+
+const CHROME_CANDIDATES = [
+  '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+  '/Applications/Chromium.app/Contents/MacOS/Chromium',
+  '/usr/bin/google-chrome',
+  '/usr/bin/chromium',
+  '/usr/bin/chromium-browser',
+];
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+function playwrightChromium() {
+  try {
+    const require = createRequire(import.meta.url);
+    const path = require('playwright').chromium.executablePath();
+    return existsSync(path) ? path : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function findChrome() {
+  const fromEnv = process.env['CHROME_PATH'];
+  if (fromEnv !== undefined && existsSync(fromEnv)) return fromEnv;
+  const pinned = playwrightChromium();
+  if (pinned !== undefined) return pinned;
+  const found = CHROME_CANDIDATES.find((candidate) => existsSync(candidate));
+  if (found === undefined) {
+    throw new Error(
+      'No Chrome or Chromium found. Run `pnpm exec playwright install chromium`, or set CHROME_PATH.',
+    );
+  }
+  return found;
+}
+
+function derivedExtensionId(absolutePath) {
+  const hash = createHash('sha256').update(absolutePath).digest('hex').slice(0, 32);
+  return [...hash].map((digit) => String.fromCharCode(97 + parseInt(digit, 16))).join('');
+}
+
+async function freePort() {
+  const probe = createServer();
+  await new Promise((resolve) => probe.listen(0, '127.0.0.1', resolve));
+  const { port } = probe.address();
+  await new Promise((resolve) => probe.close(resolve));
+  return port;
+}
+
+async function connect(url) {
+  const socket = new WebSocket(url);
+  const pending = new Map();
+  let nextId = 1;
+  await new Promise((resolve, reject) => {
+    socket.addEventListener('open', () => resolve());
+    socket.addEventListener('error', () => reject(new Error(`CDP connection failed: ${url}`)));
+  });
+  socket.addEventListener('message', (event) => {
+    const frame = JSON.parse(event.data);
+    if (frame.id !== undefined) { pending.get(frame.id)?.(frame); pending.delete(frame.id); }
+  });
+  return {
+    send(method, params = {}, sessionId) {
+      const id = nextId++;
+      return new Promise((resolve, reject) => {
+        pending.set(id, (frame) =>
+          frame.error ? reject(new Error(`${method}: ${frame.error.message}`)) : resolve(frame.result));
+        socket.send(JSON.stringify({ id, method, params, ...(sessionId ? { sessionId } : {}) }));
+      });
+    },
+    async attach(targetId) {
+      const { sessionId } = await this.send('Target.attachToTarget', { targetId, flatten: true });
+      return sessionId;
+    },
+    close() { socket.close(); },
+  };
+}
+
+if (!existsSync(join(EXTENSION_DIR, 'manifest.json'))) {
+  console.error('✖ no Chromium build found. Run `pnpm run build` first.');
+  process.exit(1);
+}
+
+const extensionId = derivedExtensionId(EXTENSION_DIR);
+const profileDir = mkdtempSync(join(tmpdir(), 'fieldfiller-cascade-'));
+let chrome;
+let cdp;
+let fatal;
+
+const html = readFileSync(FIXTURE, 'utf8');
+const server = createServer((_request, response) => {
+  response.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+  response.end(html);
+});
+await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+const pageUrl = `http://127.0.0.1:${server.address().port}/`;
+
+/** case name → true when the observed page satisfies it. */
+const results = new Map();
+
+try {
+  const debugPort = await freePort();
+  chrome = spawn(findChrome(), [
+    `--user-data-dir=${profileDir}`,
+    `--remote-debugging-port=${debugPort}`,
+    `--load-extension=${EXTENSION_DIR}`,
+    `--disable-extensions-except=${EXTENSION_DIR}`,
+    ...(process.env['HEADFUL'] === '1' ? [] : ['--headless=new']),
+    ...(process.env['CI'] === undefined ? [] : ['--no-sandbox', '--disable-dev-shm-usage']),
+    '--no-first-run', '--no-default-browser-check', 'about:blank',
+  ], { stdio: 'ignore' });
+
+  let wsUrl;
+  for (let attempt = 0; attempt < 100 && wsUrl === undefined; attempt++) {
+    try {
+      wsUrl = (await (await fetch(`http://127.0.0.1:${debugPort}/json/version`)).json()).webSocketDebuggerUrl;
+    } catch { await sleep(150); }
+  }
+  cdp = await connect(wsUrl);
+
+  const initial = (await cdp.send('Target.getTargets')).targetInfos.find((t) => t.type === 'page');
+  const targetId =
+    initial?.targetId ?? (await cdp.send('Target.createTarget', { url: 'about:blank' })).targetId;
+  const page = await cdp.attach(targetId);
+  await cdp.send('Page.enable', {}, page);
+  await cdp.send('Runtime.enable', {}, page);
+  await cdp.send('Page.navigate', { url: pageUrl }, page);
+  await sleep(1500);
+
+  let worker;
+  for (let attempt = 0; attempt < 60 && worker === undefined; attempt++) {
+    const { targetInfos } = await cdp.send('Target.getTargets');
+    worker = targetInfos.find((t) => t.type === 'service_worker' && t.url.includes(extensionId));
+    if (worker === undefined) await sleep(100);
+  }
+  if (worker === undefined) throw new Error('the background service worker never started');
+  const workerSession = await cdp.attach(worker.targetId);
+
+  const triggered = await cdp.send('Runtime.evaluate', {
+    expression: `chrome.tabs.query({}).then((tabs) => {
+      const tab = tabs.length === 1 ? tabs[0] : tabs.find((candidate) => candidate.active);
+      if (tab === undefined) return 'no tab to fill among ' + tabs.length;
+      if (typeof chrome.action.onClicked.dispatch !== 'function') {
+        return 'chrome.action.onClicked.dispatch is not available in this Chrome';
+      }
+      chrome.action.onClicked.dispatch(tab);
+      return 'ok:' + tab.id;
+    }).catch((error) => 'threw: ' + error.message)`,
+    awaitPromise: true, returnByValue: true,
+  }, workerSession);
+
+  const outcome = String(triggered.result.value ?? '');
+  if (!outcome.startsWith('ok:')) throw new Error(`the toolbar trigger did not fire — ${outcome}`);
+
+  // Long enough for the slowest thing on the page (c3's 350 ms debounce) plus
+  // the settle window, and then some. A generous wait is right here: the point
+  // is to give the *engine* every chance, so that a failure below is the
+  // engine's and not the clock's.
+  //
+  // The badge is sampled *during* the wait, not after it. It reverts three
+  // seconds after it is set (DD-006), so a single read once the wait is over
+  // reliably finds it already cleared — which silently turns the overcount check
+  // into `0 <= holding` and makes it pass for the wrong reason. That is exactly
+  // how the first run of this harness scored a case it had not tested.
+  let badge = '';
+  for (let elapsed = 0; elapsed < 4500; elapsed += 150) {
+    await sleep(150);
+    if (badge === '') {
+      const read = await cdp.send('Runtime.evaluate', {
+        expression: `chrome.tabs.query({}).then((tabs) => chrome.action.getBadgeText({ tabId: tabs[0].id }))`,
+        awaitPromise: true, returnByValue: true,
+      }, workerSession);
+      badge = String(read.result.value ?? '');
+    }
+  }
+
+  const observed = await cdp.send('Runtime.evaluate', {
+    expression: `JSON.stringify((() => {
+      const value = (name) => {
+        const el = document.querySelector('[name="' + name + '"]');
+        if (el === null) return null;
+        return el.value;
+      };
+      const present = (name) => document.querySelector('[name="' + name + '"]') !== null;
+
+      // Everything the engine could legitimately have filled, and whether it
+      // holds anything. Disabled, hidden and read-only controls are excluded the
+      // way UC-005 excludes them, so the count is comparable with the report.
+      let holding = 0;
+      let fillable = 0;
+      for (const el of document.querySelectorAll('input, select, textarea')) {
+        if (el.disabled || el.readOnly || el.type === 'hidden') continue;
+        if (el.closest('[hidden]') !== null) continue;
+        fillable++;
+        if (String(el.value ?? '') !== '') holding++;
+      }
+
+      return {
+        c1_country: value('c1_country'), c1_county: value('c1_county'),
+        c2_region: value('c2_region'), c2_district: value('c2_district'), c2_ward: value('c2_ward'),
+        c3_carrier: value('c3_carrier'), c3_service: value('c3_service'),
+        c4_type: value('c4_type'), c4_company: value('c4_company'), c4_vat: value('c4_vat'),
+        c4_revealed: document.getElementById('c4-extra').hidden === false,
+        c5_plan: value('c5_plan'), c5_seats: value('c5_seats'),
+        c5_seats_enabled: document.querySelector('[name="c5_seats"]').disabled === false,
+        c6_reference: value('c6_reference'),
+        c7_coupon: value('c7_coupon'),
+        c8_delivery: value('c8_delivery'), c8_present: present('c8_delivery'),
+        c9_reference: value('c9_reference'), c9_quantity: value('c9_quantity'),
+        c10_currency: value('c10_currency'),
+        c10_display: document.getElementById('c10-display').textContent,
+        holding, fillable,
+      };
+    })())`,
+    returnByValue: true,
+  }, page);
+
+  const seen = JSON.parse(observed.result.value);
+
+  // A fill that never ran makes every case fail for a reason that has nothing to
+  // do with the case. Diagnosed as itself.
+  if (seen.c1_country === '' && seen.c9_quantity === '') {
+    throw new Error('nothing was filled at all — this is not a cascade failure, the fill did not run');
+  }
+
+  const record = (name, condition, detail) => results.set(name, { ok: Boolean(condition), detail });
+
+  record('c1 · dependent select filled from its rewritten options',
+    seen.c1_county !== '' && seen.c1_county !== null, `c1_county=${JSON.stringify(seen.c1_county)}`);
+
+  record('c2 · chained cascade settles all three levels',
+    seen.c2_district !== '' && seen.c2_ward !== '',
+    `district=${JSON.stringify(seen.c2_district)} ward=${JSON.stringify(seen.c2_ward)}`);
+
+  record('c3 · debounced cascade is waited for',
+    seen.c3_service !== '', `c3_service=${JSON.stringify(seen.c3_service)}`);
+
+  record('c4 · fields revealed by an answer are filled',
+    seen.c4_revealed && seen.c4_company !== '' && seen.c4_vat !== '',
+    `revealed=${seen.c4_revealed} company=${JSON.stringify(seen.c4_company)}`);
+
+  record('c5 · control enabled by an answer is filled',
+    seen.c5_seats_enabled && seen.c5_seats !== '',
+    `enabled=${seen.c5_seats_enabled} seats=${JSON.stringify(seen.c5_seats)}`);
+
+  record('c6 · a property-only wipe is noticed',
+    seen.c6_reference !== '', `c6_reference=${JSON.stringify(seen.c6_reference)}`);
+
+  // This field cannot end up holding a value — the page will not permit it, and
+  // that is the case, not a defect. What is asserted here is *termination*: a
+  // badge appeared at all, so the fill ended rather than fighting the page
+  // forever. It passes today because a single-pass fill has nothing to loop
+  // with, and step B is where it becomes load-bearing: an unbounded fixpoint
+  // loop on this page never reports, and this row is what would catch it.
+  //
+  // Whether the reverted field was *counted* is the report row's job, below. Two
+  // rows asserting the same number would just fail together and say it twice.
+  record('c7 · a page that always reverts still terminates the fill',
+    seen.c7_coupon === '' && badge !== '',
+    `coupon=${JSON.stringify(seen.c7_coupon)} badge=${JSON.stringify(badge)}`);
+
+  record('c8 · a replaced control ends up holding a value',
+    seen.c8_present && seen.c8_delivery !== '', `c8_delivery=${JSON.stringify(seen.c8_delivery)}`);
+
+  // BR-034-4. These two must not regress when verification lands: a rewritten
+  // reference and a normalised number were accepted, not rejected. They are the
+  // guard against verification-by-string-equality, which would report a
+  // correctly filled page as a wall of failures.
+  record('c9 · a reformatted value counts as filled',
+    typeof seen.c9_reference === 'string' && seen.c9_reference !== '' &&
+      seen.c9_reference === seen.c9_reference.toUpperCase(),
+    `c9_reference=${JSON.stringify(seen.c9_reference)}`);
+  record('c9 · a normalised number counts as filled',
+    seen.c9_quantity !== '' && Number(seen.c9_quantity) >= 1 && Number(seen.c9_quantity) <= 99,
+    `c9_quantity=${JSON.stringify(seen.c9_quantity)}`);
+
+  record('c10 · a custom combobox is answered',
+    seen.c10_currency !== '' && seen.c10_display !== 'Select…',
+    `carrier=${JSON.stringify(seen.c10_currency)} shows=${JSON.stringify(seen.c10_display)}`);
+
+  // BR-034-9, and it must hold *now*: writing the hidden carrier is the shortcut
+  // that looks like success and submits a lie. This passes today only because
+  // hidden inputs are excluded by kind, and it must never stop passing.
+  record('c10 · the hidden carrier was not written directly',
+    seen.c10_currency === '' || seen.c10_display !== 'Select…',
+    `carrier=${JSON.stringify(seen.c10_currency)} shows=${JSON.stringify(seen.c10_display)}`);
+
+  // Step A's whole point, in one number. The badge counts what the engine says
+  // it filled; `holding` counts what the page actually holds. A report claiming
+  // more than the page has is the silent failure UC-034 exists to remove.
+  record('report · filled count does not exceed what the page holds',
+    badge !== '' && Number(badge) <= seen.holding,
+    `badge=${badge} holding=${seen.holding} of ${seen.fillable} fillable`);
+} catch (error) {
+  fatal = error instanceof Error ? error.message : String(error);
+} finally {
+  try { cdp?.close(); } catch { /* already gone with the browser */ }
+  server.close();
+  if (chrome !== undefined) {
+    chrome.kill();
+    const exited = await Promise.race([
+      new Promise((resolve) => chrome.once('exit', () => resolve(true))),
+      sleep(5000).then(() => false),
+    ]);
+    if (!exited) chrome.kill('SIGKILL');
+  }
+  try { rmSync(profileDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }); }
+  catch { console.warn(`  (left a temp profile behind: ${profileDir})`); }
+}
+
+if (fatal !== undefined) {
+  console.error(`\n✖ cascade harness could not run: ${fatal}`);
+  process.exit(1);
+}
+
+// ── Scoreboard ───────────────────────────────────────────────────────────────
+const regressions = [];
+const advances = [];
+let asExpected = 0;
+
+console.log('\n  UC-034 — dependent fields, against the current engine\n');
+for (const [name, expectation] of Object.entries(EXPECTED)) {
+  const result = results.get(name);
+  if (result === undefined) {
+    regressions.push(`${name} — the harness produced no result for this case`);
+    continue;
+  }
+
+  const expectedPass = expectation.now === 'pass';
+  if (result.ok === expectedPass) {
+    asExpected++;
+    const mark = result.ok ? '✔' : '·';
+    const note = result.ok ? '' : `   (expected — step ${expectation.fixedBy})`;
+    console.log(`  ${mark} ${name}${note}`);
+    continue;
+  }
+
+  if (expectedPass) {
+    regressions.push(`${name} — ${result.detail}`);
+    console.log(`  ✖ ${name}   REGRESSED`);
+  } else {
+    advances.push(`${name} — step ${expectation.fixedBy} appears to have landed`);
+    console.log(`  ★ ${name}   NOW PASSES`);
+  }
+}
+
+const failing = [...results.values()].filter((result) => !result.ok).length;
+console.log(
+  `\n  ${results.size - failing}/${results.size} passing · ${asExpected} as expected` +
+    `${regressions.length > 0 ? ` · ${regressions.length} regressed` : ''}` +
+    `${advances.length > 0 ? ` · ${advances.length} newly passing` : ''}`,
+);
+
+if (regressions.length > 0) {
+  console.error('\n✖ regressions — these worked before:\n');
+  for (const entry of regressions) console.error(`    ${entry}`);
+}
+if (advances.length > 0) {
+  console.error('\n★ these now pass. Update EXPECTED in this file, in the same change:\n');
+  for (const entry of advances) console.error(`    ${entry}`);
+}
+
+if (regressions.length > 0 || advances.length > 0) process.exit(1);
+
+console.log('\n✔ the cascade fixture behaves exactly as recorded');

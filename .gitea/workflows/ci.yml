@@ -118,6 +118,15 @@ jobs:
           export CHROME_PATH="$(node -e 'console.log(require("playwright").chromium.executablePath())')"
           pnpm run e2e:chrome
 
+      - name: Dependent fields (Chromium)
+        # UC-034's scoreboard. Most rows are expected to fail until DD-009 lands;
+        # the harness compares against a recorded expectation, so it fails the
+        # build on a regression *or* on a case that starts passing without its
+        # expectation being updated in the same change.
+        run: |
+          export CHROME_PATH="$(node -e 'console.log(require("playwright").chromium.executablePath())')"
+          pnpm run cascade:chrome
+
       # Firefox on release candidates only, per NFR-014. Installed from Mozilla
       # directly rather than through Playwright, whose Firefox is a patched build
       # that does not expose the remote agent the BiDi harness attaches to.
