@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>FieldFiller reference page</title>
+    <!--
+      The acceptance harness for every phase (implementation plan, Phase 0)
+      onwards. `scripts/e2e-chrome.mjs` fills this page in a real browser and
+      asserts what landed.
+
+      It is deliberately hostile in specific, enumerated ways, because each of
+      those ways corresponds to a defect in the reference implementation or a
+      requirement that is otherwise easy to satisfy by accident:
+
+        · a wrapping label with no `for`      → ND-3 / FR-066: `label[for]` alone cannot see it
+        · a label wrapped in a <span>         → D1: read as innerHTML it matches as "spanemailspan"
+        · autocomplete attributes             → §7.3: a better identity signal than a regex on id
+        · disabled / readonly / aria-disabled → UC-005 step 3
+        · button, submit, file, hidden inputs → UC-005 step 2
+        · maxlength / minlength               → D4 / BR-004-7: the reference discards its own cap
+        · related identity fields             → ND-1: the whole point is that these agree
+
+      Every control here is filled today. Controls for behaviour that is not
+      built yet stay in the fixture rather than being added alongside the code, so
+      that gaining a capability shows up as a change in the report rather than as
+      a change to the fixture.
+    -->
+    <style>
+      body { font: 16px/1.5 system-ui, sans-serif; margin: 2rem auto; max-width: 44rem; }
+      fieldset { border: 1px solid #ccc; border-radius: 8px; margin-bottom: 1.5rem; padding: 1rem; }
+      legend { font-weight: 600; }
+      label { display: block; margin-bottom: .75rem; }
+      input, textarea, select { display: block; width: 100%; padding: .4rem; margin-top: .2rem; }
+      .honeypot { position: absolute; left: -9999px; }
+    </style>
+  </head>
+  <body>
+    <h1>FieldFiller reference page</h1>
+
+    <form id="identity">
+      <fieldset>
+        <legend>Identity — these must agree with one another (ND-1, BR-004-2)</legend>
+
+        <!-- Explicit label: the only form the reference can discover. -->
+        <label for="given">Given name</label>
+        <input type="text" id="given" name="given_name" autocomplete="given-name" />
+
+        <!-- Implicit label: invisible to `label[for=…]`, native to `element.labels`. -->
+        <label>Family name
+          <input type="text" name="family_name" autocomplete="family-name" />
+        </label>
+
+        <!-- Label text inside an element: `innerHTML` would match this as
+             "spanemailspan" and fire any rule containing /span/ (D1). -->
+        <label><span>Email address</span>
+          <input type="email" name="email" autocomplete="email" />
+        </label>
+
+        <label>Telephone
+          <input type="tel" name="phone" autocomplete="tel" />
+        </label>
+
+        <label>Website
+          <input type="url" name="website" autocomplete="url" />
+        </label>
+      </fieldset>
+
+      <fieldset>
+        <legend>Address — postcode, locality and region must belong together</legend>
+        <label>Street <input type="text" name="street" autocomplete="street-address" /></label>
+        <label>Town <input type="text" name="town" autocomplete="address-level2" /></label>
+        <label>Region <input type="text" name="region" autocomplete="address-level1" /></label>
+        <label>Postcode <input type="text" name="postcode" autocomplete="postal-code" /></label>
+      </fieldset>
+
+      <fieldset>
+        <legend>Constraints — the control's own limits are a ceiling (BR-004-7, D4)</legend>
+        <label>Short code, max 5
+          <input type="text" name="short_code" maxlength="5" />
+        </label>
+        <label>Long enough, min 12
+          <input type="text" name="long_value" minlength="12" />
+        </label>
+        <label>Notes — a textarea deserves a paragraph, not 20 characters (ND-10)
+          <textarea name="notes" rows="3"></textarea>
+        </label>
+        <label>Password — must survive a real registration form (ND-11)
+          <input type="password" name="password" autocomplete="new-password" />
+        </label>
+      </fieldset>
+
+      <fieldset>
+        <legend>Must be left alone (UC-005)</legend>
+        <label>Disabled <input type="text" name="disabled_field" disabled /></label>
+        <label>Read-only <input type="text" name="readonly_field" readonly value="untouched" /></label>
+        <label>Marked disabled to assistive technology
+          <input type="text" name="aria_disabled_field" aria-disabled="true" />
+        </label>
+        <input type="hidden" name="csrf_token" value="untouched" />
+        <input type="file" name="attachment" />
+        <input type="submit" value="Submit" />
+        <button type="button" name="cancel">Cancel</button>
+
+        <!-- Positioned off-screen: a honeypot (FR-071, ND-16). It must be left
+             alone, and the e2e asserts exactly that. -->
+        <label class="honeypot">Leave this empty
+          <input type="text" name="company_url_hp" />
+        </label>
+      </fieldset>
+
+      <fieldset>
+        <legend>Confirmation fields — must agree with their source (UC-006, D2)</legend>
+        <label>Confirm email
+          <input type="email" name="confirm_email" />
+        </label>
+        <label>Password
+          <input type="password" name="pw" />
+        </label>
+        <!-- Identified only by its label, which is the case the reference's
+             name-only test misses entirely (D2). -->
+        <label>Confirm password
+          <input type="password" name="pw_second" />
+        </label>
+      </fieldset>
+
+      <fieldset>
+        <legend>Every other control kind</legend>
+        <label>Country
+          <select name="country">
+            <option value="">Choose…</option>
+            <option value="gb">United Kingdom</option>
+            <option value="ie" disabled>Ireland (disabled — must never be selected, D3)</option>
+            <option value="nl">Netherlands</option>
+          </select>
+        </label>
+        <label>Quantity <input type="number" name="quantity" min="1" max="10" step="1" /></label>
+        <label>Start date <input type="date" name="start_date" /></label>
+        <label><input type="checkbox" name="terms" /> Accept the terms</label>
+        <fieldset>
+          <legend>Contact preference</legend>
+          <label><input type="radio" name="contact" value="email" /> Email</label>
+          <label><input type="radio" name="contact" value="post" /> Post</label>
+        </fieldset>
+        <label>Rich text
+          <div contenteditable="true" name="bio" style="border:1px solid #ccc;min-height:3rem"></div>
+        </label>
+      </fieldset>
+    </form>
+
+    <!-- An open shadow root. `querySelectorAll` does not descend into one, so
+         every Lit/Stencil/Ionic design system is invisible to the reference
+         (§7.3, FR-008). A closed root stays unreachable by anyone (C-006). -->
+    <div id="shadow-host"></div>
+    <script>
+      const host = document.getElementById('shadow-host');
+      const shadow = host.attachShadow({ mode: 'open' });
+      shadow.innerHTML = `
+        <fieldset>
+          <legend>Inside an open shadow root (FR-008)</legend>
+          <label>Shadow name <input type="text" name="shadow_name" autocomplete="given-name"></label>
+          <label>Shadow email <input type="email" name="shadow_email"></label>
+        </fieldset>`;
+
+      // A closed root, to prove we do not reach into one and do not pretend to.
+      const closedHost = document.createElement('div');
+      document.body.append(closedHost);
+      closedHost.attachShadow({ mode: 'closed' }).innerHTML =
+        '<input type="text" name="closed_shadow_name">';
+    </script>
+
+    <!-- Frames. The same-origin one is inline; the cross-origin one is supplied
+         by the harness, because it needs a second origin to be cross-origin at
+         all (C-007, FR-007). Both must receive the same persona (BR-001-1). -->
+    <fieldset>
+      <legend>Same-origin iframe (FR-007)</legend>
+      <iframe
+        title="same-origin frame"
+        style="width:100%;height:120px;border:1px solid #ccc"
+        srcdoc="&lt;label&gt;Frame name &lt;input name=&quot;frame_name&quot; autocomplete=&quot;given-name&quot;&gt;&lt;/label&gt;
+                &lt;label&gt;Frame email &lt;input name=&quot;frame_email&quot; type=&quot;email&quot;&gt;&lt;/label&gt;"
+      ></iframe>
+    </fieldset>
+
+    <fieldset>
+      <legend>Cross-origin iframe (C-007) — populated by the harness</legend>
+      <iframe id="cross-origin" title="cross-origin frame"
+              style="width:100%;height:120px;border:1px solid #ccc"></iframe>
+    </fieldset>
+
+    <!-- A second frame with the *same* URL as the one above. Two embedded forms
+         from one source is ordinary, and it is the case that breaks any scheme
+         identifying a frame by its address: the second frame's report is
+         discarded as a duplicate, so its fields go uncounted and, if it is
+         slower than the settle window, unfilled. Its inputs carry distinct
+         names so the harness can tell the two frames apart. -->
+    <fieldset>
+      <legend>A second frame at the same URL (frame identity, not frame address)</legend>
+      <iframe id="cross-origin-twin" title="second frame, same URL"
+              style="width:100%;height:120px;border:1px solid #ccc"></iframe>
+    </fieldset>
+
+    <!-- A second form using the same radio group name. Filling the first form
+         must not touch this one, and radio-group resolution must not reach across
+         the document to find it (ND-5, BR-005-3). -->
+    <form id="unrelated">
+      <fieldset>
+        <legend>A different form, same group name (BR-005-3)</legend>
+        <label><input type="radio" name="contact" value="phone" /> Telephone</label>
+        <label>Unrelated note <input type="text" name="unrelated_note" /></label>
+      </fieldset>
+    </form>
+  </body>
+</html>

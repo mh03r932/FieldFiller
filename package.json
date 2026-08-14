@@ -1,0 +1,49 @@
+{
+  "name": "fieldfiller",
+  "description": "Fills every form control on a page with plausible dummy data in one action.",
+  "private": true,
+  "version": "0.1.0",
+  "license": "MIT",
+  "type": "module",
+  "packageManager": "pnpm@11.2.0",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "postinstall": "wxt prepare",
+    "dev": "wxt",
+    "dev:firefox": "wxt -b firefox",
+    "build": "wxt build",
+    "build:firefox": "wxt build -b firefox",
+    "build:all": "pnpm run build && pnpm run build:firefox",
+    "zip": "wxt zip",
+    "zip:firefox": "wxt zip -b firefox",
+    "zip:all": "pnpm run zip && pnpm run zip:firefox",
+    "compile": "tsc --noEmit",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "gate:size": "node scripts/check-size.mjs",
+    "gate:imports": "node scripts/check-imports.mjs",
+    "gate:network": "node scripts/check-network.mjs",
+    "gate:all": "pnpm run gate:size && pnpm run gate:imports && pnpm run gate:network",
+    "smoke:chrome": "node scripts/smoke-chrome.mjs",
+    "smoke:firefox": "node scripts/smoke-firefox.mjs",
+    "smoke": "pnpm run smoke:chrome && pnpm run smoke:firefox",
+    "digest": "node scripts/digest.mjs",
+    "verify:reproducible": "node scripts/check-reproducible.mjs",
+    "e2e:chrome": "node scripts/e2e-chrome.mjs",
+    "e2e": "pnpm run e2e:chrome"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.1",
+    "eslint": "^9.39.1",
+    "globals": "^17.11.0",
+    "happy-dom": "^20.11.2",
+    "playwright": "^1.62.1",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.46.4",
+    "vitest": "^4.1.10",
+    "wxt": "^0.21.4"
+  }
+}

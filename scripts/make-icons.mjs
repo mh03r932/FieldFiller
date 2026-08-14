@@ -1,0 +1,160 @@
+#!/usr/bin/env node
+/**
+ * Generates the extension icons into public/icon/.
+ *
+ * The icons are original artwork drawn by this script — a rounded tile with
+ * three field bars, the last one part-filled. C-010 requires that the icon share
+ * nothing with Fake Filler, and a generator committed alongside the output is
+ * the cheapest possible proof of that: the artwork's entire provenance is these
+ * ~40 lines of geometry.
+ *
+ * These are placeholders in intent, not in quality — good enough to ship a
+ * prototype, and expected to be replaced before the first store submission.
+ *
+ * Output is byte-deterministic (fixed palette, fixed geometry, fixed deflate
+ * level, no timestamp chunk), so regenerating never dirties the tree and never
+ * disturbs the reproducible-build digest (NFR-011). Run it by hand after editing
+ * the geometry; it is deliberately not wired into the build, because generating
+ * assets at build time is one of the ways bundlers stop being reproducible.
+ *
+ * Usage: node scripts/make-icons.mjs
+ */
+import { deflateSync } from 'node:zlib';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const OUT_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'public', 'icon');
+const SIZES = [16, 32, 48, 96, 128];
+
+/** Supersampling factor per axis. 4× is enough to keep 16px edges from stepping. */
+const SAMPLES = 4;
+
+const TILE = { color: [0x2f, 0x6f, 0xed], inset: 0.03, radius: 0.22 };
+const BARS = [
+  { top: 0.26, bottom: 0.36, left: 0.22, right: 0.78, alpha: 1 },
+  { top: 0.45, bottom: 0.55, left: 0.22, right: 0.78, alpha: 1 },
+  // Part-filled: the tool's whole subject is a field mid-fill.
+  { top: 0.64, bottom: 0.74, left: 0.22, right: 0.53, alpha: 1 },
+  { top: 0.64, bottom: 0.74, left: 0.53, right: 0.78, alpha: 0.34 },
+];
+const BAR_RADIUS = 0.05;
+
+/** Signed-distance test for a rounded rectangle, in unit coordinates. */
+function insideRoundedRect(x, y, left, top, right, bottom, radius) {
+  const r = Math.min(radius, (right - left) / 2, (bottom - top) / 2);
+  const cx = Math.min(Math.max(x, left + r), right - r);
+  const cy = Math.min(Math.max(y, top + r), bottom - r);
+  if (x >= left + r && x <= right - r) return y >= top && y <= bottom;
+  if (y >= top + r && y <= bottom - r) return x >= left && x <= right;
+  return (x - cx) ** 2 + (y - cy) ** 2 <= r * r;
+}
+
+/** Returns the RGBA of one sample point in unit space, or null for transparent. */
+function sample(x, y) {
+  const { inset } = TILE;
+  if (!insideRoundedRect(x, y, inset, inset, 1 - inset, 1 - inset, TILE.radius)) {
+    return null;
+  }
+  for (const bar of BARS) {
+    if (insideRoundedRect(x, y, bar.left, bar.top, bar.right, bar.bottom, BAR_RADIUS)) {
+      // Bars are white over the tile; blend by the bar's own alpha so the
+      // part-filled segment reads as a lighter tint rather than a hole.
+      const a = bar.alpha;
+      return [
+        Math.round(0xff * a + TILE.color[0] * (1 - a)),
+        Math.round(0xff * a + TILE.color[1] * (1 - a)),
+        Math.round(0xff * a + TILE.color[2] * (1 - a)),
+        255,
+      ];
+    }
+  }
+  return [...TILE.color, 255];
+}
+
+/** Renders one size to raw RGBA scanlines, each prefixed with PNG filter 0. */
+function render(size) {
+  const raw = Buffer.alloc(size * (size * 4 + 1));
+  let offset = 0;
+  for (let py = 0; py < size; py++) {
+    raw[offset++] = 0; // filter type: none
+    for (let px = 0; px < size; px++) {
+      let r = 0;
+      let g = 0;
+      let b = 0;
+      let covered = 0;
+      for (let sy = 0; sy < SAMPLES; sy++) {
+        for (let sx = 0; sx < SAMPLES; sx++) {
+          const x = (px + (sx + 0.5) / SAMPLES) / size;
+          const y = (py + (sy + 0.5) / SAMPLES) / size;
+          const rgba = sample(x, y);
+          if (rgba === null) continue;
+          r += rgba[0];
+          g += rgba[1];
+          b += rgba[2];
+          covered++;
+        }
+      }
+      const total = SAMPLES * SAMPLES;
+      if (covered === 0) {
+        offset += 4;
+        continue;
+      }
+      // Premultiplied averaging would darken the antialiased edge against a
+      // light toolbar; average the covered samples' colour and put coverage in
+      // alpha instead.
+      raw[offset++] = Math.round(r / covered);
+      raw[offset++] = Math.round(g / covered);
+      raw[offset++] = Math.round(b / covered);
+      raw[offset++] = Math.round((covered / total) * 255);
+    }
+  }
+  return raw;
+}
+
+const CRC_TABLE = (() => {
+  const table = new Int32Array(256);
+  for (let n = 0; n < 256; n++) {
+    let c = n;
+    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    table[n] = c;
+  }
+  return table;
+})();
+
+function crc32(buffer) {
+  let c = -1;
+  for (const byte of buffer) c = CRC_TABLE[(c ^ byte) & 0xff] ^ (c >>> 8);
+  return (c ^ -1) >>> 0;
+}
+
+function chunk(type, data) {
+  const length = Buffer.alloc(4);
+  length.writeUInt32BE(data.length);
+  const typed = Buffer.concat([Buffer.from(type, 'ascii'), data]);
+  const crc = Buffer.alloc(4);
+  crc.writeUInt32BE(crc32(typed));
+  return Buffer.concat([length, typed, crc]);
+}
+
+function toPng(size, raw) {
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(size, 0);
+  ihdr.writeUInt32BE(size, 4);
+  ihdr[8] = 8; // bit depth
+  ihdr[9] = 6; // colour type: RGBA
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    chunk('IHDR', ihdr),
+    chunk('IDAT', deflateSync(raw, { level: 9 })),
+    chunk('IEND', Buffer.alloc(0)),
+  ]);
+}
+
+mkdirSync(OUT_DIR, { recursive: true });
+for (const size of SIZES) {
+  const png = toPng(size, render(size));
+  const file = join(OUT_DIR, `${size}.png`);
+  writeFileSync(file, png);
+  console.log(`wrote ${file} (${png.length} bytes)`);
+}

@@ -1,0 +1,42 @@
+{
+  "extName": {
+    "message": "FieldFiller",
+    "description": "Extension name. A product name (PD-006) — never translate it."
+  },
+  "extDescription": {
+    "message": "Fill every form control on a page with plausible dummy data in one action.",
+    "description": "Store listing and browser extension-list description. Must share no wording with Fake Filler (C-010)."
+  },
+  "commandFillAllInputs": {
+    "message": "Fill all inputs on the page",
+    "description": "Keyboard command, shown in the browser's own shortcuts settings (UC-030)."
+  },
+  "commandFillCurrentForm": {
+    "message": "Fill the current form",
+    "description": "Keyboard command, shown in the browser's own shortcuts settings (UC-030)."
+  },
+  "commandFillSelectedInput": {
+    "message": "Fill the selected input",
+    "description": "Keyboard command shipped unbound by DD-007; the user assigns it themselves."
+  },
+  "menuFillAllInputs": {
+    "message": "Fill all inputs",
+    "description": "Context menu item for the page scope (UC-001)."
+  },
+  "menuFillCurrentForm": {
+    "message": "Fill this form",
+    "description": "Context menu item for the form scope (UC-002)."
+  },
+  "menuFillSelectedInput": {
+    "message": "Fill this input",
+    "description": "Context menu item for the single-control scope (UC-003)."
+  },
+  "optionsTitle": {
+    "message": "FieldFiller settings",
+    "description": "Heading of the options page."
+  },
+  "optionsPlaceholder": {
+    "message": "There is nothing to configure yet. Filling works from the toolbar button, the right-click menu, and the keyboard shortcuts listed in your browser's extension settings.",
+    "description": "Placeholder text on the options page until Phase 4 builds the configuration UI."
+  }
+}

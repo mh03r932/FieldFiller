@@ -1,0 +1,34 @@
+name: Pi Code Review
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+concurrency:
+  group: pi-review-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  review:
+    name: Pi Review
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.CL_REPO_TOKEN }}
+
+      - name: Run Pi code review
+        uses: https://git.markushofstetter.com/dividbzero/pi-review@v11
+        with:
+          api_key: ${{ secrets.ZAI_API_KEY }}
+          provider: zai
+          model: glm-5.2
+          token: ${{ secrets.CL_REPO_TOKEN }}
+          debug: "true"
+          # Self-hosted-runner only: the runner shares a Docker network with the
+          # Gitea host, reachable internally as `server:3000`

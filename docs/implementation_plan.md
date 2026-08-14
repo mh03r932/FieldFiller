@@ -4,7 +4,7 @@
 **Date:** 2026-08-12
 **Inputs:** `docs/vision.md` · `docs/requirements.md` · `docs/use_case_catalog.md`
 
-Build order for the 33 use cases. Each phase writes the specs for its own use cases just
+Build order for the 34 use cases. Each phase writes the specs for its own use cases just
 before building them — specification and implementation move together rather than as two
 separate passes, so this is the single ordering for both.
 
@@ -29,14 +29,27 @@ separate passes, so this is the single ordering for both.
 *No user-visible output. Everything downstream is cheaper or more expensive based on this.*
 
 **Decided 2026-08-12:** DD-001 → persistent `<all_urls>` · DD-003 → generation in the
-background, thin page agent · DD-004 → WXT · ND-1 → full persona · ND-2 → source-scoped
-matching · ND-9 → discriminated union. **One spike left.**
+background, no corpus in the page agent · DD-004 → WXT · ND-1 → full persona · ND-2 →
+source-scoped matching · ND-9 → discriminated union. **One spike left.**
+
+**Decided 2026-08-14:** DD-009 → event-driven fixpoint loop in the page agent for dependent
+and late-appearing fields, amending DD-003 to one round trip per pass. Lands in Phase 2 as
+UC-034; it needs the full walk, exclusion and report machinery underneath it, and none of
+that exists before then.
+
+**Moved to Phase 4, 2026-08-14:** the settings-schema row — the discriminated union on
+generator type with the migration ladder (ND-9, DD-005, FR-073). It sat in Phase 0 from the
+first draft, but `src/lib/settings.ts` deliberately ships only the versioned stub: DD-005 is
+open, and writing a migration ladder against an undecided shape is what ordering principle 4
+exists to prevent. The schema is first needed by Phase 4's rule authoring, and DD-005 closes
+before that lands — the latest point at which the ladder can still be written against a
+moving shape. With the row gone, "one spike left" below is true again rather than one open
+row too optimistic.
 
 | Work | Closes |
 |---|---|
 | **Spike: cold-start budget** — measure background restart + corpus load + round trip against NFR-027 (400 ms). If it fails, the corpus shrinks or gets lazily sliced | NFR-027, NFR-028, NFR-029 |
 | Scaffold WXT, TS strict, Chrome + Firefox from one source tree | C-002, C-003, C-004, NFR-017 |
-| Settings schema as a discriminated union on generator type, with the migration ladder stubbed | ND-9, DD-005, FR-073 |
 | Message protocol: field descriptors out, values plus provenance back | NFR-029, NFR-030, FR-069 |
 | CI: build, test, **uncompressed** page-agent size budget, disallowed-import check | NFR-003, **ND-4** |
 | **Reproducible build pipeline** — pinned lockfile, `SOURCE_DATE_EPOCH`, deterministic archive member order and timestamps, no build-time clock or randomness reaching the bundle, digest published per build | NFR-011, G4, UC-032 |
@@ -83,10 +96,43 @@ at the cost of a week rather than a quarter.
 | **UC-004** (full) | Record-first generation (ND-1); all input types; native constraints; source-scoped matching with provenance (ND-2); implicit labels; per-type sizing |
 | **UC-005** (full) | Hidden, pre-filled, ignore patterns, honeypot detection |
 | **UC-006** Reuse a Value for a Confirmation Field | Resolved against the record, not DOM order |
+| **UC-034** Fill Fields That Depend on an Earlier Answer | DD-009 — in three steps, below |
 | — | Fill report (FR-009), per-element error isolation (FR-010), nested frames, open shadow roots |
 
 At the end of this phase the extension does the job. Everything after it is control,
 convenience and trust.
+
+### UC-034 in three steps
+
+DD-009 is the largest single change in this phase and the only one that touches both sides of
+the DD-003 boundary. It is sequenced so that each step is shippable and the later ones cannot
+be trusted without the earlier ones.
+
+| Step | Brings | Depends on |
+|---|---|---|
+| **A · Honesty floor** | Per-kind write verification (FR-076), the stale/rejected outcome, `summarise` handling it. No NFR changes, no loop, shippable alone. | — |
+| **B · The fixpoint loop** | Element tokens and token-seeded generation (FR-080), the two observation signals, the re-fill rules, the pass and time bounds (FR-078, NFR-034), the trusted-input rule (FR-079), teardown (NFR-035), the sliding operation deadline, the compatible protocol delta. | A — a loop that cannot tell whether a write survived cannot decide what to re-fill |
+| **C · Combobox ladder** | FR-081, with the restore rung. | B, and a measurement |
+
+Step A first is not caution, it is a dependency: the loop's central decision — *does this
+control need another pass?* — is a verification question, so building the loop on an
+unverified report means building it on a guess.
+
+Step C is gated on a measurement rather than scheduled: widening the walk's candidate
+selector to find `role="combobox"` costs candidate-set size on **every** page, not only on
+pages that have one. Measure the inflation against the reference page before committing to it.
+Per `vision.md` §3, coverage yields to NFR-003 where correctness does not, so C is the part of
+DD-009 that gets cut if the budget binds — an honestly skipped combobox is a correct outcome.
+
+Each step declares a page-agent byte allowance and reads the CI size gate before and after.
+DD-001 makes NFR-003 the most load-bearing budget in the project, and DD-009 is the first
+change that spends it on logic rather than on breadth; a change that quietly eats a third of
+the remaining headroom is one nobody notices until the gate fails on something unrelated.
+
+FR-082 (persona-preferred options) is deliberately **not** here. It is UC-004 generation work
+that shares a motivating example with UC-034 — cascading country/state/city — and nothing
+else. Sequenced with the rest of UC-004 so the cascade work does not wait on an ISO
+normalisation table.
 
 ---
 
@@ -108,6 +154,9 @@ property, and trust properties should exist before the thing is shareable.
 
 *Goal: users can shape the engine's behaviour.*
 
+- **Settings schema** — the full discriminated union on generator type and the migration
+  ladder (ND-9, DD-005, FR-073), moved here from Phase 0 on 2026-08-14: DD-005 closes
+  first, and everything else in this phase serialises the schema it produces
 - **UC-024** (full) — durable writes, live propagation to open tabs, in-memory caching (ND-17)
 - **UC-009**, **UC-010**, **UC-011**, **UC-012** — rule create / edit / delete / reorder
 - **UC-013** Preview Values Generated by a Rule — with authoring-time validation (FR-070)
@@ -185,9 +234,12 @@ schema (ND-9) ─► Phase 4 config ─► Phase 5 profiles ─► Phase 6 porta
                                                   DD-002 ─┘
 ```
 
-All the decisions that gated the engine and the schema are now closed. **DD-002** (sync
-quota) is the only one left on the path, and it blocks nothing before Phase 6 — it can be
-resolved as late as UC-029 without holding anything up.
+All the decisions that gated the engine are now closed. Two remain on the path: **DD-005**
+(schema versioning), which gates the schema work that now opens Phase 4, and **DD-002**
+(sync quota), which blocks nothing before Phase 6 and can be resolved as late as UC-029
+without holding anything up. **DD-006** (the feedback surface) sits off the path: Phase 1
+shipped a provisional badge, and the decision is what replaces it — carrying obligations
+from DD-008 and DD-009 until then.
 
 The cold-start spike is the sole remaining unknown, and it is a tuning question rather than
 an architectural one: if the corpus loads too slowly, the corpus shrinks. It cannot invalidate

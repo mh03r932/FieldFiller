@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <!--
+      No <title> text here: it is resolved from the i18n catalog by main.ts
+      (NFR-018). Manifest and CSS accept __MSG_name__ substitution; HTML does
+      not, so every string in this page arrives at runtime.
+
+      Nothing is loaded from a remote origin — no font, no stylesheet, no script
+      (NFR-006, G3). scripts/check-network.mjs fails the build on an external URL
+      appearing in any shipped HTML or CSS.
+    -->
+    <title>FieldFiller</title>
+    <link rel="stylesheet" href="./options.css" />
+  </head>
+  <body>
+    <main>
+      <h1 data-i18n="optionsTitle"></h1>
+      <p data-i18n="optionsPlaceholder"></p>
+    </main>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>
