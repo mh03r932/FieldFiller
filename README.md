@@ -9,9 +9,10 @@ agreeing with their source, across nested frames and open shadow roots, all from
 persona. `pnpm e2e` asserts each of those against a real browser, and CI runs it on every
 change.
 
-Not yet built: the other two fill scopes, the settings UI, profiles, and import/export. The
-context menu and keyboard shortcuts are registered and reach the page scope; the narrower
-scopes behind them are Phase 3.
+Not yet built: the other two fill scopes, the dependent-field cascade (UC-034), the
+settings UI, profiles, and import/export. The context menu and keyboard shortcuts are
+registered and reach the page scope; the narrower scopes behind them are Phase 3, and the
+cascade loop that follows a page's own rewrites is sequenced behind it.
 
 Design documents live in [`docs/`](docs/): [vision](docs/vision.md),
 [requirements](docs/requirements.md), [use cases](docs/use_case_catalog.md), and the
