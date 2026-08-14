@@ -185,6 +185,7 @@ async function fill(request: Extract<ToAgentMessage, { kind: 'fill' }>): Promise
     // and would otherwise surface as an unhandled rejection that loses the whole
     // report.
     let response: unknown;
+    let cause = 'no values returned';
     try {
       response = await browser.runtime.sendMessage({
         kind: 'descriptors',
@@ -192,13 +193,20 @@ async function fill(request: Extract<ToAgentMessage, { kind: 'fill' }>): Promise
         descriptors,
       } satisfies FromAgentMessage);
     } catch (error) {
-      response = undefined;
-      for (const descriptor of descriptors) {
-        outcomes.push({ ref: descriptor.ref, status: 'failed', cause: String(error) });
-      }
+      cause = String(error);
     }
 
-    if (isValuesResponse(response)) {
+    if (!isValuesResponse(response)) {
+      // A rejection and a reply that is not values are the same event to this
+      // frame: no values arrived, so nothing can be filled. Both are recorded
+      // against every descriptor, because a control that gets no outcome at all
+      // vanishes from the count the user is shown (BR-005-8) — the fill looks
+      // smaller than it was rather than failed. The commonest cause is the
+      // background being evicted mid-fill, which answers nothing at all.
+      for (const descriptor of descriptors) {
+        outcomes.push({ ref: descriptor.ref, status: 'failed', cause });
+      }
+    } else {
       for (const value of response.values) {
         const element = elements.get(value.ref);
         if (element === undefined) continue;

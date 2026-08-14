@@ -125,7 +125,10 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         run: |
           set -euo pipefail
-          curl -sSL -o /tmp/firefox.tar.xz \
+          # `--fail` because without it curl exits 0 on a 404 and writes the
+          # error page into the tarball: the job still fails, but as "not a
+          # valid archive" from tar, naming the wrong step.
+          curl -fsSL -o /tmp/firefox.tar.xz \
             'https://download.mozilla.org/?product=firefox-latest-ssl&os=linux64&lang=en-US'
           tar -xJf /tmp/firefox.tar.xz -C /tmp
 

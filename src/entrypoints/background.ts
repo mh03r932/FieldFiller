@@ -107,26 +107,32 @@ async function startFill(tabId: number, scope: FillScope): Promise<void> {
     trace(`fill already running in tab ${tabId}; ignoring`);
     return;
   }
+  // Claimed before the first `await`, so a second trigger arriving during the
+  // setup is ignored rather than starting a second persona. That claim is only
+  // safe because every path out of here releases it — which is why the setup is
+  // inside the `try` and not above it. Until `operations` holds the operation
+  // there is no timeout to rescue the tab, so a throw between these two points
+  // would leave the tab unfillable for as long as the worker lives.
   filling.add(tabId);
-
   const operationId = crypto.randomUUID();
-  const random = seededRandom(Math.floor(Math.random() * 2 ** 32));
-  const settings = await getSettings();
-
-  operations.set(operationId, {
-    persona: createPersona(random),
-    random,
-    tabId,
-    outcomes: { filled: 0, skipped: 0, failed: 0 },
-    frames: new Set(),
-    settle: undefined,
-    timeout: setTimeout(() => {
-      trace(`fill ${operationId} timed out with no report; abandoning`);
-      finish(operationId, tabId);
-    }, OPERATION_TIMEOUT_MS),
-  });
 
   try {
+    const random = seededRandom(Math.floor(Math.random() * 2 ** 32));
+    const settings = await getSettings();
+
+    operations.set(operationId, {
+      persona: createPersona(random),
+      random,
+      tabId,
+      outcomes: { filled: 0, skipped: 0, failed: 0 },
+      frames: new Set(),
+      settle: undefined,
+      timeout: setTimeout(() => {
+        trace(`fill ${operationId} timed out with no report; abandoning`);
+        finish(operationId, tabId);
+      }, OPERATION_TIMEOUT_MS),
+    });
+
     // The reply is an acknowledgement from whichever frame answers first, and it
     // is what makes UC-001 A4 decidable. A rejection means no agent received the
     // instruction at all — no content script in this tab, because the page
@@ -157,11 +163,13 @@ async function startFill(tabId: number, scope: FillScope): Promise<void> {
       trace(`tab ${tabId} answered the fill without acknowledging it`);
     }
   } catch (error) {
-    // UC-001 A4: no agent in this tab — a page that loaded before the extension
-    // was installed, or one the browser does not permit acting on. Reported as
-    // its own outcome rather than as a failed fill, because reloading fixes the
-    // first and nothing fixes the second.
-    trace(`no page agent in tab ${tabId}: ${String(error)}`);
+    // Almost always UC-001 A4: no agent in this tab — a page that loaded before
+    // the extension was installed, or one the browser does not permit acting on.
+    // Reported as its own outcome rather than as a failed fill, because reloading
+    // fixes the first and nothing fixes the second. A failure during the setup
+    // above lands here too and says the same thing to the user, which is the
+    // truth either way: the fill did not run.
+    trace(`fill in tab ${tabId} did not start: ${String(error)}`);
     await showBadge(tabId, '—', '#8a8f98');
     finish(operationId, tabId);
   }
@@ -300,40 +308,38 @@ export default defineBackground(() => {
       return true;
     }
 
-    {
-      // One report per frame. A duplicate — a frame that somehow reports twice —
-      // must not double the count the user is shown.
-      // Keyed on the frame's own token, never its URL. Two iframes with the same
-      // `src` are ordinary and every srcdoc frame calls itself `about:srcdoc`,
-      // so a URL key discards the second frame's report — its outcomes go
-      // uncounted, and since a discarded report does not extend the settle
-      // window, a frame slower than SETTLE_MS can have the operation closed
-      // before its values arrive.
-      if (operation.frames.has(raw.report.frame)) return;
-      operation.frames.add(raw.report.frame);
-      summarise(raw.report, operation.outcomes);
+    // One report per frame. A duplicate — a frame that somehow reports twice —
+    // must not double the count the user is shown.
+    // Keyed on the frame's own token, never its URL. Two iframes with the same
+    // `src` are ordinary and every srcdoc frame calls itself `about:srcdoc`,
+    // so a URL key discards the second frame's report — its outcomes go
+    // uncounted, and since a discarded report does not extend the settle
+    // window, a frame slower than SETTLE_MS can have the operation closed
+    // before its values arrive.
+    if (operation.frames.has(raw.report.frame)) return;
+    operation.frames.add(raw.report.frame);
+    summarise(raw.report, operation.outcomes);
 
-      // Each frame reports independently and none waits for another
-      // (BR-001-5), so the operation closes when the reports stop arriving
-      // rather than when any particular one does.
-      if (operation.settle !== undefined) clearTimeout(operation.settle);
-      operation.settle = setTimeout(() => {
-        const { filled, skipped, failed } = operation.outcomes;
-        trace(
-          `fill ${raw.operationId}: ${filled} filled, ${skipped} skipped, ` +
-            `${failed} failed across ${operation.frames.size} frame(s)`,
-        );
+    // Each frame reports independently and none waits for another
+    // (BR-001-5), so the operation closes when the reports stop arriving
+    // rather than when any particular one does.
+    if (operation.settle !== undefined) clearTimeout(operation.settle);
+    operation.settle = setTimeout(() => {
+      const { filled, skipped, failed } = operation.outcomes;
+      trace(
+        `fill ${raw.operationId}: ${filled} filled, ${skipped} skipped, ` +
+          `${failed} failed across ${operation.frames.size} frame(s)`,
+      );
 
-        // BR-001-4: nothing to fill is a success, not a failure, and must be
-        // distinguishable from one.
-        void showBadge(
-          operation.tabId,
-          filled > 0 ? String(filled) : '0',
-          failed > 0 ? '#c0392b' : filled > 0 ? '#2f6fed' : '#8a8f98',
-        );
-        finish(raw.operationId, operation.tabId);
-      }, SETTLE_MS);
-    }
+      // BR-001-4: nothing to fill is a success, not a failure, and must be
+      // distinguishable from one.
+      void showBadge(
+        operation.tabId,
+        filled > 0 ? String(filled) : '0',
+        failed > 0 ? '#c0392b' : filled > 0 ? '#2f6fed' : '#8a8f98',
+      );
+      finish(raw.operationId, operation.tabId);
+    }, SETTLE_MS);
     return;
   });
 
