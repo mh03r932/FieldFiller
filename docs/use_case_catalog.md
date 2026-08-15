@@ -18,11 +18,11 @@ Legend — **Spec:** `Not started` · `Blocked` · `Drafted` · `Approved`
 
 | ID | Use Case | Primary Actor | Goal | Traces to | Priority | Spec |
 |---|---|---|---|---|---|---|
-| UC-001 | Fill All Inputs on the Page | Tester | Populate every fillable control in the page and its frames in one action | FR-001, FR-004..010, FR-075, FR-076, FR-078, FR-079 | High | **Drafted** *(revision owed — DD-009)* |
+| UC-001 | Fill All Inputs on the Page | Tester | Populate every fillable control in the page and its frames in one action | FR-001, FR-004..010, FR-075, FR-076, FR-078, FR-079 | High | **Drafted** |
 | UC-002 | Fill the Current Form | Tester | Populate the form the cursor is in, resolved by the DD-008 ladder where the page declares no `<form>` | FR-002, FR-004..006, FR-009, FR-010 | High | Not started |
 | UC-003 | Fill the Selected Input | Tester | Populate only the control under the cursor | FR-003, FR-004..006, FR-009, FR-010 | High | Not started |
-| UC-004 | Determine the Value for a Field | *(included)* | Identify a field, select the winning rule, generate and apply a value | FR-011..013, FR-019..023, FR-025, FR-027..032, FR-065..069, FR-080, FR-082 | High | **Drafted** *(revision owed — FR-080, FR-082)* |
-| UC-005 | Exclude a Field from Filling | *(included)* | Decide that a field must be left untouched | FR-033..036, FR-071, FR-075 | High | **Drafted** |
+| UC-004 | Determine the Value for a Field | *(included)* | Identify a field, select the winning rule, generate and apply a value | FR-011..013, FR-019..023, FR-025, FR-027..032, FR-065..069, FR-080, FR-082 | High | **Drafted** *(revision owed — FR-080 built but unwritten, FR-082 both)* |
+| UC-005 | Exclude a Field from Filling | *(included)* | Decide that a field must be left untouched | FR-033..036, FR-071, FR-075, FR-079 | High | **Drafted** *(revision owed — `user-touched`, per-pass cost)* |
 | UC-006 | Reuse a Value for a Confirmation Field | *(extends UC-004)* | Repeat the previously generated value in a confirmation field | FR-024, FR-032 | High | Not started |
 | UC-007 | Apply a URL Profile | *(extends UC-004)* | Give profile rules precedence over global rules on a matching page | FR-031, FR-045 | High | Not started |
 | UC-008 | Suspend Filling on an Excluded Domain | *(extends UC-001..003)* | Make the extension inert on domains the user has excluded | FR-037, FR-038, FR-074 | High | Not started |
@@ -116,10 +116,10 @@ obligations are listed rather than left to be rediscovered:
 
 | Owed by | Obligation |
 |---|---|
-| ~~**UC-034**~~ | ~~The whole decision.~~ **Discharged 2026-08-14** into `use_cases/UC-034.md`. |
-| **UC-001** *(drafted)* | ~~Filled means verified.~~ **Discharged 2026-08-15 with FR-076.** Still owed from step B: a fill no longer ends when the first walk does, so the postcondition becomes "settled or capped", and A7's "a second invocation is ignored" has to say what happens when the second invocation arrives *during a cascade* rather than during a walk. |
-| **UC-004** *(drafted)* | Generation becomes idempotent per element within one operation (FR-080), and FR-082 adds a persona-preferred option choice with its own provenance. Neither changes the rule-matching flow; both change what "generate" is allowed to depend on. |
-| **UC-005** *(drafted)* | A new exclusion reason for "we filled this earlier in this same operation", which must not be reported as `pre-filled`. Also: the perceivability check is now re-run on previously excluded controls at each settle, so its cost is paid more than once per fill. |
+| ~~**UC-034**~~ | ~~The whole decision.~~ **Discharged 2026-08-14** into `use_cases/UC-034.md`, and revised 2026-08-15 in two places by what implementing it showed — A3 gained a per-control write bound, A7 stopped reporting a control the page removed. |
+| ~~**UC-001**~~ | ~~Filled means verified.~~ **Discharged 2026-08-15 with FR-076.** ~~A fill no longer ends when the first walk does; A7 during a cascade.~~ **Discharged 2026-08-15 with step B** — the scenario now includes UC-034, the postcondition says settled-or-capped, A7 says the window is now seconds wide and that typing is not an invocation, and BR-001-1 no longer claims a frame that never reports delays nothing. |
+| **UC-004** *(drafted)* | ~~Generation becomes idempotent per element within one operation (FR-080).~~ **Built 2026-08-15** — generation is seeded from the operation's seed and the control's token — but the *spec* has not been revised to say so, and UC-004 still describes generation as drawing from a stream. FR-082 remains entirely owed: a persona-preferred option choice with its own provenance. |
+| **UC-005** *(drafted)* | ~~A new exclusion reason for "we filled this earlier in this same operation".~~ **Not needed, and that is the discharge**: a control still holding what we wrote keeps its `filled` outcome and is never re-classified, so there is nothing to name. A different reason did become necessary — `user-touched`, for a control the Tester touched mid-fill (FR-079). Still owed: the perceivability check is now re-run on previously excluded controls at each settle, so its cost is paid once per pass rather than once per fill. |
 | **UC-009** *(not started)* | Nothing directly — noted only because FR-082's fallback needs a provenance string, and provenance is authored alongside the rule model. |
 
 ## Order of Work

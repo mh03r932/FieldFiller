@@ -835,6 +835,37 @@ first.
   timing, NFR-015 requires the engine to be testable without a browser, and otherwise the
   entire fixture matrix above can only run in the end-to-end harness.
 
+#### What building it changed
+
+*Recorded 2026-08-15, when steps A and B landed. The decision stands; three things in it were
+wrong or incomplete, and are worth having on the record rather than quietly corrected.*
+
+**A bound per control, not only per fill.** The bounds above are all bounds on the *fill* — a
+pass cap, a per-pass wait, a total budget. The fixture matrix showed why that is not enough. A
+single field whose handler clears it on every input never reaches a fixpoint, so it alone
+drives the whole frame to the pass cap: the page is then reported as one the engine could not
+settle, and every other field on it as possibly stale, because of one broken field. A cap on
+how many times *one control* may be written keeps the failure local, and the fill settles
+honestly around it. Measured on the matrix: with it, the fixture settles in four passes; the
+one field the page will not let us fill is reported failed and nothing else is affected.
+
+**"Both appear in the report" was wrong.** For a control the page removes and replaces, the
+decision said to report both and accept an over-count, on the grounds that inferring the two
+are the same field is a guess. The reasoning holds; the conclusion did not. That over-count is
+indistinguishable from the failure this whole decision exists to remove — more fields claimed
+than the page holds — and it makes the one number that measures the report's honesty unusable.
+The removed control is dropped instead, which needs no identity inference: it is not on the
+settled page. UC-034 A7 carries the revision.
+
+**A settle window cannot tell a slow frame from a finished one.** The background decided a
+fill was complete when reports stopped arriving for 400 ms — sound while every frame reported
+within milliseconds of the others. A frame's duration now depends on how much its own page
+cascades, so frames in one tab finish seconds apart, and the reference page's 33 fields came
+back reported as 27 with nothing to indicate anything was missing. Waiting longer trades one
+failure for another; the fix is that each frame says it is participating, so completion is
+known rather than inferred. `tabs.sendMessage` broadcasts but returns one reply, which is why
+this needed a protocol addition and not just a larger number.
+
 **Why this was affordable at all: ND-1.** Generation projects a pre-existing persona onto
 descriptors, so a field described in pass 3 resolves to the same persona slot as one described
 in pass 0. Under the reference's order-dependent mirroring (ND-7), a "confirm email" filled in

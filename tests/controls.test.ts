@@ -187,13 +187,14 @@ describe('radio groups are decided once per group', () => {
     const fillable = radios.flatMap((radio, index) => {
       const classification = classifyStructural(radio, context());
       if (!classification.fillable) return [];
-      return [{ radio, descriptor: describeField(radio, index, classification.kind, 'group-0') }];
+      return [
+        { radio, descriptor: describeField(radio, index, classification.kind, { group: 'group-0' }) },
+      ];
     });
 
     const values = generateBatch(
       fillable.map((entry) => entry.descriptor),
-      groupPersona,
-      random,
+      { persona: groupPersona, randomFor: () => random },
     );
     for (const [index, entry] of fillable.entries()) {
       applyValue(entry.radio, values[index]!, { dispatchEvents: true });

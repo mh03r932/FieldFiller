@@ -108,11 +108,22 @@ DD-009 is the largest single change in this phase and the only one that touches 
 the DD-003 boundary. It is sequenced so that each step is shippable and the later ones cannot
 be trusted without the earlier ones.
 
-| Step | Brings | Depends on |
-|---|---|---|
-| **A · Honesty floor** | Per-kind write verification (FR-076), the stale/rejected outcome, `summarise` handling it. No NFR changes, no loop, shippable alone. | — |
-| **B · The fixpoint loop** | Element tokens and token-seeded generation (FR-080), the two observation signals, the re-fill rules, the pass and time bounds (FR-078, NFR-034), the trusted-input rule (FR-079), teardown (NFR-035), the sliding operation deadline, the compatible protocol delta. | A — a loop that cannot tell whether a write survived cannot decide what to re-fill |
-| **C · Combobox ladder** | FR-081, with the restore rung. | B, and a measurement |
+| Step | Brings | Depends on | State |
+|---|---|---|---|
+| **A · Honesty floor** | Per-kind write verification (FR-076), the stale/rejected outcome, `summarise` handling it. No NFR changes, no loop, shippable alone. | — | **Landed 2026-08-15** |
+| **B · The fixpoint loop** | Element tokens and token-seeded generation (FR-080), the two observation signals, the re-fill rules, the pass and time bounds (FR-078, NFR-034), the trusted-input rule (FR-079), teardown (NFR-035), the sliding operation deadline, the compatible protocol delta. | A — a loop that cannot tell whether a write survived cannot decide what to re-fill | **Landed 2026-08-15** |
+| **C · Combobox ladder** | FR-081, with the restore rung. | B, and a measurement | Open |
+
+Step B landed with three things the decision did not anticipate — a per-control write bound, a
+control the page removed being dropped from the report rather than double-counted, and frames
+announcing themselves so completion is known rather than inferred from silence. Each is
+recorded under "What building it changed" in DD-009. The cascade fixture now reports **16
+claimed filled against 16 the page holds**, of 17 fillable; the seventeenth is the field the
+page will not let anyone fill, and it is reported as a failure.
+
+The pass cap was set by measurement rather than by argument: lowering it until the fixture
+broke showed the matrix fills in three passes and settles in four, and the shipped cap is that
+doubled.
 
 Step A first is not caution, it is a dependency: the loop's central decision — *does this
 control need another pass?* — is a verification question, so building the loop on an
@@ -128,9 +139,10 @@ DD-009 that gets cut if the measurement is bad — an honestly skipped combobox 
 outcome.
 
 **Not** gated on NFR-003, which is where an earlier draft of this section pointed. Measured
-2026-08-14, the page agent is **10.73 KB of its 40 KB** budget, with the full walk, exclusion,
-identification and apply machinery in it. DD-009's loop and the ladder together are single-digit
-kilobytes against 29 KB of headroom. The size gate is still read before and after each step —
+2026-08-14, the page agent was **10.73 KB of its 40 KB** budget, with the full walk, exclusion,
+identification and apply machinery in it; steps A and B took it to **14.72 KB**, so the whole
+of DD-009's honesty floor and fixpoint loop cost 4 KB against 29 KB of headroom. The ladder is
+the same order again. The size gate is still read before and after each step —
 it is the requirement that keeps DD-001 defensible, and a change that quietly eats a third of
 the headroom should be seen — but it is not the constraint that will decide C's fate.
 

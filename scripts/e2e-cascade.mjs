@@ -7,9 +7,9 @@
  * alternative flows, each one a shape that exists in the wild and that a
  * single-pass fill gets wrong.
  *
- * **It is expectation-based, and passes while the expectations hold.** DD-009 is
- * not built, so most cases below are expected to fail, and a run where they fail
- * exactly as recorded exits 0. Three things make it exit 1:
+ * **It is expectation-based, and passes while the expectations hold.** A run
+ * where every case behaves exactly as recorded exits 0, whether that behaviour
+ * is a pass or a known-unbuilt failure. Three things make it exit 1:
  *
  *   · a case expected to pass that now fails — a regression;
  *   · a case expected to fail that now passes — the step that fixes it has
@@ -19,7 +19,8 @@
  *
  * So this harness can be committed and run in CI today, and each of DD-009's
  * three steps announces itself by flipping rows from `fail` to `pass`. The
- * `EXPECTED` table below is the progress bar.
+ * `EXPECTED` table below is the progress bar. Steps A and B have landed; step C
+ * — the custom combobox ladder — has not, and is gated on a measurement.
  *
  * Usage: node scripts/e2e-cascade.mjs   (after `pnpm run build`)
  *   CHROME_PATH=…  override the browser binary
@@ -48,23 +49,25 @@ const FIXTURE = join(ROOT, 'tests', 'fixtures', 'cascade.html');
  * in the same change as the code, never ahead of it.
  */
 const EXPECTED = {
-  'c1 · dependent select filled from its rewritten options': { now: 'fail', fixedBy: 'B' },
-  'c2 · chained cascade settles all three levels': { now: 'fail', fixedBy: 'B' },
-  'c3 · debounced cascade is waited for': { now: 'fail', fixedBy: 'B' },
-  'c4 · fields revealed by an answer are filled': { now: 'fail', fixedBy: 'B' },
-  'c5 · control enabled by an answer is filled': { now: 'fail', fixedBy: 'B' },
-  'c6 · a property-only wipe is noticed': { now: 'fail', fixedBy: 'B' },
+  // The eight rows below flipped on 2026-08-15 with the fixpoint loop. They are
+  // now the regression suite for it: any of them going back to `fail` means the
+  // loop stopped following the page.
+  'c1 · dependent select filled from its rewritten options': { now: 'pass', fixedBy: undefined },
+  'c2 · chained cascade settles all three levels': { now: 'pass', fixedBy: undefined },
+  'c3 · debounced cascade is waited for': { now: 'pass', fixedBy: undefined },
+  'c4 · fields revealed by an answer are filled': { now: 'pass', fixedBy: undefined },
+  'c5 · control enabled by an answer is filled': { now: 'pass', fixedBy: undefined },
+  'c6 · a property-only wipe is noticed': { now: 'pass', fixedBy: undefined },
   'c7 · a page that always reverts still terminates the fill': { now: 'pass', fixedBy: undefined },
-  'c8 · a replaced control ends up holding a value': { now: 'fail', fixedBy: 'B' },
+  'c8 · a replaced control ends up holding a value': { now: 'pass', fixedBy: undefined },
   'c9 · a reformatted value counts as filled': { now: 'pass', fixedBy: undefined },
   'c9 · a normalised number counts as filled': { now: 'pass', fixedBy: undefined },
   'c10 · a custom combobox is answered': { now: 'fail', fixedBy: 'C' },
   'c10 · the hidden carrier was not written directly': { now: 'pass', fixedBy: undefined },
-  // Landed 2026-08-15 with FR-076. Kept as a `pass` row rather than deleted: it
-  // is the regression guard for write verification, and the only surface that
-  // exposes the report at all is this count.
-  'report · a control cleared while we write it is not counted as filled': { now: 'pass', fixedBy: undefined },
-  'report · filled count does not exceed what the page holds': { now: 'fail', fixedBy: 'B' },
+  'report · filled count does not exceed what the page holds': { now: 'pass', fixedBy: undefined },
+  'report · every value the page holds was claimed by the report': { now: 'pass', fixedBy: undefined },
+  'report · the field the page will not let us fill is reported as a failure': { now: 'pass', fixedBy: undefined },
+  'report · the fixture settles rather than stopping at a bound': { now: 'pass', fixedBy: undefined },
 };
 
 const CHROME_CANDIDATES = [
@@ -233,14 +236,22 @@ try {
   // into `0 <= holding` and makes it pass for the wrong reason. That is exactly
   // how the first run of this harness scored a case it had not tested.
   let badge = '';
+  let badgeColour = '';
+  let badgeTitle = '';
   for (let elapsed = 0; elapsed < 4500; elapsed += 150) {
     await sleep(150);
     if (badge === '') {
       const read = await cdp.send('Runtime.evaluate', {
-        expression: `chrome.tabs.query({}).then((tabs) => chrome.action.getBadgeText({ tabId: tabs[0].id }))`,
+        expression: `chrome.tabs.query({}).then(async (tabs) => {
+          const tabId = tabs[0].id;
+          const text = await chrome.action.getBadgeText({ tabId });
+          const colour = await chrome.action.getBadgeBackgroundColor({ tabId });
+          const title = await chrome.action.getTitle({ tabId });
+          return [text, Array.isArray(colour) ? colour.join(',') : '', title].join('|');
+        })`,
         awaitPromise: true, returnByValue: true,
       }, workerSession);
-      badge = String(read.result.value ?? '');
+      [badge, badgeColour, badgeTitle] = String(read.result.value ?? '||').split('|');
     }
   }
 
@@ -357,32 +368,47 @@ try {
     seen.c10_currency === '' || seen.c10_display !== 'Select…',
     `carrier=${JSON.stringify(seen.c10_currency)} shows=${JSON.stringify(seen.c10_display)}`);
 
-  // The report's honesty, in one subtraction. The badge counts what the engine
-  // says it filled; `holding` counts what the page actually holds. A report
-  // claiming more than the page has is the silent failure UC-034 exists to
-  // remove — and it is measured in two steps, because the two halves are fixed
-  // by different work.
+  // The report's honesty, in one subtraction — and it is asserted in both
+  // directions, because the two errors are opposite lies with different causes.
   //
-  // Step A sees only what happens synchronously: `applyValue` dispatches its
-  // events before returning, so a handler that clears the field has already run
-  // when the readback happens. Two controls here revert on a *timer* instead —
-  // c6's property wipe at 120 ms and c8's node replacement at 100 ms — and no
-  // amount of reading back at write time can see those. They are what BR-034-2's
-  // second verification, at the end of the fill, exists for.
+  // The badge counts what the engine says it filled; `holding` counts what the
+  // page actually holds. Claiming *more* is the silent failure UC-034 exists to
+  // remove: a control the page reverted, reported as though it had not been.
+  // Claiming *fewer* is the loop dropping outcomes — a frame closed too early, a
+  // control tracked twice and reported once, a pass whose results were lost.
+  // Neither is visible in any single case row, and both are visible here.
   //
-  // Measured: 10 claimed against 7 held before FR-076, 9 against 7 after. The
-  // one that went away is c7's synchronous revert, which is exactly step A's
-  // claim and nothing more.
-  const ASYNCHRONOUS_REVERTS = 2;
-
-  record('report · a control cleared while we write it is not counted as filled',
-    badge !== '' && Number(badge) - seen.holding <= ASYNCHRONOUS_REVERTS,
-    `badge=${badge} holding=${seen.holding} — overcount ${Number(badge) - seen.holding},` +
-      ` at most ${ASYNCHRONOUS_REVERTS} expected until the end-of-fill check lands`);
-
+  // Progress recorded: 10 claimed against 7 held before FR-076, 9 against 7
+  // after step A, and 16 against 16 with the loop. The two that went away with
+  // the loop are c6's property wipe at 120 ms and c8's node replacement at
+  // 100 ms — both asynchronous, and both invisible to a check made at the moment
+  // of writing.
   record('report · filled count does not exceed what the page holds',
     badge !== '' && Number(badge) <= seen.holding,
     `badge=${badge} holding=${seen.holding} of ${seen.fillable} fillable`);
+
+  record('report · every value the page holds was claimed by the report',
+    badge !== '' && Number(badge) >= seen.holding,
+    `badge=${badge} holding=${seen.holding} of ${seen.fillable} fillable`);
+
+  // c7 cannot be filled — the page will not permit it — so the honest result is
+  // a reported failure, not a quiet omission. The badge turns red when anything
+  // failed, which is the only signal this harness can see into; without this row
+  // a loop that silently dropped its unfillable controls would score a perfect
+  // page. `#c0392b` is the failure colour in `background.ts`.
+  record('report · the field the page will not let us fill is reported as a failure',
+    badgeColour === '192,57,43,255',
+    `badge colour=${JSON.stringify(badgeColour)}, expected the failure colour 192,57,43,255`);
+
+  // Every case above can pass on a fill that *stopped at its cap* — the fields
+  // get filled either way, and only the report knows the difference. This is the
+  // row that keeps the bounds honest: the fixture is a page the engine can
+  // settle, so a run that reports it as capped means the pass cap has been
+  // reduced below the depth the matrix actually needs. It is what turned "the
+  // matrix settles in three" into the measurement that it needs four.
+  record('report · the fixture settles rather than stopping at a bound',
+    badgeTitle !== '' && !badgeTitle.includes('may be stale'),
+    `action title=${JSON.stringify(badgeTitle)}`);
 } catch (error) {
   fatal = error instanceof Error ? error.message : String(error);
 } finally {

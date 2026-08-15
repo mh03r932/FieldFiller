@@ -13,15 +13,22 @@ import { radioGroup } from './exclude';
  * impossible, a class attribute can trigger a rule meant for a name, and the
  * report cannot say which source matched.
  */
+export type Identity = {
+  /** The radio group token, resolved by the caller against real membership. */
+  readonly group?: string | undefined;
+  /** The control's identity across the passes of one fill (FR-080). */
+  readonly token?: string | undefined;
+};
+
 export function describe(
   element: Element,
   ref: number,
   kind: ControlKind,
-  /** The radio group token, resolved by the caller against real membership. */
-  group?: string,
+  identity: Identity = {},
 ): FieldDescriptor {
   return {
     ref,
+    ...optional('token', identity.token),
     kind,
     sources: compact({
       name: attribute(element, 'name'),
@@ -44,7 +51,7 @@ export function describe(
       required: element.hasAttribute('required') ? true : undefined,
     }),
     ...optional('options', optionsOf(element, kind)),
-    ...optional('group', kind === 'radio' ? group : undefined),
+    ...optional('group', kind === 'radio' ? identity.group : undefined),
   };
 }
 
