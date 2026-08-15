@@ -488,11 +488,15 @@ and the differentiators in §3, not on the name.
 These need resolution during detailed use case work. Each is flagged on the use case it
 blocks.
 
-> **Status as of 2026-08-14:** DD-001, DD-003, DD-004 and DD-007 are resolved; ND-1, ND-2
-> and ND-9 are decided (see §7.4). **DD-008 resolved 2026-08-13. DD-009 resolved 2026-08-14,
-> amending DD-003.** DD-002, DD-005 and DD-006 remain open — and DD-006 now carries two
-> obligations: from DD-008, a result must name the scope it filled; from DD-009, it must be
-> able to say that a fill stopped at its cap rather than finishing.
+> **Status as of 2026-08-15:** DD-001, DD-003, DD-004, DD-007, DD-008 and DD-009 are
+> resolved, and so is **DD-006**, which the other two kept adding obligations to until it had
+> three facts to carry and one surface to carry them on. ND-1, ND-2 and ND-9 are decided (see
+> §7.4).
+>
+> **DD-005 was resolved the same day**, by being brought forward rather than by redefining the
+> phase around it: the schema is fixed in full, the rule model is built on it, and the eight
+> requirements it blocked are unblocked. **DD-002 is the only decision still open**, and it
+> blocks nothing before Phase 6.
 
 ### Resolved
 
@@ -600,9 +604,9 @@ answers this natively. Same class of fix as `element.labels` over `label[for]` (
 
 **What this obliges elsewhere.** The scope is now inferable three ways, so a fill result must
 state which scope ran — "6 fields in the form around your cursor" against "6 fields on the
-page". That is a requirement on **DD-006**, which remains open: a bare badge count cannot
-express it, so whatever feedback surface is chosen has to carry the scope as well as the
-count.
+page". That was a requirement on **DD-006**, resolved 2026-08-15: the scope goes in the
+toolbar tooltip's sentence, which is the surface with room for it. The badge keeps the count
+alone.
 
 **DD-003 — Generation runs in the background. RESOLVED.** *(Amended 2026-08-14 by DD-009.)*
 The page agent walks, classifies and applies; it carries no corpus. Field descriptors go to
@@ -794,6 +798,15 @@ correctness (§3), and the detection also widens the walk's candidate selector o
 budget everywhere to serve a minority of pages. It is gated on measuring that inflation
 first.
 
+**Measured and built 2026-08-15, and the gate was aimed at the wrong quantity.** On a
+500-control application page with no combobox anywhere, the widened selector adds **zero**
+candidates and 0.05 ms of matching — 0.01% of NFR-001. An attribute selector matches only
+elements carrying the attribute, so classification, identification and generation see exactly
+what they saw before; there is no inflation to trade against. The ladder itself cost 3.8 KB of
+the 25 KB still spare. What genuinely costs is *driving* a control — an interaction and a wait
+per rung, per control — so that is bounded per control and per pass instead (NFR-036), and a
+page too full of them produces a partial fill that says so rather than a slow one.
+
 #### Also considered and rejected
 
 - **Blind re-fill N times, or a fixed sleep between passes.** Both die on the debounced
@@ -811,7 +824,8 @@ first.
 - **DD-003** is amended: one round trip per pass, with the stateless-oracle invariant restated
   above so the amendment cannot be read as permission to move DOM semantics across.
 - **DD-006** gains a second obligation. A capped fill is a distinct outcome and a bare count
-  cannot express it, exactly as DD-008 made scope inexpressible in a count.
+  cannot express it, exactly as DD-008 made scope inexpressible in a count. *(Discharged
+  2026-08-15 when DD-006 resolved: the sentence carries it, and the badge carries a marker.)*
 - **NFR-001 is split rather than loosened.** The 500-controls-in-500 ms budget is what the
   user perceives — the form visibly filling — and it stays, scoped to the first pass. Cascade
   resolution gets its own budget (NFR-034) that is explicitly not part of the responsiveness
@@ -835,6 +849,37 @@ first.
   timing, NFR-015 requires the engine to be testable without a browser, and otherwise the
   entire fixture matrix above can only run in the end-to-end harness.
 
+#### What building it changed
+
+*Recorded 2026-08-15, when steps A and B landed. The decision stands; three things in it were
+wrong or incomplete, and are worth having on the record rather than quietly corrected.*
+
+**A bound per control, not only per fill.** The bounds above are all bounds on the *fill* — a
+pass cap, a per-pass wait, a total budget. The fixture matrix showed why that is not enough. A
+single field whose handler clears it on every input never reaches a fixpoint, so it alone
+drives the whole frame to the pass cap: the page is then reported as one the engine could not
+settle, and every other field on it as possibly stale, because of one broken field. A cap on
+how many times *one control* may be written keeps the failure local, and the fill settles
+honestly around it. Measured on the matrix: with it, the fixture settles in four passes; the
+one field the page will not let us fill is reported failed and nothing else is affected.
+
+**"Both appear in the report" was wrong.** For a control the page removes and replaces, the
+decision said to report both and accept an over-count, on the grounds that inferring the two
+are the same field is a guess. The reasoning holds; the conclusion did not. That over-count is
+indistinguishable from the failure this whole decision exists to remove — more fields claimed
+than the page holds — and it makes the one number that measures the report's honesty unusable.
+The removed control is dropped instead, which needs no identity inference: it is not on the
+settled page. UC-034 A7 carries the revision.
+
+**A settle window cannot tell a slow frame from a finished one.** The background decided a
+fill was complete when reports stopped arriving for 400 ms — sound while every frame reported
+within milliseconds of the others. A frame's duration now depends on how much its own page
+cascades, so frames in one tab finish seconds apart, and the reference page's 33 fields came
+back reported as 27 with nothing to indicate anything was missing. Waiting longer trades one
+failure for another; the fix is that each frame says it is participating, so completion is
+known rather than inferred. `tabs.sendMessage` broadcasts but returns one reply, which is why
+this needed a protocol addition and not just a larger number.
+
 **Why this was affordable at all: ND-1.** Generation projects a pre-existing persona onto
 descriptors, so a field described in pass 3 resolves to the same persona slot as one described
 in pass 0. Under the reference's order-dependent mirroring (ND-7), a "confirm email" filled in
@@ -842,6 +887,72 @@ a later pass would mirror whatever that pass happened to generate. Multi-pass fi
 have been incoherent by construction. The decision to synthesise a record before touching the
 page — taken for §7.4's reasons, not for this one — is what made this change tractable two
 phases later.
+
+**DD-006 — Result feedback surface. RESOLVED 2026-08-15.**
+
+A fill has to report three things and a badge holds one. Which **scope** ran, because DD-008
+made that inferable three ways and "6 filled" reads identically for a form and for a whole
+page. **How many** fields were filled. And whether the fill **settled or stopped at a bound**,
+because DD-009 made a capped fill a distinct outcome — "6 filled" and "6 filled, 2 may be
+stale" are different facts about the same page, and a user who cannot tell them apart is back
+to the reference's problem of not knowing whether anything went wrong.
+
+**The decision: one fact per surface, layered by how much the user has asked for.**
+
+| Surface | Carries | Why there |
+|---|---|---|
+| **Badge** | The count, and a marker when the fill was capped | It is glanceable and already exists. It is also contended — the active profile (UC-017) and domain-off (UC-008) indicators are persistent facts that outrank a transient count — so it carries the least. |
+| **Toolbar tooltip** | The whole sentence: *"6 filled in this form — 2 may be stale"* | Room for all three facts in the user's own language, at no cost to the page. Already carries the capped note as of DD-009 step B. |
+| **Options page** | The per-control report: every field, its outcome, and its provenance | The place to answer *why did this field get that value*, which is FR-069's whole purpose and needs more room than any transient surface has. |
+
+**Rejected: an in-page toast.** It is the most visible option and needs no hover, and it was
+rejected anyway. It puts our markup into every page the user visits, which is the tax DD-001
+already made expensive; it spends NFR-003's budget on presentation rather than on filling; and
+it can collide with the page's own interface, on a product whose entire job is not to disturb
+the page more than a user would. §4 already says we do not put our UI in the user's document.
+
+**The known weakness, stated rather than discovered later:** a tooltip is hover-only, so a
+keyboard-only user never sees the sentence. The badge's capped marker is what they get, and it
+is why the badge carries a marker at all rather than only a number. If that proves too thin,
+the answer is a keyboard-reachable surface, not a toast.
+
+**Built 2026-08-15, all three layers.** The badge carries the count and a marker when the fill
+was capped; the tooltip carries the whole sentence, from the i18n catalog rather than assembled
+in code; the options page carries the per-control report — every field, its outcome and its
+provenance — which is what moves FR-009 and FR-069 off Partial.
+
+The scope half of the sentence is plumbed but reads "this page" for now, because `all-inputs`
+is the only scope that exists. Phase 3 adds the other two and the sentence follows without
+rework, which was the point of building the fact in rather than the wording.
+
+**What building it found.** The badge marker made a defect visible that had been there since
+FR-079 landed: `isTrusted` is not sufficient to tell the user apart from us. A checkbox or radio
+written with `click()` has *activation behaviour* — the browser toggles it and fires `input` and
+`change` **itself**, so those events arrive trusted with no person behind them. Ticking a
+consent box therefore read as the user typing, and **every fill of a page containing a checkbox
+reported itself capped with "you started typing"**, with the count still correct. Nothing caught
+it because no surface showed the difference: the badge was a bare number, and the only harness
+reading the tooltip was the cascade one, whose fixture has no checkbox. Fixed by muting the
+watcher for the duration of our own synchronous write, and the end-to-end harness now asserts
+that the reference page settles — the row that would have caught it.
+
+That is the argument for DD-006 restated by accident: a fill that stops at a bound and one that
+settles can reach the same count, and a surface that cannot tell them apart lets the difference
+go unnoticed for two decisions.
+
+**Retention, decided with it.** The report names each field the way the user sees it, which is
+page-derived data. It is held in the background's memory only, one fill's worth, replaced by the
+next fill and lost when the background is evicted — which is routine, so "no report available"
+is an ordinary answer the page gives in those words. It is never written to storage in any form.
+No page *value* is held: descriptors have never carried one, and provenance says how a value was
+chosen rather than what it was. NFR-030 was rewritten in the same change to draw that line
+explicitly rather than leaving "persisted" to be read either way.
+
+**Still owed:** a failure has a badge colour and no words. Neither the sentence nor the marker
+mentions a control that could not be filled, so a colour carries that fact alone — the same
+weakness DD-006 names for the tooltip, in the surface that was supposed to answer it. It is not
+one of the three facts this decision scoped, and it is written down here rather than folded in
+silently.
 
 **DD-004 — Build framework: WXT. RESOLVED.**
 One config emits both targets, absorbing the `service_worker` vs `background.scripts` split
@@ -853,6 +964,60 @@ One fill produces one coherent fictional person: identity, contact, address and 
 with city, state and postcode mutually consistent, email derived from the name, and phone
 matching the country. This is the largest quality gap over every competitor found in §2, and
 DD-003 is what makes it affordable.
+
+**DD-005 — Settings schema. RESOLVED 2026-08-15.**
+Brought forward from Phase 4 to unblock the eight rule-driven requirements parked in Phase 2
+(FR-019..FR-022, FR-031, FR-067, FR-068, FR-070). The whole shape is fixed now rather than
+rules alone, because Phase 5 is stated to be the last change to the schema and Phase 6 depends
+on that being true — deciding once is the entire reason for pulling this in early.
+
+**The shape.** One `settings` item in `storage.local`, with each section a top-level key:
+`rules`, `profiles`, `exclusions`, `behaviour`, `passwords`, `sources`. Sharding per section
+later is then mechanical, which leaves DD-002 genuinely open rather than half-decided here.
+
+**Rules.** An ordered list; the first match wins, and a profile's rules are consulted before
+the global list (FR-031). Each rule carries a match mode — `contains`, `exact` or `regex` —
+rather than one implicit regex dialect. The pattern is never rewritten behind the user's back,
+so `^name$` in regex mode means what it says and the reference's defect (`name` matching
+`username`, `firstname` and `company_name`) is gone by construction. A rule may name a subset
+of the six identity sources; omitting it means "whatever is enabled globally", and the
+effective set is always the intersection with FR-028's toggles, so switching `className` off
+globally silences it everywhere without editing a single rule (FR-067).
+
+**Generators** are a discriminated union on `type`, which is ND-9's correction: thirteen types
+— the twelve FR-019 names, plus `constant`, which is the most common real need and otherwise
+has to be spelled as a one-item list. Template and date grammars are our own and documented,
+not the reference's; the Fake Filler importer translates both (PD-002). FR-021's regex
+generation supports a documented bounded subset and rejects anything outside it **at save
+time**, which is what FR-070 and NFR-009 already require of every pattern. NFR-009's check is
+structural — nested quantifiers, quantified alternation with overlapping branches, unbounded
+repetition of a nullable group — because a timed trial makes the verdict depend on how fast
+the machine is, and a rule that saves on a desktop should not be rejected on a laptop.
+
+**Where rules stop.** Three interactions with what is already built, decided explicitly so
+none of them is discovered later:
+
+- *Coherence.* Each rule carries a flag choosing whether a name, email or phone comes from the
+  fill's persona or is freshly random. It **defaults to the persona**, so a rule written
+  without thinking about it keeps ND-1's coherent record intact; breaking coherence is opt-in.
+- *Confirmation.* Mirroring beats a matching rule (FR-024). A confirmation field that does not
+  equal the field it confirms fails the page's own validation, which is the whole reason the
+  field exists — so the rule is reported as overridden rather than silently dropped.
+- *Passwords.* A password rule supplies policy; the field's `pattern`, `minlength` and
+  `maxlength` are still fitted on top, exactly as today. Anything else reintroduces ND-11.
+
+An unmatched field falls through to the persona-driven generator unchanged, and the rule list
+ships empty — so for anyone who writes no rules, nothing about the engine's behaviour moves.
+
+**Versioning, and what it costs.** `version` stays on the stored state and the tolerant
+per-field parser is the whole migration story: whatever is in storage is coerced into the
+current shape, per field, with defaults for anything unrecognised. There is no bypass, so
+ND-13 holds. **The cost, stated plainly: a future structural change loses the data it cannot
+recognise — for `rules` that means the user's hand-written rules, with no error shown.** That
+is accepted for now, and the door stays open precisely because `version` is present: a
+sequential ladder can be added later as a step in front of the parser, without changing the
+stored shape. Anything that would restructure a section is the moment to add it, and that
+should be written into this decision rather than remembered.
 
 ### Open
 
@@ -875,26 +1040,8 @@ schema consequences, so it must be settled before Phase 5 freezes the schema.
 
 *(DD-003 and DD-004 were resolved on 2026-08-12 — see "Resolved" above.)*
 
-**DD-005 — Settings schema versioning.** Our schema v1 must be forward-migratable, and the
-importer must map Fake Filler's v1 onto it. Needs an explicit migration ladder before the
-first release, not after.
-
-**DD-006 — Result feedback surface.** Badge count, toast, or nothing. Affects UC-001..003
-postconditions.
-
-Constrained by DD-008: the scope of a fill is now inferable three ways, so the surface must
-convey *which* scope ran and not only how many fields were filled. A bare badge count cannot
-do that. It is also contended — the badge is where the active profile (UC-017) and domain-off
-(UC-008) indicators must live, and those are persistent facts that outrank a transient count.
-Phase 1 ships a count that reverts after a few seconds as a provisional answer; the decision
-is what replaces it.
-
-Constrained again by DD-009: a fill can now stop at its cap with fields left stale, and that
-is a third thing the surface must be able to say. "6 filled" and "6 filled, 2 may be stale"
-are different facts about the same page, and a user who cannot tell them apart is back to the
-reference's problem of not knowing whether anything went wrong. Three facts — scope, count,
-completeness — is past what a badge holds, which is now the strongest argument in the
-decision rather than an aside.
+*(DD-005 was resolved on 2026-08-15 — see "Resolved" above. UC-027's mapping of Fake Filler's
+schema onto ours stays Phase 6 work; what DD-005 owed the engine is decided.)*
 
 ---
 

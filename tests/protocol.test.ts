@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isToAgentMessage, PING } from '@/lib/protocol';
+import { isFromAgentMessage, isToAgentMessage, isValuesResponse, PING } from '@/lib/protocol';
 
 /**
  * Phase 0's only unit test. Its job is less to prove `isToAgentMessage` correct
@@ -39,5 +39,119 @@ describe('isToAgentMessage', () => {
     // assume — it cannot assume both halves were updated together.
     expect(isToAgentMessage({ kind: 'ping', unexpected: { nested: [1] } })).toBe(true);
     expect(isToAgentMessage({ kind: ['ping'] })).toBe(false);
+  });
+});
+
+/**
+ * The other direction, and the one that carries structure rather than a tag.
+ *
+ * This is the trust boundary the whole message contract exists for. The agent is
+ * our own code but not necessarily our own *version*: a tab opened before an
+ * update runs the previous build until it reloads, so every field the background
+ * reads downstream has to be established here or not at all. These tests were
+ * added 2026-08-15 when the coverage-scope gate found `protocol.ts` measured by
+ * coverage, gated by nothing, and sitting at 22% lines.
+ */
+describe('isFromAgentMessage', () => {
+  const descriptor = { ref: 1, kind: 'text', sources: {}, constraints: {} };
+  const report = { frame: 'f1', frameUrl: 'https://example.test/', outcomes: [] };
+
+  it('accepts each message the agent sends', () => {
+    expect(isFromAgentMessage({ kind: 'pong', frameUrl: 'https://example.test/' })).toBe(true);
+    expect(isFromAgentMessage({ kind: 'accepted', frame: 'f1' })).toBe(true);
+    expect(isFromAgentMessage({ kind: 'joined', operationId: 'op-1', frame: 'f1' })).toBe(true);
+    expect(
+      isFromAgentMessage({ kind: 'descriptors', operationId: 'op-1', descriptors: [descriptor] }),
+    ).toBe(true);
+    expect(isFromAgentMessage({ kind: 'report', operationId: 'op-1', report })).toBe(true);
+  });
+
+  it.each([
+    ['null', null],
+    ['a string', 'report'],
+    ['an unknown kind', { kind: 'apologise' }],
+    ['a pong with no frame url', { kind: 'pong' }],
+    ['a joined with no operation', { kind: 'joined', frame: 'f1' }],
+  ])('rejects %s', (_label, value) => {
+    expect(isFromAgentMessage(value)).toBe(false);
+  });
+
+  it('rejects a descriptor list where one entry is malformed', () => {
+    // Every entry, not just the array. One bad descriptor among good ones is the
+    // shape a partial version mismatch actually produces, and accepting the
+    // message would push the problem to whatever reads `ref` downstream.
+    expect(
+      isFromAgentMessage({
+        kind: 'descriptors',
+        operationId: 'op-1',
+        descriptors: [descriptor, { ref: 'two', kind: 'text', sources: {}, constraints: {} }],
+      }),
+    ).toBe(false);
+    expect(
+      isFromAgentMessage({ kind: 'descriptors', operationId: 'op-1', descriptors: descriptor }),
+    ).toBe(false);
+  });
+
+  it('rejects a descriptor whose sources or constraints are null', () => {
+    // `typeof null === 'object'`, which is exactly why the guard checks for null
+    // separately and why this test exists to keep it there.
+    expect(
+      isFromAgentMessage({
+        kind: 'descriptors',
+        operationId: 'op-1',
+        descriptors: [{ ref: 1, kind: 'text', sources: null, constraints: {} }],
+      }),
+    ).toBe(false);
+    expect(
+      isFromAgentMessage({
+        kind: 'descriptors',
+        operationId: 'op-1',
+        descriptors: [{ ref: 1, kind: 'text', sources: {}, constraints: null }],
+      }),
+    ).toBe(false);
+  });
+
+  it('rejects a report carrying an outcome status this version does not know', () => {
+    expect(
+      isFromAgentMessage({
+        kind: 'report',
+        operationId: 'op-1',
+        report: { ...report, outcomes: [{ ref: 1, status: 'deferred' }] },
+      }),
+    ).toBe(false);
+  });
+
+  it('accepts a report from an agent built before DD-009 added the loop fields', () => {
+    // The compatibility claim in the guard's own comment. A tab that has not
+    // reloaded since the update sends no `passes`, `capped` or `stale`, and its
+    // report must still validate — as the single-pass fill it is.
+    expect(isFromAgentMessage({ kind: 'report', operationId: 'op-1', report })).toBe(true);
+    expect(
+      isFromAgentMessage({
+        kind: 'report',
+        operationId: 'op-1',
+        report: { ...report, passes: 3, capped: 'time-budget', stale: 2 },
+      }),
+    ).toBe(true);
+  });
+
+  it('rejects a report whose loop fields are present but wrong', () => {
+    // Present-and-wrong is the case optional checking is easy to get wrong: a
+    // guard that only tests `!== undefined` on one field lets the others through.
+    for (const wrong of [{ passes: 'three' }, { capped: 'bored' }, { stale: [] }]) {
+      expect(
+        isFromAgentMessage({ kind: 'report', operationId: 'op-1', report: { ...report, ...wrong } }),
+      ).toBe(false);
+    }
+  });
+});
+
+describe('isValuesResponse', () => {
+  it('accepts a values response and rejects everything else', () => {
+    expect(isValuesResponse({ kind: 'values', values: [] })).toBe(true);
+    expect(isValuesResponse({ kind: 'values', values: [{ ref: 1, value: 'x' }] })).toBe(true);
+    expect(isValuesResponse({ kind: 'values' })).toBe(false);
+    expect(isValuesResponse({ kind: 'report', values: [] })).toBe(false);
+    expect(isValuesResponse(null)).toBe(false);
   });
 });

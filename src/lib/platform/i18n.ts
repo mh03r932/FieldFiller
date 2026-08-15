@@ -18,8 +18,17 @@ import { browser } from 'wxt/browser';
  */
 export type MessageKey = Parameters<typeof browser.i18n.getMessage>[0];
 
-export function message(key: MessageKey): string {
-  return browser.i18n.getMessage(key);
+/**
+ * One catalog string, with `$1`…`$9` substituted where given.
+ *
+ * Substitution is the browser's own, not a template in our code, because the
+ * order of the pieces belongs to the translation: "6 filled in this form" and
+ * its equivalent in a language that puts the scope first are the same message
+ * with the same substitutions, and a sentence assembled by concatenation here
+ * could only ever be translated one way (NFR-018).
+ */
+export function message(key: MessageKey, substitutions?: readonly string[]): string {
+  return browser.i18n.getMessage(key, substitutions === undefined ? undefined : [...substitutions]);
 }
 
 /**

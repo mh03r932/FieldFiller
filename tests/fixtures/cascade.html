@@ -1,0 +1,339 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>FieldFiller — dependent field fixture</title>
+<style>
+  body { font: 14px/1.5 system-ui, sans-serif; max-width: 46rem; margin: 2rem auto; }
+  fieldset { margin: 0 0 1rem; }
+  legend { font-weight: 600; }
+  label { display: block; margin: .25rem 0; }
+  [hidden] { display: none; }
+</style>
+</head>
+<body>
+
+<h1>Dependent field fixture</h1>
+<p>
+  Every case here is a page that answers back. Written against UC-034 and DD-009: each
+  <code>&lt;fieldset&gt;</code> is one alternative flow, and the harness in
+  <code>scripts/e2e-cascade.mjs</code> names the case it belongs to.
+</p>
+<p>
+  No radios and no checkboxes anywhere in this file — deliberately. The overcount check in the
+  harness compares the reported filled count against the controls that actually hold a value,
+  and a radio group reports one outcome per member while holding one value between them. Toggles
+  would make the arithmetic a judgement call rather than an assertion.
+</p>
+
+<!-- ══ A1 · Stale options ═══════════════════════════════════════════════════
+     The core P1 case. The dependent select holds nothing but a placeholder until
+     its controller changes, so a fill that describes it before setting the
+     controller is choosing from a list of one empty option. -->
+<fieldset>
+  <legend>c1 — native cascade</legend>
+  <label>Country
+    <select name="c1_country">
+      <option value="">Choose…</option>
+      <option value="gb">United Kingdom</option>
+      <option value="nl">Netherlands</option>
+    </select>
+  </label>
+  <label>County
+    <select name="c1_county"><option value="">Choose…</option></select>
+  </label>
+</fieldset>
+
+<!-- ══ A1 · Chained cascade ══════════════════════════════════════════════════
+     Three levels. One extra pass fixes c1; c2 needs the loop to actually
+     iterate, which is what distinguishes a fixpoint from a retry. -->
+<fieldset>
+  <legend>c2 — chained cascade</legend>
+  <label>Region
+    <select name="c2_region">
+      <option value="">Choose…</option>
+      <option value="north">North</option>
+      <option value="south">South</option>
+    </select>
+  </label>
+  <label>District
+    <select name="c2_district"><option value="">Choose…</option></select>
+  </label>
+  <label>Ward
+    <select name="c2_ward"><option value="">Choose…</option></select>
+  </label>
+</fieldset>
+
+<!-- ══ A1 · Debounced cascade ════════════════════════════════════════════════
+     The commonest shape in the wild, and the one that kills every fixed-sleep
+     design: too early and the options have not arrived; too late and every
+     ordinary fill pays for it. -->
+<fieldset>
+  <legend>c3 — debounced cascade (350 ms)</legend>
+  <label>Carrier
+    <select name="c3_carrier">
+      <option value="">Choose…</option>
+      <option value="air">Air</option>
+      <option value="sea">Sea</option>
+    </select>
+  </label>
+  <label>Service
+    <select name="c3_service"><option value="">Choose…</option></select>
+  </label>
+</fieldset>
+
+<!-- ══ A2 · Late fields ══════════════════════════════════════════════════════
+     Driven by a select rather than a checkbox so the reveal is deterministic:
+     every non-empty option reveals, so whichever the engine picks, the fields
+     appear. A checkbox would be toggled at random and the case would pass or
+     fail by coin flip. -->
+<fieldset>
+  <legend>c4 — fields revealed by an earlier answer</legend>
+  <label>Account type
+    <select name="c4_type">
+      <option value="">Choose…</option>
+      <option value="personal">Personal</option>
+      <option value="business">Business</option>
+    </select>
+  </label>
+  <div id="c4-extra" hidden>
+    <label>Company name <input name="c4_company"></label>
+    <label>VAT number <input name="c4_vat"></label>
+  </div>
+</fieldset>
+
+<!-- ══ A2 · Enabled by an earlier answer ═════════════════════════════════════
+     UC-005 excluded it as `disabled` on the first pass. The exclusion was a
+     statement about that pass, and BR-034-7 requires it to be re-decided. -->
+<fieldset>
+  <legend>c5 — control enabled by an earlier answer</legend>
+  <label>Plan
+    <select name="c5_plan">
+      <option value="">Choose…</option>
+      <option value="team">Team</option>
+      <option value="scale">Scale</option>
+    </select>
+  </label>
+  <label>Seats <input name="c5_seats" disabled></label>
+</fieldset>
+
+<!-- ══ A3 · Property-only wipe ═══════════════════════════════════════════════
+     THE case that decides whether the observer became the diff (BR-034-8).
+     The reset is a property assignment: it emits no mutation record of any kind,
+     so a design that watches for mutations and re-fills what they point at is
+     blind to it — and reports the field as filled. -->
+<fieldset>
+  <legend>c6 — value wiped by a property assignment, once</legend>
+  <label>Reference <input name="c6_reference"></label>
+</fieldset>
+
+<!-- ══ A4 · Reset loop ═══════════════════════════════════════════════════════
+     A validation bug: the handler clears the field on every input. There is no
+     fixpoint. The correct outcome is a bounded stop with this field reported
+     failed — never a clean fill. -->
+<fieldset>
+  <legend>c7 — page reverts every write</legend>
+  <label>Coupon <input name="c7_coupon"></label>
+</fieldset>
+
+<!-- ══ A7 · Node replacement ═════════════════════════════════════════════════
+     A framework re-render swaps the element. Same logical field, new identity.
+     BR-034-3 is what keeps this benign: the replacement is filled again, but
+     with the same value. -->
+<fieldset>
+  <legend>c8 — control replaced after being filled</legend>
+  <label>Delivery
+    <select name="c8_delivery">
+      <option value="">Choose…</option>
+      <option value="standard">Standard</option>
+      <option value="express">Express</option>
+    </select>
+  </label>
+</fieldset>
+
+<!-- ══ BR-034-4 · Values the page reformats ══════════════════════════════════
+     These two must be reported FILLED, not failed. They are the guard against
+     verification-by-string-equality, which would call a correctly filled page a
+     wall of failures. -->
+<fieldset>
+  <legend>c9 — page normalises what we write</legend>
+  <label>Booking reference <input name="c9_reference"></label>
+  <label>Quantity <input name="c9_quantity" type="number" min="1" max="99"></label>
+</fieldset>
+
+<!-- ══ A9 · Custom combobox ══════════════════════════════════════════════════
+     No <select> anywhere. Keyboard-operable per the ARIA authoring pattern, and
+     the popup is portaled to <body> so a document-scoped query is required to
+     find it — as it is in MUI, Ant and shadcn.
+     The hidden input is the trap: writing it directly would update what the form
+     submits without updating what the component shows (BR-034-9). -->
+<fieldset>
+  <legend>c10 — ARIA combobox with a portaled listbox</legend>
+  <label id="c10-label">Currency</label>
+  <div id="c10" role="combobox" tabindex="0" aria-expanded="false"
+       aria-haspopup="listbox" aria-labelledby="c10-label"
+       aria-controls="c10-popup" style="border:1px solid #999;padding:.25rem .5rem;width:12rem">
+    <span id="c10-display">Select…</span>
+  </div>
+  <input type="hidden" name="c10_currency" value="">
+</fieldset>
+
+<script>
+(() => {
+  const $ = (name) => document.querySelector(`[name="${name}"]`);
+  const options = (select, items) => {
+    select.replaceChildren();
+    const placeholder = new Option('Choose…', '');
+    select.append(placeholder);
+    for (const [value, label] of items) select.append(new Option(label, value));
+  };
+
+  // c1 — synchronous repopulation.
+  $('c1_country').addEventListener('change', (event) => {
+    const map = {
+      gb: [['dev', 'Devon'], ['yks', 'Yorkshire']],
+      nl: [['nh', 'Noord-Holland'], ['ut', 'Utrecht']],
+    };
+    options($('c1_county'), map[event.target.value] ?? []);
+  });
+
+  // c2 — each level feeds the next, so settling takes more than one extra pass.
+  $('c2_region').addEventListener('change', (event) => {
+    const map = { north: [['dales', 'Dales']], south: [['downs', 'Downs']] };
+    options($('c2_district'), map[event.target.value] ?? []);
+    options($('c2_ward'), []);
+  });
+  $('c2_district').addEventListener('change', (event) => {
+    const map = { dales: [['upper', 'Upper']], downs: [['lower', 'Lower']] };
+    options($('c2_ward'), map[event.target.value] ?? []);
+  });
+
+  // c3 — debounced, the shape a fixed sleep cannot win against.
+  let debounce;
+  $('c3_carrier').addEventListener('change', (event) => {
+    const chosen = event.target.value;
+    clearTimeout(debounce);
+    options($('c3_service'), []);
+    debounce = setTimeout(() => {
+      const map = { air: [['express', 'Express']], sea: [['freight', 'Freight']] };
+      options($('c3_service'), map[chosen] ?? []);
+    }, 350);
+  });
+
+  // c4 — reveal. Every non-empty answer reveals, so the case does not depend on
+  // which option the engine happened to pick.
+  $('c4_type').addEventListener('change', (event) => {
+    document.getElementById('c4-extra').hidden = event.target.value === '';
+  });
+
+  // c5 — enable.
+  $('c5_plan').addEventListener('change', (event) => {
+    $('c5_seats').disabled = event.target.value === '';
+  });
+
+  // c6 — one wipe, by property assignment, shortly after the value arrives. No
+  // mutation record is produced by this, which is the entire point of the case.
+  let wiped = false;
+  $('c6_reference').addEventListener('input', (event) => {
+    if (wiped || event.target.value === '') return;
+    wiped = true;
+    setTimeout(() => { $('c6_reference').value = ''; }, 120);
+  });
+
+  // c7 — reverts forever. Bounded stop is the only correct outcome.
+  $('c7_coupon').addEventListener('input', (event) => {
+    if (event.target.value !== '') event.target.value = '';
+  });
+
+  // c8 — replaces the node rather than updating it.
+  let replaced = false;
+  $('c8_delivery').addEventListener('change', () => {
+    if (replaced) return;
+    replaced = true;
+    setTimeout(() => {
+      const old = $('c8_delivery');
+      if (old === null) return;
+      const fresh = old.cloneNode(true);
+      fresh.value = '';
+      old.replaceWith(fresh);
+    }, 100);
+  });
+
+  // c9 — rewrites on input, the way a reference or postcode field uppercases
+  // itself. Deliberately independent of what the value *is*: a currency mask
+  // would only reformat digits, and with no rules configured the engine writes
+  // prose here, so the case would silently stop testing anything.
+  $('c9_reference').addEventListener('input', (event) => {
+    const normalised = event.target.value.trim().toUpperCase();
+    if (event.target.value !== normalised) event.target.value = normalised;
+  });
+
+  // c10 — ARIA combobox. Keyboard first, click second, popup portaled to body.
+  const combobox = document.getElementById('c10');
+  const display = document.getElementById('c10-display');
+  const carrier = $('c10_currency');
+  const CHOICES = [['gbp', 'Pound sterling'], ['eur', 'Euro'], ['usd', 'US dollar']];
+  let popup = null;
+  let active = 0;
+
+  const close = () => {
+    popup?.remove();
+    popup = null;
+    combobox.setAttribute('aria-expanded', 'false');
+  };
+
+  const commit = () => {
+    const [value, label] = CHOICES[active];
+    carrier.value = value;
+    display.textContent = label;
+    close();
+  };
+
+  const open = () => {
+    if (popup !== null) return;
+    combobox.setAttribute('aria-expanded', 'true');
+    // Appended to <body>, not inside the combobox — the portal pattern every
+    // component library uses, and the reason a popup has to be found with a
+    // document-scoped query rather than by looking under the trigger.
+    popup = document.createElement('ul');
+    popup.id = 'c10-popup';
+    popup.setAttribute('role', 'listbox');
+    popup.style.cssText = 'position:absolute;border:1px solid #999;background:#fff;list-style:none;padding:0;margin:0';
+    for (const [value, label] of CHOICES) {
+      const item = document.createElement('li');
+      item.setAttribute('role', 'option');
+      item.dataset['value'] = value;
+      item.textContent = label;
+      item.style.padding = '.25rem .5rem';
+      item.addEventListener('mousedown', (event) => {
+        event.preventDefault();
+        active = CHOICES.findIndex(([candidate]) => candidate === value);
+        commit();
+      });
+      popup.append(item);
+    }
+    document.body.append(popup);
+  };
+
+  combobox.addEventListener('keydown', (event) => {
+    if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      if (popup === null) { open(); active = 0; }
+      else active = Math.min(active + 1, CHOICES.length - 1);
+    } else if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      active = Math.max(active - 1, 0);
+    } else if (event.key === 'Enter' && popup !== null) {
+      event.preventDefault();
+      commit();
+    } else if (event.key === 'Escape') {
+      close();
+    }
+  });
+
+  combobox.addEventListener('click', () => { if (popup === null) open(); else close(); });
+})();
+</script>
+
+</body>
+</html>

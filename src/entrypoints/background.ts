@@ -4,12 +4,25 @@ import { message, type MessageKey } from '@/lib/platform/i18n';
 import { getSettings } from '@/lib/platform/settings-store';
 import { agentSettings } from '@/lib/settings';
 import { createPersona, seededRandom, type Persona, type Random } from '@/lib/persona/persona';
-import { generateBatch } from '@/lib/generators/batch';
+import { generateBatch, tokenRandom } from '@/lib/generators/batch';
+import { compileRules, type CompiledRule } from '@/lib/rules/match';
+import {
+  badgeFor,
+  fieldsFromReport,
+  noteDescriptors,
+  resultSentence,
+  type FieldNotes,
+} from '@/lib/report/surface';
 import {
   isFromAgentMessage,
+  type CapReason,
+  type FieldReportEntry,
+  type FillReport,
   type FillScope,
+  type FromPageMessage,
   type FrameReport,
   type OperationId,
+  type ReportResponse,
   type ValuesResponse,
 } from '@/lib/protocol';
 
@@ -51,19 +64,70 @@ const COMMAND_SCOPES: Readonly<Record<string, FillScope>> = {
 type Operation = {
   readonly persona: Persona;
   readonly random: Random;
+  /**
+   * The operation's seed, kept so that generation can be re-derived per control
+   * rather than drawn from a stream (FR-080). New for every fill, which is what
+   * keeps values fresh across fills while stable within one (FR-075).
+   */
+  readonly seed: number;
   readonly tabId: number;
   readonly outcomes: FieldOutcomeCounts;
+  /** Frames that said they were participating, and are owed a report. */
+  readonly joined: Set<string>;
   /** Frames that have reported, so a duplicate cannot be counted twice. */
   readonly frames: Set<string>;
+  /** When the fill began, so the window for frames to join can be closed. */
+  readonly started: number;
+  /** The last sign of life from any frame, for telling a slow one from a dead one. */
+  lastProgress: number;
   /** Abandons the operation if no report ever arrives. */
   timeout: ReturnType<typeof setTimeout>;
   /** Fires once the reports have stopped arriving. */
   settle: ReturnType<typeof setTimeout> | undefined;
+  /** Set by the first frame that stops at a bound rather than settling. */
+  capped: CapReason | undefined;
+  /** How many controls those frames say may be stale (FR-078). */
+  stale: number;
+  /** Which scope was asked for, so the result can say which one ran (DD-006, DD-008). */
+  readonly scope: FillScope;
+  /**
+   * What each frame said its controls were, keyed by frame and ref.
+   *
+   * Page-derived, and held only for this operation and the one report it
+   * produces — `lib/report/surface.ts` states the bound in full.
+   */
+  readonly notes: FieldNotes;
+  /** The per-control rows, accumulated as frames report (FR-009, FR-069). */
+  fields: FieldReportEntry[];
+  /**
+   * The user's rules, compiled once when the fill begins (NFR-025, ND-15).
+   *
+   * Per operation rather than per batch, because a page with frames sends one
+   * batch per frame per pass — compiling per batch would rebuild every pattern
+   * on every pass of every frame, which is the cost ND-15 names.
+   */
+  readonly rules: readonly CompiledRule[];
+  /** Rules that could not run, by label, so the user is told (DD-005). */
+  readonly skippedRules: Set<string>;
 };
 
 type FieldOutcomeCounts = { filled: number; skipped: number; failed: number };
 
 const operations = new Map<OperationId, Operation>();
+
+/**
+ * The last fill's report, for the options page (DD-006).
+ *
+ * A module-level variable, deliberately: it lives exactly as long as the
+ * background context does, and the background is evicted routinely. That makes
+ * "there is no report" an ordinary outcome rather than a failure, and the
+ * options page says so in those words.
+ *
+ * One fill's worth. Assigning here is what discards the previous one, so the
+ * window in which page-derived identity exists is bounded by the next fill
+ * rather than by anything remembering to clean up (NFR-010, NFR-030).
+ */
+let lastReport: FillReport | undefined;
 
 /** Tabs with a fill in progress, so a second invocation is ignored (UC-001 A7). */
 const filling = new Set<number>();
@@ -117,16 +181,31 @@ async function startFill(tabId: number, scope: FillScope): Promise<void> {
   const operationId = crypto.randomUUID();
 
   try {
-    const random = seededRandom(Math.floor(Math.random() * 2 ** 32));
+    const seed = Math.floor(Math.random() * 2 ** 32);
+    const random = seededRandom(seed);
     const settings = await getSettings();
 
     operations.set(operationId, {
       persona: createPersona(random),
       random,
+      seed,
       tabId,
       outcomes: { filled: 0, skipped: 0, failed: 0 },
+      joined: new Set(),
       frames: new Set(),
+      started: Date.now(),
+      lastProgress: Date.now(),
       settle: undefined,
+      capped: undefined,
+      stale: 0,
+      scope,
+      notes: new Map(),
+      fields: [],
+      // Profile rules would be concatenated ahead of the global list here, and
+      // first-match-wins does the rest (FR-031). Profiles are Phase 5, so today
+      // this is the global list alone.
+      rules: compileRules(settings.rules, settings.sources),
+      skippedRules: new Set(),
       timeout: setTimeout(() => {
         trace(`fill ${operationId} timed out with no report; abandoning`);
         finish(operationId, tabId);
@@ -149,9 +228,10 @@ async function startFill(tabId: number, scope: FillScope): Promise<void> {
         settings: agentSettings(settings),
       },
       // No `frameId`: this broadcasts to every frame in the tab, which is what
-      // FR-007 asks for. The operation stays open until the reports go quiet
-      // (see SETTLE_MS) rather than ending on the first one, so every frame's
-      // outcomes are counted and a late frame still receives values.
+      // FR-007 asks for. The operation stays open until every frame that
+      // announced itself has reported (see `complete`) rather than ending on the
+      // first one, so every frame's outcomes are counted and a frame whose page
+      // cascades for seconds is still waited for.
     );
 
     if (!isFromAgentMessage(acknowledgement) || acknowledgement.kind !== 'accepted') {
@@ -176,7 +256,8 @@ async function startFill(tabId: number, scope: FillScope): Promise<void> {
 }
 
 /**
- * How long an operation may stay open before it is abandoned.
+ * How long an operation may stay open with nothing happening before it is
+ * abandoned — a sliding deadline, restarted by every sign of progress.
  *
  * A fill ends when its report arrives — but a report is not guaranteed to. If
  * the frame navigates between sending its descriptors and sending its report,
@@ -184,23 +265,98 @@ async function startFill(tabId: number, scope: FillScope): Promise<void> {
  * every later fill on that tab is ignored as "already running", and the only
  * cure is the service worker being evicted. An extension that silently stops
  * working until the browser restarts it is worse than one that fails loudly.
+ *
+ * Sliding rather than a larger fixed figure (DD-009). A cascading page now takes
+ * seconds and several round trips, and a fixed timeout long enough for the worst
+ * of those would keep the tab locked for just as long after a frame *navigated*
+ * mid-fill — making the common failure worse to fix the rare one. Restarting it
+ * on each descriptor batch frees a dead agent as quickly as before and never
+ * abandons a working one.
  */
 const OPERATION_TIMEOUT_MS = 15_000;
 
 /**
- * How long to keep an operation open after its most recent frame report.
+ * How long a frame has to say it is participating.
  *
- * A page and its frames are one fill (BR-001-1), but nothing tells the
- * background how many frames it reached: `tabs.sendMessage` broadcasts and
- * returns one reply, frames cannot see each other, and asking the browser would
- * need a permission NFR-008 forbids. So completion cannot be decided by counting
- * replies — it is decided by the reports going quiet, with the hard timeout above
- * as the backstop.
- *
- * Short enough that the badge is not visibly late, long enough to cover a frame
- * that is slower than the parent because it is still parsing.
+ * A page and its frames are one fill (BR-001-1). `tabs.sendMessage` broadcasts
+ * but returns a single reply, frames cannot see each other, and asking the
+ * browser which frames exist needs a permission NFR-008 forbids — so each frame
+ * says so itself, the moment it takes the instruction up. Every frame that is
+ * going to join does so in the same turn as the broadcast; this is generous
+ * against a frame still parsing when the instruction arrived.
  */
-const SETTLE_MS = 400;
+const JOIN_WINDOW_MS = 300;
+
+/**
+ * The backstop for a frame that joined and then stopped existing.
+ *
+ * A fill now ends when every frame that joined has reported, which is a fact
+ * rather than an inference. This covers the one case that leaves: a frame that
+ * announced itself and then navigated, so its report is never coming. Longer
+ * than the agent's own longest silence mid-fill — one pass's maximum wait for
+ * the page to go quiet — so a slow frame is never mistaken for a dead one.
+ */
+const ABANDON_AFTER_MS = 2500;
+
+/**
+ * Closes an operation once every frame that joined has reported.
+ *
+ * The old rule was "close when reports stop arriving for a while", which was
+ * sound while a fill was one walk: every frame reported within milliseconds of
+ * the others, so silence really did mean completion. DD-009 broke that — a
+ * frame's duration now depends on how much its own page cascades, so two frames
+ * in one tab can finish seconds apart. The window that made the badge feel
+ * prompt was then also the window that dropped the slower frame's outcomes, and
+ * a fill of 33 fields reported 27 with nothing to indicate that anything was
+ * missing. Silence and slowness are not distinguishable by waiting longer; they
+ * are distinguishable by the frames saying which of the two they are.
+ */
+function complete(operationId: OperationId): void {
+  const operation = operations.get(operationId);
+  if (operation === undefined) return;
+
+  const outstanding = [...operation.joined].filter((frame) => !operation.frames.has(frame)).length;
+  if (outstanding > 0) {
+    const idle = Date.now() - operation.lastProgress;
+    if (idle < ABANDON_AFTER_MS) {
+      // Measured from the last sign of life, never from the start: a frame in a
+      // long cascade is making progress the whole time, and a deadline counted
+      // from the trigger would abandon exactly the frames this exists to wait
+      // for.
+      operation.settle = setTimeout(() => complete(operationId), ABANDON_AFTER_MS - idle);
+      return;
+    }
+    trace(`fill ${operationId}: ${outstanding} frame(s) never reported; closing without them`);
+  }
+
+  const { filled, skipped, failed } = operation.outcomes;
+  trace(
+    `fill ${operationId}: ${filled} filled, ${skipped} skipped, ` +
+      `${failed} failed across ${operation.frames.size} frame(s)` +
+      (operation.capped === undefined
+        ? ''
+        : `, capped (${operation.capped}) with ${operation.stale} possibly stale`),
+  );
+
+  // Held before the badge is drawn, so the report exists the moment the user
+  // could act on seeing it. One fill's worth, in memory, replacing whatever the
+  // previous fill left — see `lib/report/surface.ts` on what that permits.
+  lastReport = {
+    scope: operation.scope,
+    finishedAt: Date.now(),
+    counts: { ...operation.outcomes },
+    capped: operation.capped,
+    stale: operation.stale,
+    skippedRules: [...operation.skippedRules],
+    fields: operation.fields,
+  };
+
+  // BR-001-4: nothing to fill is a success, not a failure, and must be
+  // distinguishable from one.
+  const badge = badgeFor(operation.outcomes, operation.capped);
+  void showBadge(operation.tabId, badge.text, badge.colour, resultTitle(lastReport));
+  finish(operationId, operation.tabId);
+}
 
 /** Ends an operation, discarding the persona and every generated value (NFR-031). */
 function finish(operationId: OperationId, tabId: number): void {
@@ -226,16 +382,53 @@ function finish(operationId: OperationId, tabId: number): void {
  * must win: a fill count is interesting for a moment, "this domain is excluded"
  * has to be true whenever you look.
  */
-async function showBadge(tabId: number, text: string, colour: string): Promise<void> {
+async function showBadge(
+  tabId: number,
+  text: string,
+  colour: string,
+  /** FR-078's "and it says that it stopped", where a count cannot say it. */
+  title?: string,
+): Promise<void> {
   try {
     await browser.action.setBadgeBackgroundColor({ tabId, color: colour });
     await browser.action.setBadgeText({ tabId, text });
+    if (title !== undefined) await browser.action.setTitle({ tabId, title });
     setTimeout(() => {
       void browser.action.setBadgeText({ tabId, text: '' }).catch(() => undefined);
+      if (title !== undefined) void browser.action.setTitle({ tabId, title: '' }).catch(() => undefined);
     }, 3000);
   } catch {
     // A tab that closed mid-fill cannot show a badge. Not a fill failure.
   }
+}
+
+/**
+ * The tooltip's sentence (DD-006).
+ *
+ * Wording is the catalog's (NFR-018) and the choice of *which* sentence is
+ * `lib/report`'s, so this is only the join between them. Passing `message`
+ * directly is what makes the key list type-safe: a key the sentence builder
+ * names and nobody added to `messages.json` fails to compile here.
+ */
+function resultTitle(report: FillReport): string {
+  return resultSentence(report, (key, substitutions) => message(key, substitutions));
+}
+
+function isReportRequest(raw: unknown): raw is FromPageMessage {
+  return typeof raw === 'object' && raw !== null && (raw as { kind?: unknown }).kind === 'report-request';
+}
+
+/**
+ * Whether a message came from one of this extension's own pages.
+ *
+ * A content script always has a `tab`; an extension page never does. Combined
+ * with the origin check, that distinguishes our options page from an agent
+ * running inside a document we do not control — which is the whole reason the
+ * report request is not part of `FromAgentMessage`.
+ */
+function fromExtensionPage(sender: { tab?: unknown; url?: string | undefined }): boolean {
+  if (sender.tab !== undefined) return false;
+  return sender.url?.startsWith(browser.runtime.getURL('/')) === true;
 }
 
 function summarise(report: FrameReport, counts: FieldOutcomeCounts): void {
@@ -291,7 +484,17 @@ export default defineBackground(() => {
   // The agent's half of the round trip: descriptors in, values out. Answered
   // with `sendResponse` and an explicit `return true`, which is the one form
   // both browsers agree on for an asynchronous reply.
-  browser.runtime.onMessage.addListener((raw: unknown, _sender, sendResponse) => {
+  browser.runtime.onMessage.addListener((raw: unknown, sender, sendResponse) => {
+    // The options page asking for the last report (DD-006). Checked before the
+    // agent messages and answered only for our own pages: a content script
+    // shares a process with a document we do not control, and the report spans
+    // every frame — one frame's agent has no business reading another's.
+    if (isReportRequest(raw)) {
+      if (!fromExtensionPage(sender)) return;
+      sendResponse({ kind: 'report-response', report: lastReport } satisfies ReportResponse);
+      return true;
+    }
+
     // `pong` and `accepted` are replies to something the background asked, not
     // messages it must act on — they arrive through `sendResponse`, not here.
     if (!isFromAgentMessage(raw) || raw.kind === 'pong' || raw.kind === 'accepted') return;
@@ -301,10 +504,48 @@ export default defineBackground(() => {
     // Nothing to answer with, so nothing is answered.
     const operation = operations.get(raw.operationId);
     if (operation === undefined) return;
+    operation.lastProgress = Date.now();
+
+    if (raw.kind === 'joined') {
+      operation.joined.add(raw.frame);
+      return;
+    }
 
     if (raw.kind === 'descriptors') {
-      const values = generateBatch(raw.descriptors, operation.persona, operation.random);
-      sendResponse({ kind: 'values', operationId: raw.operationId, values } satisfies ValuesResponse);
+      // Progress, so the deadline slides. A frame working through a cascade
+      // sends one of these per pass, which is what keeps a long fill alive
+      // without giving a dead one the same grace.
+      clearTimeout(operation.timeout);
+      operation.timeout = setTimeout(() => {
+        trace(`fill ${raw.operationId} went quiet before reporting; abandoning`);
+        finish(raw.operationId, operation.tabId);
+      }, OPERATION_TIMEOUT_MS);
+
+      // Recorded before generation, so a control that fails to receive a value
+      // still has a name in the report. An agent that predates DD-006 sends no
+      // frame token; its rows then join to nothing and say "unknown field",
+      // which is the honest outcome rather than attributing them to a frame.
+      if (raw.frame !== undefined) {
+        noteDescriptors(operation.notes, raw.frame, raw.descriptors);
+      }
+
+      const batch = generateBatch(raw.descriptors, {
+        persona: operation.persona,
+        rules: operation.rules,
+        // Per control, derived from the operation's seed and the control's
+        // token, so a control the page makes us write twice gets the same value
+        // both times (FR-080). An agent from a build before DD-009 sends no
+        // token and falls back to the shared stream, which is exactly what it
+        // used to get.
+        randomFor: (token) =>
+          token === undefined ? operation.random : tokenRandom(operation.seed, token),
+      });
+      for (const note of batch.skippedRules) operation.skippedRules.add(note);
+      sendResponse({
+        kind: 'values',
+        operationId: raw.operationId,
+        values: batch.values,
+      } satisfies ValuesResponse);
       return true;
     }
 
@@ -312,34 +553,35 @@ export default defineBackground(() => {
     // must not double the count the user is shown.
     // Keyed on the frame's own token, never its URL. Two iframes with the same
     // `src` are ordinary and every srcdoc frame calls itself `about:srcdoc`,
-    // so a URL key discards the second frame's report — its outcomes go
-    // uncounted, and since a discarded report does not extend the settle
-    // window, a frame slower than SETTLE_MS can have the operation closed
-    // before its values arrive.
+    // so a URL key discards the second frame's report — and its outcomes go
+    // uncounted while the frame it was confused with closes the operation.
     if (operation.frames.has(raw.report.frame)) return;
     operation.frames.add(raw.report.frame);
     summarise(raw.report, operation.outcomes);
+    // The counts above and the rows here come from the same outcomes, so the
+    // report cannot disagree with the badge about how many fields were filled.
+    operation.fields.push(...fieldsFromReport(operation.notes, raw.report));
 
-    // Each frame reports independently and none waits for another
-    // (BR-001-5), so the operation closes when the reports stop arriving
-    // rather than when any particular one does.
+    // One frame stopping at a bound caps the whole fill: the user is being told
+    // whether this page was settled, and "settled except for that iframe" is not
+    // settled (BR-034-6). The first reason wins rather than the last, because a
+    // later frame's clean finish must not erase an earlier frame's cap.
+    if (raw.report.capped !== undefined) {
+      operation.capped ??= raw.report.capped;
+      operation.stale += raw.report.stale ?? 0;
+    }
+
+    // Each frame reports independently and none waits for another (BR-001-5),
+    // so the operation closes when every frame that joined has had its say.
+    //
+    // Rescheduled rather than fired directly, because a frame can report before
+    // a slower sibling has even joined. Nothing is decided until the join window
+    // has passed; after that, the check runs the moment a report arrives.
     if (operation.settle !== undefined) clearTimeout(operation.settle);
-    operation.settle = setTimeout(() => {
-      const { filled, skipped, failed } = operation.outcomes;
-      trace(
-        `fill ${raw.operationId}: ${filled} filled, ${skipped} skipped, ` +
-          `${failed} failed across ${operation.frames.size} frame(s)`,
-      );
-
-      // BR-001-4: nothing to fill is a success, not a failure, and must be
-      // distinguishable from one.
-      void showBadge(
-        operation.tabId,
-        filled > 0 ? String(filled) : '0',
-        failed > 0 ? '#c0392b' : filled > 0 ? '#2f6fed' : '#8a8f98',
-      );
-      finish(raw.operationId, operation.tabId);
-    }, SETTLE_MS);
+    operation.settle = setTimeout(
+      () => complete(raw.operationId),
+      Math.max(0, operation.started + JOIN_WINDOW_MS - Date.now()),
+    );
     return;
   });
 

@@ -4,24 +4,25 @@ import {
   isToAgentMessage,
   isValuesResponse,
   type FieldDescriptor,
-  type FieldOutcome,
+  type FieldValue,
   type FromAgentMessage,
   type ToAgentMessage,
 } from '@/lib/protocol';
-import { collectCandidates } from '@/lib/page/walk';
-import { classifyStructural, matchesIgnorePattern, radioGroup } from '@/lib/page/exclude';
-import { describe } from '@/lib/page/identify';
-import { applyValue } from '@/lib/page/apply';
+import { runFill } from '@/lib/page/fill-loop';
 
 /**
  * The page agent — persistently injected into every frame of every page
  * (DD-001), which is what makes NFR-003 the most load-bearing budget in the
  * project: this file's weight is a tax on the user's whole browsing session.
  *
- * It walks, classifies and applies. It carries no corpus, no generators and no
- * persona; those live in the background and reach it as values (DD-003). The
- * import gate enforces that, because the edge that ships an SDK into every page
- * arrives silently (ND-4).
+ * It is the messaging shell and nothing else. The walk, the classification, the
+ * writes and the cascade loop live in `@/lib/page/*`, where they take their DOM
+ * root, their clock and their value source as parameters and can be tested
+ * without an extension host (NFR-015).
+ *
+ * It carries no corpus, no generators and no persona; those live in the
+ * background and reach it as values (DD-003). The import gate enforces that,
+ * because the edge that ships an SDK into every page arrives silently (ND-4).
  */
 
 /**
@@ -31,6 +32,8 @@ import { applyValue } from '@/lib/page/apply';
  * how BR-005-7 is satisfied without touching NFR-010: we remember *which*
  * controls we wrote, never *what* we wrote. Without it, "skip fields that
  * already have content" would silently disable filling the same page twice.
+ *
+ * Outlives one fill deliberately, unlike everything the loop allocates.
  */
 const writtenByUs = new WeakSet<Element>();
 
@@ -78,8 +81,9 @@ export default defineContentScript({
         // resolves with `undefined`, which the background cannot tell apart from
         // an agent that ignored the instruction, and nothing guarantees Firefox
         // or a later Chrome behaves the same. The fill itself is not awaited
-        // here: a listener that keeps the port open for the whole walk would
-        // block the sender for as long as the page takes.
+        // here: a listener that keeps the port open for the whole fill would
+        // block the sender for as long as the page takes — and since DD-009 that
+        // is seconds rather than milliseconds on a page that cascades.
         sendResponse({ kind: 'accepted', frame: FRAME_ID });
         void fill(message);
       },
@@ -87,158 +91,79 @@ export default defineContentScript({
   },
 });
 
-/**
- * Compiles the ignore patterns once per fill (ND-15, NFR-025).
- *
- * The reference constructs a `RegExp` per element per rule, per fill — 500
- * controls × 100 rules is 50,000 constructions in one run. An invalid pattern is
- * skipped rather than fatal (UC-005 A5): one bad pattern must not stop the other
- * exclusions from being applied.
- */
-function compilePatterns(sources: readonly string[]): { patterns: RegExp[]; invalid: string[] } {
-  const patterns: RegExp[] = [];
-  const invalid: string[] = [];
-  for (const source of sources) {
-    try {
-      patterns.push(new RegExp(source, 'i'));
-    } catch {
-      invalid.push(source);
-    }
-  }
-  return { patterns, invalid };
-}
-
-/** Every matching source of a control, as the strings patterns are tested against. */
-function identityOf(descriptor: FieldDescriptor): string[] {
-  // `describe` omits absent sources rather than storing them as undefined, so
-  // every value present here is a real string.
-  return Object.values(descriptor.sources);
-}
-
 async function fill(request: Extract<ToAgentMessage, { kind: 'fill' }>): Promise<void> {
   const { operationId, settings } = request;
-  const { patterns, invalid } = compilePatterns(settings.ignorePatterns);
 
-  if (invalid.length > 0) {
-    // UC-005 A5: recorded once per fill, not once per field.
-    console.warn(`[fieldfiller] ignoring ${invalid.length} invalid ignore pattern(s)`);
+  // Before anything else, so the background knows this frame is participating
+  // even if the walk takes seconds. `accepted` is a reply and only one frame's
+  // reply survives the broadcast; this is how the rest are counted.
+  try {
+    await browser.runtime.sendMessage({
+      kind: 'joined',
+      operationId,
+      frame: FRAME_ID,
+    } satisfies FromAgentMessage);
+  } catch {
+    // The background is gone or reloading. The fill is attempted regardless: if
+    // it comes back before the values are needed the fill succeeds, and if not
+    // the loop reports every control as failed rather than silently stopping.
   }
 
-  const elements = new Map<number, Element>();
-  const descriptors: FieldDescriptor[] = [];
-  const outcomes: FieldOutcome[] = [];
-  let ref = 0;
-
-  /**
-   * One token per actual radio group, assigned here because this is the only
-   * side that can resolve real membership: `radioGroup` scopes by the owning
-   * form, so two forms using the same `name` get two tokens (BR-005-3). The
-   * background keys on the token, and gives every member of a group the same
-   * answer.
-   */
-  const groupTokens = new Map<Element, string>();
-  let nextGroup = 0;
-  const groupTokenFor = (element: Element): string | undefined => {
-    if (!(element instanceof HTMLInputElement) || element.type !== 'radio') return undefined;
-
-    const existing = groupTokens.get(element);
-    if (existing !== undefined) return existing;
-
-    const token = `group-${nextGroup++}`;
-    for (const member of radioGroup(element)) groupTokens.set(member, token);
-    return token;
-  };
-
-  for (const element of collectCandidates(document)) {
-    const current = ref++;
-
-    // Structural checks first, so identity is only built for a control that
-    // survives them — the ordering UC-005 keeps for cost (BR-005-4).
-    const structural = classifyStructural(element, {
-      skipHidden: settings.skipHidden,
-      skipPreFilled: settings.skipPreFilled,
-      writtenByUs,
-    });
-
-    if (!structural.fillable) {
-      // Recorded, never silently dropped — this is what lets a user tell
-      // "nothing to fill" from "everything was ignored" (BR-005-8).
-      outcomes.push({ ref: current, status: 'skipped', reason: structural.reason });
-      continue;
-    }
-
-    const descriptor = describe(element, current, structural.kind, groupTokenFor(element));
-
-    if (patterns.length > 0 && matchesIgnorePattern(identityOf(descriptor), patterns)) {
-      outcomes.push({ ref: current, status: 'skipped', reason: 'ignored-pattern' });
-      continue;
-    }
-
-    elements.set(current, element);
-    descriptors.push(descriptor);
-  }
-
-  if (descriptors.length > 0) {
-    // Wrapped, like every other boundary here. The background may have been
-    // evicted, the extension may be mid-reload, and the frame may be navigating
-    // — none of which is this frame's failure to handle, but all of which reject
-    // and would otherwise surface as an unhandled rejection that loses the whole
-    // report.
-    let response: unknown;
-    let cause = 'no values returned';
-    try {
-      response = await browser.runtime.sendMessage({
-        kind: 'descriptors',
-        operationId,
-        descriptors,
-      } satisfies FromAgentMessage);
-    } catch (error) {
-      cause = String(error);
-    }
-
-    if (!isValuesResponse(response)) {
-      // A rejection and a reply that is not values are the same event to this
-      // frame: no values arrived, so nothing can be filled. Both are recorded
-      // against every descriptor, because a control that gets no outcome at all
-      // vanishes from the count the user is shown (BR-005-8) — the fill looks
-      // smaller than it was rather than failed. The commonest cause is the
-      // background being evicted mid-fill, which answers nothing at all.
-      for (const descriptor of descriptors) {
-        outcomes.push({ ref: descriptor.ref, status: 'failed', cause });
-      }
-    } else {
-      for (const value of response.values) {
-        const element = elements.get(value.ref);
-        if (element === undefined) continue;
-
-        if (value.as === 'skip') {
-          outcomes.push({ ref: value.ref, status: 'skipped', reason: value.reason });
-          continue;
-        }
-
-        // Per element, so one hostile control cannot end the run (BR-004-11,
-        // FR-010). The reference lets a single throw abandon the rest of the
-        // page (D10).
-        try {
-          applyValue(element, value, { dispatchEvents: settings.dispatchEvents });
-          writtenByUs.add(element);
-          outcomes.push({ ref: value.ref, status: 'filled', provenance: value.provenance });
-        } catch (error) {
-          outcomes.push({ ref: value.ref, status: 'failed', cause: String(error) });
-        }
-      }
-    }
-  }
+  const result = await runFill({
+    root: document,
+    settings,
+    writtenByUs,
+    requestValues: (descriptors) => requestValues(operationId, descriptors),
+  });
 
   try {
     await browser.runtime.sendMessage({
       kind: 'report',
       operationId,
-      report: { frame: FRAME_ID, frameUrl: location.href, outcomes },
+      report: {
+        frame: FRAME_ID,
+        frameUrl: location.href,
+        outcomes: result.outcomes,
+        passes: result.passes,
+        ...(result.capped === undefined ? {} : { capped: result.capped, stale: result.stale }),
+      },
     } satisfies FromAgentMessage);
   } catch {
     // Nothing left to do with this: the report is the last act of the fill, and
-    // the background's own timeout closes an operation whose report never
+    // the background's own deadline closes an operation whose report never
     // lands. Swallowed deliberately rather than left to reject unhandled.
   }
+}
+
+/**
+ * One pass's round trip: descriptors out, values back (DD-003, NFR-029).
+ *
+ * Wrapped, like every boundary here. The background may have been evicted, the
+ * extension may be mid-reload, and the frame may be navigating — none of which
+ * is this frame's failure to handle, but all of which reject and would otherwise
+ * surface as an unhandled rejection that loses the whole report.
+ *
+ * A rejection and a reply that is not values are the same event to this frame:
+ * no values arrived, so nothing in this pass can be filled. The loop turns that
+ * into an outcome for every control in the pass (UC-034 A12).
+ */
+async function requestValues(
+  operationId: string,
+  descriptors: readonly FieldDescriptor[],
+): Promise<readonly FieldValue[] | undefined> {
+  let response: unknown;
+  try {
+    response = await browser.runtime.sendMessage({
+      kind: 'descriptors',
+      operationId,
+      // The same token `joined` and `report` carry, so the background can tell
+      // whose refs these are (DD-006). Refs are only unique within a frame.
+      frame: FRAME_ID,
+      descriptors,
+    } satisfies FromAgentMessage);
+  } catch {
+    return undefined;
+  }
+
+  return isValuesResponse(response) ? response.values : undefined;
 }

@@ -38,5 +38,119 @@
   "optionsPlaceholder": {
     "message": "There is nothing to configure yet. Filling works from the toolbar button, the right-click menu, and the keyboard shortcuts listed in your browser's extension settings.",
     "description": "Placeholder text on the options page until Phase 4 builds the configuration UI."
+  },
+  "resultScopeAllInputs": {
+    "message": "this page",
+    "description": "Names the fill scope inside resultSettled and resultCapped (UC-001)."
+  },
+  "resultScopeCurrentForm": {
+    "message": "this form",
+    "description": "Names the fill scope inside resultSettled and resultCapped (UC-002)."
+  },
+  "resultScopeSelectedInput": {
+    "message": "this field",
+    "description": "Names the fill scope inside resultSettled and resultCapped (UC-003)."
+  },
+  "resultSettled": {
+    "message": "$COUNT$ filled in $SCOPE$",
+    "description": "Toolbar tooltip after a fill that settled (DD-006).",
+    "placeholders": {
+      "count": {
+        "content": "$1",
+        "example": "6"
+      },
+      "scope": {
+        "content": "$2",
+        "example": "this page"
+      }
+    }
+  },
+  "resultCapped": {
+    "message": "$COUNT$ filled in $SCOPE$ — $STALE$ may be stale, because $REASON$",
+    "description": "Toolbar tooltip after a fill that stopped at a bound rather than settling (FR-078, DD-006).",
+    "placeholders": {
+      "count": {
+        "content": "$1",
+        "example": "6"
+      },
+      "scope": {
+        "content": "$2",
+        "example": "this page"
+      },
+      "stale": {
+        "content": "$3",
+        "example": "2"
+      },
+      "reason": {
+        "content": "$4",
+        "example": "you started typing"
+      }
+    }
+  },
+  "resultCapUserInput": {
+    "message": "you started typing",
+    "description": "Why a fill stopped: the user interacted with the page (FR-079)."
+  },
+  "resultCapPassCap": {
+    "message": "the page kept changing",
+    "description": "Why a fill stopped: the pass cap was reached (UC-034)."
+  },
+  "resultCapTimeBudget": {
+    "message": "the page took too long to settle",
+    "description": "Why a fill stopped: the cascade time budget was reached (NFR-034)."
+  },
+  "resultCapValuesUnavailable": {
+    "message": "the extension could not be reached",
+    "description": "Why a fill stopped: the background did not answer a descriptor batch."
+  },
+  "resultRulesSkipped": {
+    "message": "$COUNT$ rule(s) skipped — $DETAIL$",
+    "description": "Appended when a configured rule could not run (DD-005).",
+    "placeholders": {
+      "count": {
+        "content": "$1",
+        "example": "1"
+      },
+      "detail": {
+        "content": "$2",
+        "example": "postcode: invalid pattern"
+      }
+    }
+  },
+  "reportHeading": {
+    "message": "Last fill",
+    "description": "Heading of the fill report on the options page (DD-006)."
+  },
+  "reportNone": {
+    "message": "No report is available. The extension's background process is stopped between uses, and the last fill's report goes with it — fill a page and come straight back to see one.",
+    "description": "Shown when no report is held, which is an ordinary outcome rather than an error (DD-006, NFR-020)."
+  },
+  "reportColumnField": {
+    "message": "Field",
+    "description": "Report table column: how the field is named on the page."
+  },
+  "reportColumnOutcome": {
+    "message": "Outcome",
+    "description": "Report table column: filled, skipped or failed."
+  },
+  "reportColumnDetail": {
+    "message": "Why",
+    "description": "Report table column: provenance for a filled field, the reason otherwise (FR-069)."
+  },
+  "reportStatusFilled": {
+    "message": "Filled",
+    "description": "A control that was written and verified (FR-076)."
+  },
+  "reportStatusSkipped": {
+    "message": "Skipped",
+    "description": "A control deliberately left alone (UC-005)."
+  },
+  "reportStatusFailed": {
+    "message": "Failed",
+    "description": "A control that could not be filled (FR-010)."
+  },
+  "reportPrivacyNote": {
+    "message": "This report is held in memory only, covers one fill, and is never written to storage. No value from the page is recorded — only how each field was named and why it received what it did.",
+    "description": "States the retention bound the report operates under (NFR-010, NFR-030)."
   }
 }

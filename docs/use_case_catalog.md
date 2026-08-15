@@ -18,15 +18,15 @@ Legend — **Spec:** `Not started` · `Blocked` · `Drafted` · `Approved`
 
 | ID | Use Case | Primary Actor | Goal | Traces to | Priority | Spec |
 |---|---|---|---|---|---|---|
-| UC-001 | Fill All Inputs on the Page | Tester | Populate every fillable control in the page and its frames in one action | FR-001, FR-004..010, FR-075, FR-076, FR-078, FR-079 | High | **Drafted** *(revision owed — DD-009)* |
+| UC-001 | Fill All Inputs on the Page | Tester | Populate every fillable control in the page and its frames in one action | FR-001, FR-004..010, FR-075, FR-076, FR-078, FR-079 | High | **Drafted** |
 | UC-002 | Fill the Current Form | Tester | Populate the form the cursor is in, resolved by the DD-008 ladder where the page declares no `<form>` | FR-002, FR-004..006, FR-009, FR-010 | High | Not started |
 | UC-003 | Fill the Selected Input | Tester | Populate only the control under the cursor | FR-003, FR-004..006, FR-009, FR-010 | High | Not started |
-| UC-004 | Determine the Value for a Field | *(included)* | Identify a field, select the winning rule, generate and apply a value | FR-011..013, FR-019..023, FR-025, FR-027..032, FR-065..069, FR-080, FR-082 | High | **Drafted** *(revision owed — FR-080, FR-082)* |
-| UC-005 | Exclude a Field from Filling | *(included)* | Decide that a field must be left untouched | FR-033..036, FR-071, FR-075 | High | **Drafted** |
+| UC-004 | Determine the Value for a Field | *(included)* | Identify a field, select the winning rule, generate and apply a value | FR-011..013, FR-019..023, FR-025, FR-027..032, FR-065..069, FR-080, FR-082 | High | **Drafted** *(revision owed — FR-082)* |
+| UC-005 | Exclude a Field from Filling | *(included)* | Decide that a field must be left untouched | FR-033..036, FR-071, FR-075, FR-079 | High | **Drafted** |
 | UC-006 | Reuse a Value for a Confirmation Field | *(extends UC-004)* | Repeat the previously generated value in a confirmation field | FR-024, FR-032 | High | Not started |
 | UC-007 | Apply a URL Profile | *(extends UC-004)* | Give profile rules precedence over global rules on a matching page | FR-031, FR-045 | High | Not started |
 | UC-008 | Suspend Filling on an Excluded Domain | *(extends UC-001..003)* | Make the extension inert on domains the user has excluded | FR-037, FR-038, FR-074 | High | Not started |
-| UC-034 | Fill Fields That Depend on an Earlier Answer | *(included)* | Follow the page's own cascade — options rewritten, fields revealed, controls enabled — verifying each write and stopping honestly at a declared bound | FR-076..079, FR-081, DD-009 | High | Not started |
+| UC-034 | Fill Fields That Depend on an Earlier Answer | *(included)* | Follow the page's own cascade — options rewritten, fields revealed, controls enabled — verifying each write and stopping honestly at a declared bound | FR-076..081, DD-009 | High | **Drafted** *(built in full; A3, A7 and A9 revised by what implementing them showed)* |
 
 ## Rules
 
@@ -65,7 +65,7 @@ Legend — **Spec:** `Not started` · `Blocked` · `Drafted` · `Approved`
 |---|---|---|---|---|---|---|
 | UC-025 | Export Settings to a File | Power User | Write the configuration to a shareable file | FR-052 | High | Not started |
 | UC-026 | Import Settings from a File | Power User | Replace the configuration from a file, with validation and migration | FR-053, FR-054, FR-073 | High | Not started |
-| UC-027 | Migrate Settings from Fake Filler | Migrating User | Convert a Fake Filler backup into our schema and report the result | FR-055, FR-056, FR-073 | High | Blocked (DD-005, ND-9) |
+| UC-027 | Migrate Settings from Fake Filler | Migrating User | Convert a Fake Filler backup into our schema and report the result | FR-055, FR-056, FR-073 | High | Unblocked 2026-08-15 — DD-005 and ND-9 are both resolved and the target schema is fixed; Phase 6 |
 | UC-028 | Restore Default Settings | Power User | Return to the shipped defaults after confirmation | FR-048, FR-057 | Medium | Not started |
 | UC-029 | Synchronise Settings Across Devices | Power User | Keep configuration consistent across signed-in browsers, no account | FR-058, FR-059 | High | Blocked (DD-002) |
 
@@ -94,13 +94,25 @@ is claimed by at least one use case, with these intentional exceptions:
 ## Design Decisions Blocking Specification
 
 `docs/vision.md` §7.4 lists 17 reference design decisions (ND-1..ND-17) that must not be
-ported. Three of them change a use case's shape and must be settled before it is written:
+ported. Three of them changed a use case's shape and had to be settled before it was written.
+**All three are now decided** (`vision.md` §7.4 and §9), and this table is kept as the record
+of what each one bought:
 
-| | Affects | Must decide |
+| | Affects | Decided |
 |---|---|---|
-| **ND-1** Per-record vs. per-field generation | UC-004 | Whether the engine synthesises one coherent identity per fill. Retrofitting this later is a rewrite. |
-| **ND-2** Source-scoped matching vs. flattened blob | UC-004, UC-009, UC-018 | The rule data model and the rule authoring UI both depend on the answer. |
-| **ND-9** Discriminated union vs. overloaded `template` | UC-009, UC-026, UC-027 | The settings schema, and therefore the Fake Filler importer's mapping. |
+| ~~**ND-1**~~ Per-record vs. per-field generation | UC-004 | One coherent identity per fill. Retrofitting it would have been a rewrite — and it is what made DD-009's multi-pass filling tractable two phases later, since a field described in pass 3 resolves to the same person as one described in pass 0. |
+| ~~**ND-2**~~ Source-scoped matching vs. flattened blob | UC-004, UC-009, UC-018 | Sources stay separate. Descriptors carry them per source today, so the rule model has the shape it needs whenever it is written. |
+| ~~**ND-9**~~ Discriminated union vs. overloaded `template` | UC-009, UC-026, UC-027 | A discriminated union on generator type. |
+
+**~~What blocks specification now is DD-005, not an ND.~~ Resolved 2026-08-15.** The schema was
+the last undecided input to the rule model, and the ordering conflict recorded here — those
+requirements in Phase 2 while the schema sat in Phase 4 — was resolved by bringing DD-005
+forward. All eight — FR-019..FR-022, FR-031, FR-067, FR-068 and FR-070 — are built.
+
+**What this leaves the specs owing.** The rule model exists in code ahead of the use cases that
+describe authoring it: UC-009..UC-013 (create, edit, delete, reorder, preview) and UC-018 are
+still unwritten, and they inherit a decided shape rather than an open one. What each of them
+now owes is listed under "Obligations Carried by Unwritten Specs" below.
 
 ## Obligations Carried by Unwritten Specs
 
@@ -110,16 +122,63 @@ recorded here so the spec work picks them up rather than rediscovering the quest
 **DD-007** was parked here on 2026-08-13 and discharged the same day into
 `use_cases/UC-023.md` and `use_cases/UC-030.md`.
 
+**DD-006** (result feedback surface, resolved 2026-08-15) obliges three specs that are already
+drafted, and none of them can be closed until the surfaces exist:
+
+**Built 2026-08-15 — all three surfaces.** The table below is kept for the record of what each
+spec owed and how it was discharged.
+
+| Owed by | Obligation |
+|---|---|
+| ~~**UC-001**~~ *(drafted)* | ~~The result must name the scope it filled, and say whether the fill settled or was capped.~~ **Discharged 2026-08-15** — the postconditions now state all three facts and where each is carried, plus the report's retention bound. The scope reads "this page" until there is another scope to distinguish it from. |
+| **UC-002, UC-003** *(not started)* | Both must state their scope in the result. The fact is plumbed and the sentence is written from the catalog, so each needs only its own scope value and its two catalog strings, which already exist. |
+| ~~**UC-004**~~ *(drafted)* | ~~FR-069's provenance is generated and carried but never shown.~~ **Discharged 2026-08-15** — the options-page report shows every field with its outcome and provenance. |
+| **UC-024** *(drafted)* | New, from building it: the report is deliberately *not* a setting and not stored. A spec for the options page must not describe it as persisted state. |
+
+**What building it found, and what it leaves owed.** The badge's capped marker exposed a defect
+in FR-079 that had been present since it landed — a checkbox written with `click()` makes the
+browser fire a *trusted* `input` event, so the extension's own write read as the user typing and
+capped the fill. UC-034's A7 and BR-034-5 describe that watcher; neither is wrong, but both are
+worth reading with the knowledge that `isTrusted` alone does not separate the user from us.
+
+Still owed by DD-006 itself: **a failed control has a badge colour and no words.** Neither the
+sentence nor the marker mentions failures, so colour carries that fact alone — which is the same
+accessibility weakness DD-006 names for its hover-only tooltip, in the surface meant to answer
+it. It was not one of the three facts the decision scoped, so it is recorded rather than added.
+
+**DD-005** (settings schema, resolved 2026-08-15) is parked here. The whole rule model exists
+in code before a single line of its authoring UX is specified, which is the reverse of this
+project's usual order and is deliberate — the engine needed the shape, the screens did not
+exist to need it. Everything below is a decision already taken, so these specs inherit
+constraints rather than choices:
+
+| Owed by | Obligation |
+|---|---|
+| **UC-009..UC-012** *(not started)* | A rule carries a match mode (`contains` / `exact` / `regex`), an optional source subset, a generator from a thirteen-member union, and the persona flag. The flag **defaults to on** and the spec must say what it means in the user's language — "use this fill's person" — because "coherence" is not a word a user brings to a settings screen. Reordering is precedence (FR-031), and must be keyboard-operable (NFR-019). |
+| **UC-013** *(not started)* | The preview must run `validateRule` and show its message beside the field, not on save — FR-070's whole point is that the rejection reaches the user while they are still typing. It must also preview a *bounded* sample: a regex generator draws from a subset of its language, not from the pattern verbatim. |
+| **UC-018** *(not started)* | The six source toggles bound every rule's effective sources. The spec must say that a rule naming a globally-disabled source matches nothing through it — the intersection is a bound, not a suggestion — and that `className` ships off. |
+| **UC-020** *(not started)* | Field exclusions now carry the same three match modes as rules. A stored pre-DD-005 pattern was a regex and is lifted as one; the spec must not describe them as literal substrings. |
+| **UC-026, UC-027** *(not started)* | The importer translates the reference's template and moment-style date grammars into ours, and must report what it could not map (PD-002). Anything it cannot translate is a rule the user loses silently otherwise. |
+| **UC-024** *(drafted)* | Settings are one storage item with sections as top-level keys. A future shard per section is mechanical and must stay so; the spec should not describe the item as opaque. |
+| **UC-029** *(not started)* | DD-002 is still open and inherits this layout rather than choosing it. |
+
+**One obligation belongs to nobody yet, and is the reason it is written here:** DD-005 accepted
+a tolerant parser instead of a migration ladder, so a future *structural* change to a section
+silently discards what it cannot recognise — the user's hand-written rules, with no error. The
+moment any spec proposes restructuring a section is the moment FR-073's ladder has to be built.
+Nothing currently enforces that, which is exactly the class of residual risk
+`requirements.md` records under "Guarantees held by construction".
+
 **DD-009** (dependent and late-appearing fields, resolved 2026-08-14) is parked here. It
 lands before UC-034 exists and it reopens two specs that are already drafted, so its
 obligations are listed rather than left to be rediscovered:
 
 | Owed by | Obligation |
 |---|---|
-| **UC-034** *(to be written)* | The whole decision: the fixpoint loop, the two observation signals, what earns a re-fill, the pass and time bounds, and the combobox ladder with its restore rung. |
-| **UC-001** *(drafted)* | A fill no longer ends when the first walk does. The postcondition becomes "settled or capped", and A7's "a second invocation is ignored" now has to say what happens when the second invocation arrives *during a cascade* rather than during a walk. |
-| **UC-004** *(drafted)* | Generation becomes idempotent per element within one operation (FR-080), and FR-082 adds a persona-preferred option choice with its own provenance. Neither changes the rule-matching flow; both change what "generate" is allowed to depend on. |
-| **UC-005** *(drafted)* | A new exclusion reason for "we filled this earlier in this same operation", which must not be reported as `pre-filled`. Also: the perceivability check is now re-run on previously excluded controls at each settle, so its cost is paid more than once per fill. |
+| ~~**UC-034**~~ | ~~The whole decision.~~ **Discharged 2026-08-14** into `use_cases/UC-034.md`, and revised 2026-08-15 in two places by what implementing it showed — A3 gained a per-control write bound, A7 stopped reporting a control the page removed. |
+| ~~**UC-001**~~ | ~~Filled means verified.~~ **Discharged 2026-08-15 with FR-076.** ~~A fill no longer ends when the first walk does; A7 during a cascade.~~ **Discharged 2026-08-15 with step B** — the scenario now includes UC-034, the postcondition says settled-or-capped, A7 says the window is now seconds wide and that typing is not an invocation, and BR-001-1 no longer claims a frame that never reports delays nothing. |
+| **UC-004** *(drafted)* | ~~Generation becomes idempotent per element within one operation (FR-080).~~ **Discharged 2026-08-15** — the spec now says a value is a function of the operation and the control's token (BR-004-15), a group's answer is derived from the group's token (BR-004-16), and A8 covers a control described twice. FR-082 remains entirely owed: a persona-preferred option choice with its own provenance. |
+| ~~**UC-005**~~ | ~~A new exclusion reason for "we filled this earlier in this same operation".~~ **Discharged 2026-08-15**, by establishing that it is not needed and writing down why (BR-005-9): such a control keeps its `filled` outcome and never re-enters the use case, so naming it would put an exclusion in the report for a field that was filled. `user-touched` was needed instead (A7, BR-005-10), and the per-pass cost is now recorded in BR-005-4 along with the rule that it must not be paid down by remembering answers. |
 | **UC-009** *(not started)* | Nothing directly — noted only because FR-082's fallback needs a provenance string, and provenance is authored alongside the rule model. |
 
 ## Order of Work

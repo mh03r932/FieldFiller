@@ -1,10 +1,22 @@
 import type { FieldValue } from '../protocol';
 
 /**
+ * The values that are *written*, as opposed to driven.
+ *
+ * A custom combobox is not written to — it is opened, chosen from and verified
+ * through the interactions a user would make (`combobox.ts`, BR-034-9), and it
+ * is asynchronous because the page renders its popup on the next frame. Excluding
+ * it here makes routing it elsewhere a compile error rather than a convention,
+ * which matters because the shortcut — writing the hidden input behind the
+ * component — is one line and looks like it works.
+ */
+export type WritableValue = Extract<FieldValue, { as: 'text' | 'choice' | 'toggle' | 'skip' }>;
+
+/**
  * Writes a value so the page registers it, then dispatches the interaction a
  * user would really have produced (FR-013, FR-014, ND-6, BR-004-8).
  *
- * Two independent problems live here, and the reference gets both wrong.
+ * Three independent problems live here, and the reference gets all three wrong.
  *
  * **The write.** Assigning `.value` on a React-controlled input updates the DOM
  * but not React's internal value tracker, so React sees no change and reverts on
@@ -21,6 +33,12 @@ import type { FieldValue } from '../protocol';
  *
  * So the sequence here is per kind: text-like controls are typed into, and
  * checkboxes and radios are *clicked*, because that is what a user does to them.
+ *
+ * **The readback.** Having written is not the same as having been written to.
+ * The reference assumes the two are identical and reports every attempt as a
+ * success, so a page that rejects, reverts or has moved on since the control was
+ * described still produces a confident count of fields it did not fill.
+ * `verifyWrite` below asks the control what it actually holds (FR-076).
  */
 
 type ValueElement = HTMLInputElement | HTMLTextAreaElement;
@@ -63,7 +81,7 @@ export type ApplyOptions = {
  * that per field, because one field's failure is one field's failure
  * (BR-004-11).
  */
-export function applyValue(element: Element, value: FieldValue, options: ApplyOptions): void {
+export function applyValue(element: Element, value: WritableValue, options: ApplyOptions): void {
   switch (value.as) {
     case 'skip':
       return;
@@ -196,4 +214,132 @@ function applyChoice(element: Element, values: readonly string[], options: Apply
 
 function isValueElement(element: Element): element is ValueElement {
   return element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement;
+}
+
+/** Whether a write survived the page's reaction to it (FR-076, BR-034-4). */
+export type WriteVerification =
+  | { readonly landed: true }
+  | { readonly landed: false; readonly reason: string };
+
+const LANDED: WriteVerification = { landed: true };
+
+/**
+ * Reads a control back to find out whether the value written to it took
+ * (FR-076, UC-034 step 1).
+ *
+ * Writing is not the same as having written. A page may reject the value, revert
+ * it from a handler, or have rewritten the control's options between the moment
+ * they were described and the moment they were used — and in every one of those
+ * cases the reference, and this engine before now, reports a confident "filled"
+ * for a control holding nothing. That is the silent failure UC-034 exists to
+ * remove, and every later part of DD-009 depends on this answer: a loop that
+ * cannot tell whether a write survived cannot decide what to fill again.
+ *
+ * **Never string equality** (BR-034-4). A number field given `007` holds `7`; a
+ * colour normalises case; a length-limited field truncates; a reference field
+ * uppercases itself; a currency mask inserts separators. Every one of those
+ * accepted the value. Comparing what came back with what went in would report a
+ * correctly filled page as a wall of failures — so what is asked instead is
+ * whether the control holds something its own kind can accept.
+ *
+ * Exactness is used only where the platform makes it available: a checkbox is in
+ * the state it was set to, and a select holds the options that were chosen.
+ *
+ * Called immediately after the write, which is deliberate: `applyValue`
+ * dispatches its events synchronously, so a page that reverts us from a handler
+ * has already done so by the time this runs. It is not the whole answer — a page
+ * that reverts on a timer is invisible here, which is why UC-034 verifies a
+ * second time when the fill ends (BR-034-2) — but it is the half that needs no
+ * loop, and it is correct on its own.
+ *
+ * Nothing read here is retained, returned or reported: the reason strings below
+ * describe the control, never its contents (BR-034-11, NFR-010, NFR-030).
+ */
+export function verifyWrite(element: Element, value: WritableValue): WriteVerification {
+  switch (value.as) {
+    case 'skip':
+      return LANDED;
+
+    case 'toggle':
+      if (!(element instanceof HTMLInputElement)) return { landed: false, reason: 'not-a-toggle' };
+      return element.checked === value.checked
+        ? LANDED
+        : { landed: false, reason: 'toggle-did-not-change' };
+
+    case 'choice':
+      return verifyChoice(element, value.values);
+
+    case 'text':
+      return verifyText(element);
+  }
+}
+
+function verifyChoice(element: Element, values: readonly string[]): WriteVerification {
+  if (element instanceof HTMLInputElement && element.type === 'radio') {
+    return element.checked === values.includes(element.value)
+      ? LANDED
+      : { landed: false, reason: 'radio-did-not-change' };
+  }
+
+  if (!(element instanceof HTMLSelectElement)) return { landed: false, reason: 'not-a-choice' };
+
+  // Exact, because a select can be exact. Compared as sets of values rather than
+  // by count: a multi-select that took two of the three options asked for has
+  // not been filled as instructed, and the difference matters to the user.
+  const wanted = new Set(values);
+  const selected = new Set([...element.selectedOptions].map((option) => option.value));
+  selected.delete('');
+
+  if (selected.size === wanted.size && [...wanted].every((entry) => selected.has(entry))) {
+    return LANDED;
+  }
+
+  // The common cause, and the one worth naming: the page rewrote the options
+  // between describing the control and filling it, so the chosen value no longer
+  // exists to be chosen. This is UC-034 A1 — the case the whole decision exists
+  // for — and naming it here is what lets a user see it before the loop that
+  // fixes it is built.
+  const available = new Set([...element.options].map((option) => option.value));
+  const missing = [...wanted].some((entry) => !available.has(entry));
+  return { landed: false, reason: missing ? 'options-changed' : 'selection-did-not-take' };
+}
+
+function verifyText(element: Element): WriteVerification {
+  if (element instanceof HTMLElement && element.isContentEditable) {
+    return element.textContent.trim() === ''
+      ? { landed: false, reason: 'value-did-not-take' }
+      : LANDED;
+  }
+
+  if (!isValueElement(element)) return { landed: false, reason: 'not-a-value-control' };
+
+  // Emptiness is the test, not equality. A control the page cleared holds
+  // nothing; a control the page reformatted holds something.
+  if (element.value === '') return { landed: false, reason: 'value-did-not-take' };
+
+  // The browser's own judgement on whether the contents suit the control — an
+  // unparseable date, a malformed email, a number outside its range. Asking the
+  // platform is better than reconstructing its rules, and it is the same
+  // reasoning that put `checkVisibility` in the exclusion path rather than a
+  // hand-rolled equivalent.
+  //
+  // `validity.valueMissing` is deliberately not treated as a failure of the
+  // write: it means the control is `required` and empty, which the emptiness
+  // check above has already answered more precisely.
+  //
+  // This does fold two different things into one outcome — a value the page
+  // would reject and a write that did not take — and UC-034 A6 settles which
+  // wins: both are reported failed, and neither is retried by a later pass on
+  // that basis, because an unfillable value is a generation defect and passes
+  // would only hide it.
+  //
+  // Note for anyone testing this: `tooLong` and `tooShort` apply only to a value
+  // the user dirtied, so a browser calls an over-long programmatic write valid.
+  // happy-dom sets the flags regardless, which is why the unit tests do not
+  // cover that case.
+  if (typeof element.checkValidity === 'function' && !element.checkValidity()) {
+    return { landed: false, reason: 'invalid-for-control' };
+  }
+
+  return LANDED;
 }

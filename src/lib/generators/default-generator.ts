@@ -104,9 +104,38 @@ export function generateValue(
     case 'select-one':
     case 'select-multiple':
       return choose(descriptor, random);
+    case 'combobox':
+      return offeredPosition(descriptor, random);
     default:
       return text(descriptor, persona, random);
   }
+}
+
+/**
+ * A custom combobox, whose options nobody here has seen (FR-081).
+ *
+ * The control does not publish what it offers until it is opened, and opening it
+ * is an interaction with the page — which the background cannot perform and must
+ * not learn the result of. So what is generated is the *draw*, not the answer:
+ * a position in a list of unknown length, which the agent maps onto whatever the
+ * control turned out to hold.
+ *
+ * Seeded from the same stream as everything else, so it is as stable across
+ * passes as any other value (FR-080). Re-driving a combobox the page reset picks
+ * the same position again, and — if the page is offering the same list — the
+ * same answer.
+ *
+ * FR-082 will want the labels, to prefer the option matching the persona's
+ * country or region. That needs the agent to describe the control again once it
+ * is open, and is deliberately left undecided here rather than half-built.
+ */
+function offeredPosition(descriptor: FieldDescriptor, random: Random): FieldValue {
+  return {
+    ref: descriptor.ref,
+    as: 'pick',
+    at: random(),
+    provenance: 'combobox → position in the offered list',
+  };
 }
 
 /**
@@ -211,6 +240,24 @@ function select(
   const sentences = descriptor.kind === 'textarea' ? 3 : 1;
   const filler = Array.from({ length: sentences }, () => pick(LOREM, random)).join(', ');
   return { value: `Lorem ipsum ${filler}`, provenance: `kind "${descriptor.kind}" → neutral text` };
+}
+
+/**
+ * Whether this field mirrors another one (UC-006, FR-024).
+ *
+ * Exported because a matching rule loses to mirroring (DD-005). A confirmation
+ * field that does not equal the field it confirms fails the page's own
+ * validation — which is the entire reason the field exists — so honouring a rule
+ * there would produce a form that cannot be submitted. The rule is named in the
+ * report as overridden rather than dropped in silence.
+ *
+ * Both halves are required: the marker says the field confirms something, and a
+ * resolvable persona slot says there is something for it to agree *with*. A
+ * field called `repeat_order_reference` matches the marker and resolves to no
+ * slot, so it is not mirroring anything and a rule applies to it normally.
+ */
+export function mirrorsAnotherField(descriptor: FieldDescriptor): boolean {
+  return CONFIRMATION_MARKERS.test(identityOf(descriptor)) && personaAttribute(descriptor) !== undefined;
 }
 
 /**
@@ -330,7 +377,14 @@ function isoTime(random: Random): string {
   return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
 }
 
-function constrain(value: string, descriptor: FieldDescriptor): string {
+/**
+ * Fits a value to what the control will accept (BR-004-7, FR-072).
+ *
+ * Exported because a rule's output goes through exactly this (DD-005): the rule
+ * supplies policy, the page supplies the ceiling, and the page wins. A rule that
+ * could bypass the fitter would reintroduce ND-11 through the settings screen.
+ */
+export function constrain(value: string, descriptor: FieldDescriptor): string {
   const { maxLength, minLength } = descriptor.constraints;
   let result = value;
 
@@ -344,7 +398,74 @@ function constrain(value: string, descriptor: FieldDescriptor): string {
     // policy ND-11 exists to satisfy: constrained, and useless.
     result = descriptor.kind === 'password' ? fitPassword(result, maxLength) : result.slice(0, maxLength);
   }
-  return result;
+
+  return descriptor.kind === 'password' ? fitPasswordPattern(result, descriptor) : result;
+}
+
+/**
+ * Whether a value satisfies a control's `pattern` (D9, FR-072).
+ *
+ * The attribute is implicitly anchored at both ends — `pattern="\d{4}"` means
+ * the whole value is four digits, not that four digits appear in it — so the
+ * anchors are added here rather than trusted to be in the attribute.
+ *
+ * An unparseable pattern counts as satisfied. We cannot judge against a rule we
+ * cannot read, and refusing to fill the field would punish the user for the
+ * page's mistake; the browser will not enforce it either. This is the same call
+ * UC-005 A5 makes for an invalid ignore pattern.
+ */
+function satisfiesPattern(value: string, pattern: string | undefined): boolean {
+  if (pattern === undefined) return true;
+  try {
+    return new RegExp(`^(?:${pattern})$`, 'v').test(value);
+  } catch {
+    try {
+      // `v` is the flag the HTML spec requires, and it rejects some patterns an
+      // older `u`-flag regex accepted. Falling back rather than giving up keeps
+      // us matching whatever the page's own browser would do.
+      return new RegExp(`^(?:${pattern})$`, 'u').test(value);
+    } catch {
+      return true;
+    }
+  }
+}
+
+/**
+ * Bends a generated password towards the field's own `pattern` (FR-072).
+ *
+ * Satisfying an arbitrary regular expression is not solvable in general — that
+ * is FR-021's regex generator, and it needs a rule model that does not exist
+ * yet. What is solvable is the shape real registration forms actually use: a
+ * restricted character set. `[A-Za-z0-9]{8,}` and `[A-Za-z0-9!@#$%^&*]{8,}` are
+ * most of the population, and both reject our default password for exactly one
+ * reason — the symbol it chose.
+ *
+ * So this is a bounded ladder over that one variable, not a search. Where none
+ * of the rungs fits, the original value is kept and the write-verification step
+ * reports the control as failed rather than the fill claiming a value the page
+ * will reject (FR-076). A wrong password reported as filled is the outcome worth
+ * avoiding; a right one is a bonus.
+ */
+function fitPasswordPattern(password: string, descriptor: FieldDescriptor): string {
+  const { pattern, minLength } = descriptor.constraints;
+  if (pattern === undefined || satisfiesPattern(password, pattern)) return password;
+
+  const body = password.replace(/[^A-Za-z0-9]/g, '');
+  const floor = minLength ?? 0;
+  const candidates = [
+    password.replace(/[^A-Za-z0-9]/g, '!'),
+    password.replace(/[^A-Za-z0-9]/g, '@'),
+    password.replace(/[^A-Za-z0-9]/g, '-'),
+    body,
+    // Removing the symbol can drop below a length floor the ceiling had already
+    // squeezed against, so the alphanumeric rungs are re-padded before testing.
+    body.padEnd(floor, 'x'),
+  ];
+
+  for (const candidate of candidates) {
+    if (satisfiesPattern(candidate, pattern)) return candidate;
+  }
+  return password;
 }
 
 /**

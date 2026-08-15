@@ -13,8 +13,21 @@
  * documented honestly rather than worked around.
  */
 
-/** Everything that could conceivably hold a value. Exclusion decides, not this. */
-const CANDIDATE_SELECTOR = 'input, textarea, select, [contenteditable=""], [contenteditable="true"]';
+/**
+ * Everything that could conceivably hold a value. Exclusion decides, not this.
+ *
+ * The three ARIA roles are DD-009 step C: a design system's "select" is a `div`,
+ * and nothing in the native list finds it (FR-081). Adding them was gated on
+ * measuring what they cost every page that has none — `scripts/spike-combobox.mjs`,
+ * 2026-08-15: on a 3,591-element application page with 500 controls and no
+ * combobox, **zero** extra candidates and 0.05 ms of extra selector matching,
+ * which is 0.01% of NFR-001's budget. An attribute selector matches only
+ * elements carrying the attribute, so a page without them pays for the match and
+ * nothing downstream.
+ */
+const CANDIDATE_SELECTOR =
+  'input, textarea, select, [contenteditable=""], [contenteditable="true"], ' +
+  '[role="combobox"], [role="listbox"], [aria-haspopup="listbox"]';
 
 export type FillableElement = HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement | HTMLElement;
 

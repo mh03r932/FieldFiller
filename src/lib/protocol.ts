@@ -5,9 +5,16 @@
  * sides of the boundary import it (NFR-015).
  *
  * The shape follows DD-003. The agent walks and applies but carries no corpus,
- * so one fill costs exactly one round trip: descriptors out, values back
+ * so one fill costs one round trip *per pass*: descriptors out, values back
  * (NFR-029). The background sends the initial instruction, which is what lets
  * the persona exist before any frame is asked for anything (BR-004-1a).
+ *
+ * DD-009 amended that from "one round trip" to "one per pass", and the protocol
+ * grows **compatibly** to carry it: `token` on a descriptor, `passes` and
+ * `capped` on a frame report, all optional. After an update, tabs opened
+ * beforehand keep running the previous build until they reload, so a report in
+ * the old shape must keep validating — absent `passes` means the agent made one
+ * pass, which is exactly what an agent that predates the loop did.
  */
 
 /** The three fill scopes. Only `all-inputs` is implemented (UC-001); the rest are Phase 3. */
@@ -49,7 +56,16 @@ export type ControlKind =
   | 'radio'
   | 'select-one'
   | 'select-multiple'
-  | 'contenteditable';
+  | 'contenteditable'
+  /**
+   * A control that behaves as a select without being one — the ARIA combobox
+   * and listbox patterns every design system reimplements (FR-081, UC-034 A9).
+   *
+   * Never a native control wearing the role: an `<input role="combobox">` is a
+   * text input with autocomplete attached, and filling it as text is right.
+   * Only a non-native element gets this kind.
+   */
+  | 'combobox';
 
 /** One choice offered by a select or a radio group. */
 export type ControlOption = {
@@ -68,12 +84,46 @@ export type ControlOption = {
  * uses that; Phase 1 only has to avoid designing it away.
  */
 export type FieldDescriptor = {
-  /** Positional handle, unique within the frame, for pairing values back up. */
+  /**
+   * Handle for pairing values back up, unique within the frame.
+   *
+   * Assigned in the order controls are first sighted and kept for the rest of
+   * the operation, so the same control carries the same `ref` in every pass and
+   * the frame's report can hold one outcome per control (BR-034-2).
+   */
   readonly ref: number;
+  /**
+   * Identifies one control across the passes of one fill, and across frames.
+   *
+   * `ref` is unique within a frame; this is unique within the operation, which
+   * is what the background needs to seed generation per control (FR-080).
+   * Without it a control re-described in a later pass would draw the next value
+   * from the operation's stream instead of the same one again — so an email
+   * refilled in pass 2 would stop matching the "confirm email" filled in pass 1,
+   * and FR-024 would be broken by the loop itself, invisibly.
+   *
+   * Optional because an agent from a build before DD-009 does not send it. The
+   * background falls back to the operation's shared stream, which is exactly
+   * what that agent used to get.
+   */
+  readonly token?: string;
   readonly kind: ControlKind;
   readonly sources: {
     readonly name?: string;
     readonly id?: string;
+    /**
+     * The `class` attribute, verbatim (FR-027).
+     *
+     * The noisiest source by a distance — a utility-first stylesheet puts twenty
+     * meaningless tokens here, and a component library puts its own vocabulary.
+     * It is carried anyway because the other half of real markup names its
+     * fields in exactly this attribute and nowhere else, and because FR-028's
+     * per-source toggles are how a user turns off a source that is noise on
+     * *their* pages. The alternative — deciding for everyone that class is
+     * untrustworthy — is the flattening ND-2 exists to prevent, made worse by
+     * being invisible.
+     */
+    readonly className?: string;
     readonly label?: string;
     readonly placeholder?: string;
     readonly ariaLabel?: string;
@@ -111,6 +161,11 @@ export type FieldDescriptor = {
    * same answer. Without that, each radio picks independently: they disagree,
    * and for a two-option group the members choose *each other* about a quarter
    * of the time, leaving nothing selected at all.
+   *
+   * Derived from the first member's `token`, so it is stable across passes for
+   * the same reason `token` is: the group's answer is seeded from it (FR-080),
+   * and a token that changed between passes would give the group a different
+   * answer each time the page made us write it again.
    */
   readonly group?: string;
 };
@@ -138,6 +193,25 @@ export type FieldValue = {
   /** Options to select, by value. One for a radio or single select, any number for a multi-select. */
   | { readonly as: 'choice'; readonly values: readonly string[] }
   | { readonly as: 'toggle'; readonly checked: boolean }
+  /**
+   * A choice among options only the agent can see (FR-081).
+   *
+   * A custom combobox does not publish its options until it is opened, and
+   * opening it is an interaction — so the background cannot be given a list to
+   * choose from without the agent first touching the page. Rather than move
+   * generation into the agent, or spend a second round trip per control, the
+   * background sends the *draw* and the agent maps it onto whatever the control
+   * turned out to offer.
+   *
+   * `at` is in [0, 1). It is a position in a list of unknown length, and it
+   * carries no information about the page — which is what keeps this inside
+   * DD-003 rather than an exception to it.
+   *
+   * FR-082 will want the option *labels*, to prefer the one matching the
+   * persona. That needs either a second round trip or the agent describing the
+   * control again once it is open, and is deliberately not decided here.
+   */
+  | { readonly as: 'pick'; readonly at: number }
   /** UC-004 A3.6: nothing selectable, so the control is left untouched. */
   | { readonly as: 'skip'; readonly reason: ExclusionReason }
 );
@@ -164,7 +238,45 @@ export type ExclusionReason =
   | 'pre-filled'
   | 'ignored-pattern'
   | 'no-selectable-option'
+  /**
+   * The user touched this control after the fill began, so nothing was written
+   * to it (FR-079, BR-034-5). Distinct from `pre-filled`, which is about content
+   * that was already there when the fill started.
+   */
+  | 'user-touched'
+  /**
+   * A custom combobox that neither the keyboard nor the pointer could drive to a
+   * verified answer (UC-034 A10). The page was put back as it was found.
+   */
+  | 'combobox-not-driveable'
+  /**
+   * A custom combobox, with "skip pre-filled" on and no way to tell whether it
+   * already holds an answer (BR-005-1). A native control exposes its value; a
+   * `<div>` exposes rendered text, in which a chosen answer and a placeholder
+   * look identical. Excluding is the fail-safe direction, and saying so is
+   * better than reporting `pre-filled`, which would claim knowledge we do not
+   * have.
+   */
+  | 'content-unknown'
   | 'unclassifiable';
+
+/**
+ * Why a cascade stopped before the page settled (FR-078, UC-034 A4).
+ *
+ * Reported as its own fact rather than folded into the counts. A fill that
+ * stopped at a bound and one that finished are different results about the same
+ * page, and a user who cannot tell them apart is back to the reference's problem
+ * of not knowing whether anything went wrong (BR-034-6).
+ */
+export type CapReason =
+  /** The pass cap was reached — the page and the engine could not agree. */
+  | 'pass-cap'
+  /** The total cascade budget was spent (NFR-034). */
+  | 'time-budget'
+  /** The user started working in the page, and outranks the fill (BR-034-5). */
+  | 'user-input'
+  /** A later pass could not obtain values — the background was evicted (A12). */
+  | 'values-unavailable';
 
 /**
  * Identifies one frame for the life of its page agent.
@@ -173,20 +285,75 @@ export type ExclusionReason =
  * not unique: two iframes with the same `src` are ordinary — the same embedded
  * form twice, or a frame showing the page that contains it — and every srcdoc
  * frame reports `about:srcdoc`. Keyed on the URL, the second such frame's report
- * is discarded as a duplicate: its outcomes go uncounted, and because a
- * discarded report does not extend the settle window, a frame slower than
- * SETTLE_MS can have the operation closed before its values arrive.
+ * is discarded as a duplicate: its outcomes go uncounted, and the frame it was
+ * confused with closes the operation on its behalf. It is also what the
+ * background waits on — a frame announces this token when it joins a fill, and
+ * the fill is complete when every token that joined has reported.
  *
  * Carries no information about the page — it is a random token, not an address.
  */
 export type FrameId = string;
 
-/** One frame's account of a fill. Frames report independently (BR-001-5). */
+/**
+ * One frame's account of a fill. Frames report independently (BR-001-5).
+ *
+ * Sent once, when the frame's cascade has settled or stopped — not once per
+ * pass. One outcome per control, decided last (BR-034-2).
+ */
 export type FrameReport = {
   readonly frame: FrameId;
   /** For the log and the report only; never used for identity. */
   readonly frameUrl: string;
   readonly outcomes: readonly FieldOutcome[];
+  /** How many passes the frame made. Absent means one — see the module note. */
+  readonly passes?: number;
+  /** Present only when the frame stopped at a bound rather than settling. */
+  readonly capped?: CapReason;
+  /**
+   * How many controls the next pass would have worked on when the bound was
+   * reached — the "may be stale" figure FR-078 requires. Absent unless `capped`.
+   */
+  readonly stale?: number;
+};
+
+/**
+ * One control's line in the fill report (DD-006, FR-009, FR-069).
+ *
+ * Lives here rather than beside the code that assembles it because it crosses a
+ * message boundary — the options page receives it — and everything that crosses
+ * a boundary is defined in one place.
+ *
+ * `identity` is page-derived, and `lib/report/surface.ts` documents in full what
+ * that permits: memory only, one fill's worth, never written to storage. There
+ * is deliberately no field for the control's *value*, here or anywhere: a
+ * descriptor has never carried one (BR-004-10, NFR-030) and provenance says how
+ * a value was chosen, not what it was.
+ */
+export type FieldReportEntry = {
+  readonly frame: FrameId;
+  readonly ref: number;
+  /** How the user would name this field — its label, or the nearest thing to one. */
+  readonly identity: string;
+  readonly kind: ControlKind;
+  readonly status: 'filled' | 'skipped' | 'failed';
+  /** Provenance for a filled control, the reason or cause otherwise (FR-069). */
+  readonly detail: string;
+};
+
+export type OutcomeCounts = { filled: number; skipped: number; failed: number };
+
+/** A whole fill, across every frame that took part (BR-001-5). */
+export type FillReport = {
+  readonly scope: FillScope;
+  /** When the fill finished, so the options page can say how old this is. */
+  readonly finishedAt: number;
+  readonly counts: OutcomeCounts;
+  /** Absent when the fill settled rather than stopping at a bound (FR-078). */
+  readonly capped: CapReason | undefined;
+  readonly stale: number;
+  /** Rules that could not run, by label and reason (DD-005). */
+  readonly skippedRules: readonly string[];
+  readonly fields: readonly FieldReportEntry[];
 };
 
 export type ToAgentMessage =
@@ -212,10 +379,36 @@ export type FromAgentMessage =
    * receive this?" from an inference into an answer.
    */
   | { readonly kind: 'accepted'; readonly frame: FrameId }
+  /**
+   * Sent by every frame that takes up a fill, immediately and once.
+   *
+   * `tabs.sendMessage` broadcasts to every frame but returns a single reply, so
+   * `accepted` tells the background only that *somebody* heard it. This tells it
+   * *who* — which is the difference between knowing a fill is complete and
+   * inferring it from the reports having gone quiet.
+   *
+   * That inference was sound while a fill was one walk and every frame reported
+   * within milliseconds of the others. DD-009 made a frame's duration depend on
+   * how much its own page cascades, so two frames in one tab can now finish
+   * seconds apart, and a window short enough to feel responsive drops the slower
+   * one's outcomes. Frames still cannot see each other; each simply says that it
+   * is participating.
+   */
+  | { readonly kind: 'joined'; readonly operationId: OperationId; readonly frame: FrameId }
   /** The descriptor batch — the request half of the single round trip. */
   | {
       readonly kind: 'descriptors';
       readonly operationId: OperationId;
+      /**
+       * Which frame is asking (DD-006).
+       *
+       * Optional, like `token` and `passes` before it, because an agent injected
+       * before this build keeps running until its tab reloads and its batches
+       * must still validate. Its absence costs only the report: refs from an
+       * agent that does not identify itself cannot be joined to a name, and
+       * those rows say so rather than guessing.
+       */
+      readonly frame?: FrameId;
       readonly descriptors: readonly FieldDescriptor[];
     }
   | { readonly kind: 'report'; readonly operationId: OperationId; readonly report: FrameReport };
@@ -225,6 +418,31 @@ export type ValuesResponse = {
   readonly kind: 'values';
   readonly operationId: OperationId;
   readonly values: readonly FieldValue[];
+};
+
+/**
+ * Sent by the options page to fetch the last fill's report (DD-006).
+ *
+ * A separate union from `FromAgentMessage` on purpose: this comes from an
+ * extension page, which is our own code and a different trust position from a
+ * content script sharing a process with a hostile document. Merging the two
+ * would let a compromised page agent ask for a report it has no business
+ * reading — the report covers every frame, and one frame's agent may see only
+ * its own.
+ */
+export type FromPageMessage = { readonly kind: 'report-request' };
+
+/**
+ * The answer, which is legitimately "nothing".
+ *
+ * The report lives in the background's memory and the background is evicted
+ * routinely, so having no report is an ordinary outcome rather than an error —
+ * and the options page says so in those terms rather than rendering an empty
+ * table (DD-006, NFR-020).
+ */
+export type ReportResponse = {
+  readonly kind: 'report-response';
+  readonly report: FillReport | undefined;
 };
 
 /**
@@ -300,6 +518,8 @@ function isOutcome(value: unknown): value is FieldOutcome {
   );
 }
 
+const CAP_REASONS = new Set(['pass-cap', 'time-budget', 'user-input', 'values-unavailable']);
+
 function isFrameReport(value: unknown): value is FrameReport {
   if (typeof value !== 'object' || value === null) return false;
   const candidate = value as Record<string, unknown>;
@@ -310,7 +530,15 @@ function isFrameReport(value: unknown): value is FrameReport {
     // Each outcome, not just the array. A report from an older agent could carry
     // a status this version does not know, and the whole point of validating at
     // the boundary is that nothing downstream has to wonder.
-    candidate['outcomes'].every(isOutcome)
+    candidate['outcomes'].every(isOutcome) &&
+    // The DD-009 fields, absent from every agent built before the loop. Checked
+    // only when present, which is what makes the growth compatible: a report
+    // from a tab that has not reloaded since the update still validates, and
+    // reads as the single-pass fill it was.
+    (candidate['passes'] === undefined || typeof candidate['passes'] === 'number') &&
+    (candidate['capped'] === undefined ||
+      (typeof candidate['capped'] === 'string' && CAP_REASONS.has(candidate['capped']))) &&
+    (candidate['stale'] === undefined || typeof candidate['stale'] === 'number')
   );
 }
 
@@ -338,6 +566,8 @@ export function isFromAgentMessage(value: unknown): value is FromAgentMessage {
       return typeof candidate.frameUrl === 'string';
     case 'accepted':
       return typeof candidate.frame === 'string';
+    case 'joined':
+      return typeof candidate.operationId === 'string' && typeof candidate.frame === 'string';
     case 'descriptors':
       return (
         typeof candidate.operationId === 'string' &&

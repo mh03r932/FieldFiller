@@ -60,8 +60,22 @@ jobs:
       - name: Lint
         run: pnpm run lint
 
-      - name: Unit tests
-        run: pnpm test
+      # NFR-012's 90% line and function coverage, enforced by globbed thresholds
+      # in `vitest.config.ts` across seven areas: the page engine, the
+      # generators, the persona, the rule model, the result surface, the
+      # settings schema and the message contract.
+      #
+      # That the floor "grows with the engine" was a convention until 2026-08-15
+      # and is now a mechanism. Coverage *measures* `src/lib/**`, but only what a
+      # glob names is *held to* anything, so a new area appeared in the report
+      # gated by nothing. `scripts/check-coverage-scope.mjs`, in the gate job
+      # below, fails the build on any measured file no glob matches — and found
+      # two on the day it was written.
+      #
+      # Run instead of a bare `pnpm test` rather than beside it, so the suite is
+      # not executed twice.
+      - name: Unit tests and coverage floor
+        run: pnpm run test:coverage
 
   # NFR-014: the Chromium end-to-end suite runs on every change, and Firefox on
   # every release candidate. This job is the requirement — before it existed, the
@@ -118,6 +132,20 @@ jobs:
           export CHROME_PATH="$(node -e 'console.log(require("playwright").chromium.executablePath())')"
           pnpm run e2e:chrome
 
+      - name: Dependent fields (Chromium)
+        # UC-034's scoreboard, and since 2026-08-15 a regression gate: all three
+        # DD-009 steps have landed and every row is expected to pass. A red build
+        # here means a cascade the engine used to follow and no longer does.
+        #
+        # It stays expectation-based rather than becoming a plain assertion, so
+        # it still fails on a case that starts passing without its expectation
+        # being updated in the same change. That direction matters as much as the
+        # other: the table is the record of what this engine can do, and a row
+        # that quietly starts passing is a claim nobody wrote down.
+        run: |
+          export CHROME_PATH="$(node -e 'console.log(require("playwright").chromium.executablePath())')"
+          pnpm run cascade:chrome
+
       # Firefox on release candidates only, per NFR-014. Installed from Mozilla
       # directly rather than through Playwright, whose Firefox is a patched build
       # that does not expose the remote agent the BiDi harness attaches to.
@@ -165,7 +193,12 @@ jobs:
       - name: Build Chrome and Firefox
         run: pnpm run build:all
 
-      - name: Gate — page agent size, import graph, network absence
+      # NFR-003, ND-4, NFR-006, NFR-008 and NFR-012. The coverage-scope gate is
+      # the newest, and the others are why it exists: every gate here fails on a
+      # thing being *added* — a dependency, a permission, a kilobyte — because
+      # the additions are what arrive without anyone deciding. Coverage was the
+      # one floor that grew only when someone remembered to widen it by hand.
+      - name: Gate — page agent size, import graph, network absence, permissions, coverage scope
         run: pnpm run gate:all
 
       # Two clean builds, digests compared. Runs on every push rather than only
