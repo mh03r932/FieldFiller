@@ -493,9 +493,10 @@ blocks.
 > three facts to carry and one surface to carry them on. ND-1, ND-2 and ND-9 are decided (see
 > §7.4).
 >
-> **DD-002 and DD-005 remain open**, and DD-005 is the one that blocks work: the settings
-> schema is the last undecided input to the rule model, which nine requirements are waiting
-> on. See `implementation_plan.md` for the two ways out of that.
+> **DD-005 was resolved the same day**, by being brought forward rather than by redefining the
+> phase around it: the schema is fixed in full, the rule model is built on it, and the nine
+> requirements it blocked are unblocked. **DD-002 is the only decision still open**, and it
+> blocks nothing before Phase 6.
 
 ### Resolved
 
@@ -931,6 +932,60 @@ with city, state and postcode mutually consistent, email derived from the name, 
 matching the country. This is the largest quality gap over every competitor found in §2, and
 DD-003 is what makes it affordable.
 
+**DD-005 — Settings schema. RESOLVED 2026-08-15.**
+Brought forward from Phase 4 to unblock the nine rule-driven requirements parked in Phase 2
+(FR-019..FR-022, FR-031, FR-067, FR-068, FR-070). The whole shape is fixed now rather than
+rules alone, because Phase 5 is stated to be the last change to the schema and Phase 6 depends
+on that being true — deciding once is the entire reason for pulling this in early.
+
+**The shape.** One `settings` item in `storage.local`, with each section a top-level key:
+`rules`, `profiles`, `exclusions`, `behaviour`, `passwords`, `sources`. Sharding per section
+later is then mechanical, which leaves DD-002 genuinely open rather than half-decided here.
+
+**Rules.** An ordered list; the first match wins, and a profile's rules are consulted before
+the global list (FR-031). Each rule carries a match mode — `contains`, `exact` or `regex` —
+rather than one implicit regex dialect. The pattern is never rewritten behind the user's back,
+so `^name$` in regex mode means what it says and the reference's defect (`name` matching
+`username`, `firstname` and `company_name`) is gone by construction. A rule may name a subset
+of the six identity sources; omitting it means "whatever is enabled globally", and the
+effective set is always the intersection with FR-028's toggles, so switching `className` off
+globally silences it everywhere without editing a single rule (FR-067).
+
+**Generators** are a discriminated union on `type`, which is ND-9's correction: thirteen types
+— the twelve FR-019 names, plus `constant`, which is the most common real need and otherwise
+has to be spelled as a one-item list. Template and date grammars are our own and documented,
+not the reference's; the Fake Filler importer translates both (PD-002). FR-021's regex
+generation supports a documented bounded subset and rejects anything outside it **at save
+time**, which is what FR-070 and NFR-009 already require of every pattern. NFR-009's check is
+structural — nested quantifiers, quantified alternation with overlapping branches, unbounded
+repetition of a nullable group — because a timed trial makes the verdict depend on how fast
+the machine is, and a rule that saves on a desktop should not be rejected on a laptop.
+
+**Where rules stop.** Three interactions with what is already built, decided explicitly so
+none of them is discovered later:
+
+- *Coherence.* Each rule carries a flag choosing whether a name, email or phone comes from the
+  fill's persona or is freshly random. It **defaults to the persona**, so a rule written
+  without thinking about it keeps ND-1's coherent record intact; breaking coherence is opt-in.
+- *Confirmation.* Mirroring beats a matching rule (FR-024). A confirmation field that does not
+  equal the field it confirms fails the page's own validation, which is the whole reason the
+  field exists — so the rule is reported as overridden rather than silently dropped.
+- *Passwords.* A password rule supplies policy; the field's `pattern`, `minlength` and
+  `maxlength` are still fitted on top, exactly as today. Anything else reintroduces ND-11.
+
+An unmatched field falls through to the persona-driven generator unchanged, and the rule list
+ships empty — so for anyone who writes no rules, nothing about the engine's behaviour moves.
+
+**Versioning, and what it costs.** `version` stays on the stored state and the tolerant
+per-field parser is the whole migration story: whatever is in storage is coerced into the
+current shape, per field, with defaults for anything unrecognised. There is no bypass, so
+ND-13 holds. **The cost, stated plainly: a future structural change loses the data it cannot
+recognise — for `rules` that means the user's hand-written rules, with no error shown.** That
+is accepted for now, and the door stays open precisely because `version` is present: a
+sequential ladder can be added later as a step in front of the parser, without changing the
+stored shape. Anything that would restructure a section is the moment to add it, and that
+should be written into this decision rather than remembered.
+
 ### Open
 
 *(DD-001, DD-003 and DD-004 were resolved on 2026-08-12 — see "Resolved" above.)*
@@ -952,9 +1007,8 @@ schema consequences, so it must be settled before Phase 5 freezes the schema.
 
 *(DD-003 and DD-004 were resolved on 2026-08-12 — see "Resolved" above.)*
 
-**DD-005 — Settings schema versioning.** Our schema v1 must be forward-migratable, and the
-importer must map Fake Filler's v1 onto it. Needs an explicit migration ladder before the
-first release, not after.
+*(DD-005 was resolved on 2026-08-15 — see "Resolved" above. UC-027's mapping of Fake Filler's
+schema onto ours stays Phase 6 work; what DD-005 owed the engine is decided.)*
 
 ---
 

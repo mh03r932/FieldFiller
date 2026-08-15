@@ -195,7 +195,7 @@ describe('radio groups are decided once per group', () => {
     const values = generateBatch(
       fillable.map((entry) => entry.descriptor),
       { persona: groupPersona, randomFor: () => random },
-    );
+    ).values;
     for (const [index, entry] of fillable.entries()) {
       const value = values[index]!;
       // Narrowed rather than cast: `pick` is driven, not written, and a radio

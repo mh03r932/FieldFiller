@@ -5,6 +5,7 @@ import { getSettings } from '@/lib/platform/settings-store';
 import { agentSettings } from '@/lib/settings';
 import { createPersona, seededRandom, type Persona, type Random } from '@/lib/persona/persona';
 import { generateBatch, tokenRandom } from '@/lib/generators/batch';
+import { compileRules, type CompiledRule } from '@/lib/rules/match';
 import {
   isFromAgentMessage,
   type CapReason,
@@ -76,6 +77,16 @@ type Operation = {
   capped: CapReason | undefined;
   /** How many controls those frames say may be stale (FR-078). */
   stale: number;
+  /**
+   * The user's rules, compiled once when the fill begins (NFR-025, ND-15).
+   *
+   * Per operation rather than per batch, because a page with frames sends one
+   * batch per frame per pass — compiling per batch would rebuild every pattern
+   * on every pass of every frame, which is the cost ND-15 names.
+   */
+  readonly rules: readonly CompiledRule[];
+  /** Rules that could not run, by label, so the user is told (DD-005). */
+  readonly skippedRules: Set<string>;
 };
 
 type FieldOutcomeCounts = { filled: number; skipped: number; failed: number };
@@ -151,6 +162,11 @@ async function startFill(tabId: number, scope: FillScope): Promise<void> {
       settle: undefined,
       capped: undefined,
       stale: 0,
+      // Profile rules would be concatenated ahead of the global list here, and
+      // first-match-wins does the rest (FR-031). Profiles are Phase 5, so today
+      // this is the global list alone.
+      rules: compileRules(settings.rules, settings.sources),
+      skippedRules: new Set(),
       timeout: setTimeout(() => {
         trace(`fill ${operationId} timed out with no report; abandoning`);
         finish(operationId, tabId);
@@ -348,14 +364,26 @@ async function showBadge(
  * itself is provisional. DD-006 is the decision about what replaces both.
  */
 function capNote(operation: Operation): string | undefined {
-  if (operation.capped === undefined) return undefined;
+  // A rule that could not run is a fact about the *configuration* rather than
+  // about this page, so it is reported even when the fill settled cleanly
+  // (DD-005). It is appended rather than given its own surface because DD-006
+  // owes a real one; until then the tooltip is the only place with room.
+  const ruleNote =
+    operation.skippedRules.size === 0
+      ? undefined
+      : `${operation.skippedRules.size} rule(s) skipped — ${[...operation.skippedRules].join('; ')}`;
+
+  if (operation.capped === undefined) return ruleNote;
+
   const reason =
     operation.capped === 'user-input'
       ? 'stopped because you started typing'
       : operation.capped === 'values-unavailable'
         ? 'stopped: could not reach the extension'
         : 'the page did not settle';
-  return `${operation.outcomes.filled} filled — ${reason}, ${operation.stale} field(s) may be stale`;
+  const capped = `${operation.outcomes.filled} filled — ${reason}, ${operation.stale} field(s) may be stale`;
+
+  return ruleNote === undefined ? capped : `${capped}. ${ruleNote}`;
 }
 
 function summarise(report: FrameReport, counts: FieldOutcomeCounts): void {
@@ -438,8 +466,9 @@ export default defineBackground(() => {
         finish(raw.operationId, operation.tabId);
       }, OPERATION_TIMEOUT_MS);
 
-      const values = generateBatch(raw.descriptors, {
+      const batch = generateBatch(raw.descriptors, {
         persona: operation.persona,
+        rules: operation.rules,
         // Per control, derived from the operation's seed and the control's
         // token, so a control the page makes us write twice gets the same value
         // both times (FR-080). An agent from a build before DD-009 sends no
@@ -448,7 +477,12 @@ export default defineBackground(() => {
         randomFor: (token) =>
           token === undefined ? operation.random : tokenRandom(operation.seed, token),
       });
-      sendResponse({ kind: 'values', operationId: raw.operationId, values } satisfies ValuesResponse);
+      for (const note of batch.skippedRules) operation.skippedRules.add(note);
+      sendResponse({
+        kind: 'values',
+        operationId: raw.operationId,
+        values: batch.values,
+      } satisfies ValuesResponse);
       return true;
     }
 

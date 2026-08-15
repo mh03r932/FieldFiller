@@ -42,6 +42,10 @@ export default defineConfig({
         'src/lib/page/**': { lines: 90, functions: 90 },
         'src/lib/generators/**': { lines: 90, functions: 90 },
         'src/lib/persona/**': { lines: 90, functions: 90 },
+        // The rule model (DD-005). Held to the same floor as the generators it
+        // sits in front of: a pattern analyser or a template parser with
+        // untested branches is precisely where a wrong answer is invisible.
+        'src/lib/rules/**': { lines: 90, functions: 90 },
       },
     },
   },

@@ -37,14 +37,14 @@ and late-appearing fields, amending DD-003 to one round trip per pass. Lands in 
 UC-034; it needs the full walk, exclusion and report machinery underneath it, and none of
 that exists before then.
 
-**Moved to Phase 4, 2026-08-14:** the settings-schema row — the discriminated union on
-generator type with the migration ladder (ND-9, DD-005, FR-073). It sat in Phase 0 from the
-first draft, but `src/lib/settings.ts` deliberately ships only the versioned stub: DD-005 is
-open, and writing a migration ladder against an undecided shape is what ordering principle 4
-exists to prevent. The schema is first needed by Phase 4's rule authoring, and DD-005 closes
-before that lands — the latest point at which the ladder can still be written against a
-moving shape. With the row gone, "one spike left" below is true again rather than one open
-row too optimistic.
+**Moved to Phase 4, 2026-08-14; moved back into Phase 2, 2026-08-15.** The settings-schema row
+— the discriminated union on generator type (ND-9, DD-005, FR-073) — sat in Phase 0 from the
+first draft and was deferred because writing a migration ladder against an undecided shape is
+what ordering principle 4 exists to prevent. What the deferral did not anticipate is that nine
+Phase 2 requirements need the *rule model*, which needs the schema: the conflict is described
+under "Where Phase 2 actually stands" below. Resolved by deciding DD-005 early rather than by
+moving those rows, so the schema is designed once. The ladder itself is the one part not
+built — DD-005 accepts a tolerant parser in its place and records what that costs.
 
 | Work | Closes |
 |---|---|
@@ -89,11 +89,12 @@ at the cost of a week rather than a quarter.
 
 ## Phase 2 — Engine completeness
 
-*Goal: the product is genuinely useful, with defaults only and no settings UI.*
+*Goal: the product is genuinely useful, with sensible defaults and no settings UI.*
 
 | UC | Brings |
 |---|---|
 | **UC-004** (full) | Record-first generation (ND-1); all input types; native constraints; source-scoped matching with provenance (ND-2); implicit labels; per-type sizing |
+| — | The settings schema and rule model (DD-005, pulled forward 2026-08-15): thirteen generator types, three match modes, save-time validation, and the ReDoS filter behind it |
 | **UC-005** (full) | Hidden, pre-filled, ignore patterns, honeypot detection |
 | **UC-006** Reuse a Value for a Confirmation Field | Resolved against the record, not DOM order |
 | **UC-034** Fill Fields That Depend on an Earlier Answer | DD-009 — in three steps, below |
@@ -105,30 +106,27 @@ convenience and trust.
 ### Where Phase 2 actually stands, 2026-08-15
 
 Reconciling `requirements.md` against the test suite after DD-009 gave the first honest
-picture: **51 requirements Done, 13 Partial, 9 Blocked, 44 Open.** Almost everything Phase 2
+picture: **51 requirements Done, 13 Partial, 9 Blocked, 44 Open.** After DD-005 landed later the
+same day the count reads **62 Done, 13 Partial, 1 Blocked, 55 Open** — the single remaining
+Blocked row is NFR-028, waiting on the data corpus rather than on any decision. Almost everything Phase 2
 lists is built and verified — every control kind, native constraints, the framework-safe write,
 the full exclusion set with honeypots, confirmation mirroring, coherent personas, frames, shadow
 roots, error isolation, and all three steps of UC-034.
 
-**What is left in this phase is blocked, and blocked by a decision this plan deferred past it.**
+**What was left in this phase was blocked by a decision this plan deferred past it.**
 FR-019..FR-022 (generator types, alphanumeric templates, regex, randomized list), FR-031
 (precedence), FR-067, FR-068 and FR-070 are all rule-driven, and the rule model needs the
 settings schema — DD-005, which was moved to Phase 4 on 2026-08-14 for its own good reasons.
-Nine requirements are therefore parked in a phase whose exit criterion cannot include them.
+Nine requirements were therefore parked in a phase whose exit criterion could not include them.
 
-That is not a mistake to correct by moving rows around. It is a genuine constraint with two
-honest resolutions, and the choice belongs to whoever picks up the next phase:
+**Resolved 2026-08-15 by bringing DD-005 forward**, the first of the two options recorded here.
+The whole schema is fixed rather than the rule model alone, because Phase 5 is stated below to
+be the last change to the schema and Phase 6 depends on that being true. The nine requirements
+are built and tested; the screens that author them remain Phase 4. See DD-005 in `vision.md`
+for the decision and for the one cost it accepts — no migration ladder, so a future structural
+change loses what the tolerant parser cannot recognise.
 
-- **Bring DD-005 forward** and finish Phase 2 as written. The schema is needed by Phase 4
-  regardless, and deciding it earlier means the rule model is designed once rather than
-  approximated and revised.
-- **Redefine Phase 2's exit** as "the engine fills correctly with defaults", which is what it
-  now does, and move rule-driven generation to Phase 4 beside the UI that authors it. This is
-  the smaller change and arguably what the phase always meant — "defaults only and no settings
-  UI" is already in its goal line.
-
-The second reading is the more consistent one, but it is a scope decision rather than a
-sequencing detail, so it is recorded here rather than taken silently.
+**Phase 2 is therefore complete**, and completed as written rather than by redefining its exit.
 
 **Two things remain unscheduled anywhere**, and both were surfaced by DD-009's work rather than
 by this plan:
@@ -237,9 +235,11 @@ property, and trust properties should exist before the thing is shareable.
 
 *Goal: users can shape the engine's behaviour.*
 
-- **Settings schema** — the full discriminated union on generator type and the migration
-  ladder (ND-9, DD-005, FR-073), moved here from Phase 0 on 2026-08-14: DD-005 closes
-  first, and everything else in this phase serialises the schema it produces
+- ~~**Settings schema**~~ — **done in Phase 2 on 2026-08-15.** DD-005 was brought forward
+  rather than closed here, so the discriminated union on generator type (ND-9), every section
+  of the schema, and the rule model already exist. What this phase inherits is the screens,
+  not the shape. FR-073's migration ladder is the one piece deliberately not built: the
+  tolerant parser stands in for it, with the cost written into DD-005
 - **UC-024** (full) — durable writes, live propagation to open tabs, in-memory caching (ND-17)
 - **UC-009**, **UC-010**, **UC-011**, **UC-012** — rule create / edit / delete / reorder
 - **UC-013** Preview Values Generated by a Rule — with authoring-time validation (FR-070)
@@ -311,18 +311,19 @@ users switch — but it is also the piece most damaged by a moving schema. It st
 ## Critical path
 
 ```
-Phase 0 scaffold ─► Phase 1 skeleton ─► Phase 2 engine ─► Phase 3 scopes ─┐
-                                                                           ├─► Phase 7
-schema (ND-9) ─► Phase 4 config ─► Phase 5 profiles ─► Phase 6 portability ─┘
-                                                  DD-002 ─┘
+Phase 0 ─► Phase 1 ─► Phase 2 engine + schema (ND-9, DD-005) ─┬─► Phase 3 scopes ─────────────────────┐
+                                                              │                                        ├─► Phase 7
+                                                              └─► Phase 4 config ─► Phase 5 profiles ─► Phase 6 portability
+                                                                                                DD-002 ─┘
 ```
 
-All the decisions that gated the engine are now closed. Two remain on the path: **DD-005**
-(schema versioning), which gates the schema work that now opens Phase 4, and **DD-002**
-(sync quota), which blocks nothing before Phase 6 and can be resolved as late as UC-029
-without holding anything up. **DD-006** (the feedback surface) sits off the path: Phase 1
-shipped a provisional badge, and the decision is what replaces it — carrying obligations
-from DD-008 and DD-009 until then.
+All the decisions that gated the engine are now closed, and **DD-005** closed with them on
+2026-08-15 — pulled forward out of Phase 4, which is why the schema arrow above now feeds the
+engine rather than trailing it. **DD-002** (sync quota) is the only decision left on the path;
+it blocks nothing before Phase 6 and can be resolved as late as UC-029 without holding anything
+up. **DD-006** (the feedback surface) is decided but unbuilt: Phase 1's provisional badge and
+tooltip still ship, and the scope sentence, the capped marker and the options-page report are
+owed — which is what Phase 3 needs before UC-002 and UC-003 can say which scope ran.
 
 The cold-start spike is the sole remaining unknown, and it is a tuning question rather than
 an architectural one: if the corpus loads too slowly, the corpus shrinks. It cannot invalidate

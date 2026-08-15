@@ -243,6 +243,24 @@ function select(
 }
 
 /**
+ * Whether this field mirrors another one (UC-006, FR-024).
+ *
+ * Exported because a matching rule loses to mirroring (DD-005). A confirmation
+ * field that does not equal the field it confirms fails the page's own
+ * validation — which is the entire reason the field exists — so honouring a rule
+ * there would produce a form that cannot be submitted. The rule is named in the
+ * report as overridden rather than dropped in silence.
+ *
+ * Both halves are required: the marker says the field confirms something, and a
+ * resolvable persona slot says there is something for it to agree *with*. A
+ * field called `repeat_order_reference` matches the marker and resolves to no
+ * slot, so it is not mirroring anything and a rule applies to it normally.
+ */
+export function mirrorsAnotherField(descriptor: FieldDescriptor): boolean {
+  return CONFIRMATION_MARKERS.test(identityOf(descriptor)) && personaAttribute(descriptor) !== undefined;
+}
+
+/**
  * Which persona slot this field wants, and why.
  *
  * A confirmation field resolves to the same slot as the field it confirms
@@ -359,7 +377,14 @@ function isoTime(random: Random): string {
   return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
 }
 
-function constrain(value: string, descriptor: FieldDescriptor): string {
+/**
+ * Fits a value to what the control will accept (BR-004-7, FR-072).
+ *
+ * Exported because a rule's output goes through exactly this (DD-005): the rule
+ * supplies policy, the page supplies the ceiling, and the page wins. A rule that
+ * could bypass the fitter would reintroduce ND-11 through the settings screen.
+ */
+export function constrain(value: string, descriptor: FieldDescriptor): string {
   const { maxLength, minLength } = descriptor.constraints;
   let result = value;
 

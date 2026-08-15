@@ -1,6 +1,8 @@
 import type { FieldDescriptor, FieldValue } from '../protocol';
 import { seededRandom, type Persona, type Random } from '../persona/persona';
-import { generateValue } from './default-generator';
+import { constrain, generateValue, mirrorsAnotherField } from './default-generator';
+import { selectRule, type CompiledRule } from '../rules/match';
+import { applyToControl, generateRuleText } from '../rules/generate';
 
 /**
  * Generates values for one frame's descriptor batch.
@@ -34,18 +36,40 @@ export type BatchSource = {
    * where it is hardest to notice (BR-034-3).
    */
   readonly randomFor: (token: string | undefined) => Random;
+  /**
+   * The user's rules, compiled once for the whole fill (NFR-025, ND-15).
+   *
+   * Ordered by precedence: the active profile's rules ahead of the global list,
+   * so first-match-wins is the whole of FR-031. Empty — the default — means the
+   * engine behaves exactly as it did before rules existed.
+   */
+  readonly rules?: readonly CompiledRule[] | undefined;
+};
+
+export type BatchResult = {
+  readonly values: readonly FieldValue[];
+  /**
+   * Rules that could not run, by label, with the reason.
+   *
+   * Reported rather than swallowed (DD-005): the field still gets filled by the
+   * generator behind the rule, and the user is told which rule stopped working.
+   * A rule that silently does nothing is the reference's behaviour and one of
+   * the defects this project names.
+   */
+  readonly skippedRules: readonly string[];
 };
 
 export function generateBatch(
   descriptors: readonly FieldDescriptor[],
   source: BatchSource,
-): FieldValue[] {
+): BatchResult {
   const byGroup = new Map<string, FieldValue>();
+  const skipped = new Map<string, string>();
 
-  return descriptors.map((descriptor) => {
+  const values = descriptors.map((descriptor) => {
     const group = descriptor.group;
     if (group === undefined) {
-      return generateValue(descriptor, source.persona, source.randomFor(descriptor.token));
+      return valueFor(descriptor, source, source.randomFor(descriptor.token), skipped);
     }
 
     const decided = byGroup.get(group);
@@ -53,11 +77,61 @@ export function generateBatch(
     // only if it holds the chosen value, so exactly one does. Seeded from the
     // group's token rather than any one member's, so the group keeps its answer
     // across passes for the same reason a single control keeps its value.
-    const value = decided ?? generateValue(descriptor, source.persona, source.randomFor(group));
+    const value = decided ?? valueFor(descriptor, source, source.randomFor(group), skipped);
     if (decided === undefined) byGroup.set(group, value);
 
     return { ...value, ref: descriptor.ref };
   });
+
+  return {
+    values,
+    skippedRules: [...skipped].map(([label, reason]) => `${label}: ${reason}`),
+  };
+}
+
+/**
+ * One control's value: the first applicable rule, or the built-in generator.
+ *
+ * The order here is the whole of DD-005's "where rules stop". Mirroring is
+ * checked before any rule is consulted, because a confirmation field's value is
+ * decided by the field it confirms and no rule can improve on that. A rule that
+ * matches but cannot produce something the control could hold falls through
+ * rather than failing, so the field is still filled.
+ */
+function valueFor(
+  descriptor: FieldDescriptor,
+  source: BatchSource,
+  random: Random,
+  skipped: Map<string, string>,
+): FieldValue {
+  const rules = source.rules ?? [];
+  if (rules.length === 0) return generateValue(descriptor, source.persona, random);
+
+  const { selection, skipped: unusable } = selectRule(descriptor, rules);
+  for (const entry of unusable) {
+    if (entry.problem !== undefined) skipped.set(entry.rule.label, entry.problem);
+  }
+
+  if (selection === undefined) return generateValue(descriptor, source.persona, random);
+
+  if (mirrorsAnotherField(descriptor)) {
+    const mirrored = generateValue(descriptor, source.persona, random);
+    return {
+      ...mirrored,
+      provenance: `${mirrored.provenance} (rule "${selection.rule.label}" overridden: confirmation fields must match)`,
+    };
+  }
+
+  const text = generateRuleText(selection.rule, source.persona, random);
+  if (text === undefined) {
+    skipped.set(selection.rule.label, 'its generator could not produce a value');
+    return generateValue(descriptor, source.persona, random);
+  }
+
+  return (
+    applyToControl(selection, text, descriptor, constrain) ??
+    generateValue(descriptor, source.persona, random)
+  );
 }
 
 /**

@@ -104,11 +104,15 @@ of what each one bought:
 | ~~**ND-2**~~ Source-scoped matching vs. flattened blob | UC-004, UC-009, UC-018 | Sources stay separate. Descriptors carry them per source today, so the rule model has the shape it needs whenever it is written. |
 | ~~**ND-9**~~ Discriminated union vs. overloaded `template` | UC-009, UC-026, UC-027 | A discriminated union on generator type. |
 
-**What blocks specification now is DD-005, not an ND.** The settings schema is the last
-undecided input to the rule model, and it is what FR-019..FR-022, FR-031, FR-067, FR-068 and
-FR-070 are all waiting on — the whole of rule-driven generation and matching. Those
-requirements sit in Phase 2 in `implementation_plan.md` while the schema sits in Phase 4, which
-is a real ordering conflict and is recorded there rather than left to be rediscovered.
+**~~What blocks specification now is DD-005, not an ND.~~ Resolved 2026-08-15.** The schema was
+the last undecided input to the rule model, and the ordering conflict recorded here — those
+requirements in Phase 2 while the schema sat in Phase 4 — was resolved by bringing DD-005
+forward. FR-019..FR-022, FR-031, FR-067, FR-068 and FR-070 are built.
+
+**What this leaves the specs owing.** The rule model exists in code ahead of the use cases that
+describe authoring it: UC-009..UC-013 (create, edit, delete, reorder, preview) and UC-018 are
+still unwritten, and they inherit a decided shape rather than an open one. What each of them
+now owes is listed under "Obligations Carried by Unwritten Specs" below.
 
 ## Obligations Carried by Unwritten Specs
 
@@ -126,6 +130,29 @@ drafted, and none of them can be closed until the surfaces exist:
 | **UC-001** *(drafted)* | The result must name the scope it filled, and say whether the fill settled or was capped. Today the badge carries a count and the tooltip carries the capped sentence; the scope half waits on UC-002 and UC-003 existing to be distinguishable from. |
 | **UC-002, UC-003** *(not started)* | Both must state their scope in the result, which is the obligation that made a bare count insufficient in the first place (DD-008). |
 | **UC-004** *(drafted)* | FR-069's provenance is generated and carried but never shown. DD-006 puts it in the options-page report, which Phase 4 builds. |
+
+**DD-005** (settings schema, resolved 2026-08-15) is parked here. The whole rule model exists
+in code before a single line of its authoring UX is specified, which is the reverse of this
+project's usual order and is deliberate — the engine needed the shape, the screens did not
+exist to need it. Everything below is a decision already taken, so these specs inherit
+constraints rather than choices:
+
+| Owed by | Obligation |
+|---|---|
+| **UC-009..UC-012** *(not started)* | A rule carries a match mode (`contains` / `exact` / `regex`), an optional source subset, a generator from a thirteen-member union, and the persona flag. The flag **defaults to on** and the spec must say what it means in the user's language — "use this fill's person" — because "coherence" is not a word a user brings to a settings screen. Reordering is precedence (FR-031), and must be keyboard-operable (NFR-019). |
+| **UC-013** *(not started)* | The preview must run `validateRule` and show its message beside the field, not on save — FR-070's whole point is that the rejection reaches the user while they are still typing. It must also preview a *bounded* sample: a regex generator draws from a subset of its language, not from the pattern verbatim. |
+| **UC-018** *(not started)* | The six source toggles bound every rule's effective sources. The spec must say that a rule naming a globally-disabled source matches nothing through it — the intersection is a bound, not a suggestion — and that `className` ships off. |
+| **UC-020** *(not started)* | Field exclusions now carry the same three match modes as rules. A stored pre-DD-005 pattern was a regex and is lifted as one; the spec must not describe them as literal substrings. |
+| **UC-026, UC-027** *(not started)* | The importer translates the reference's template and moment-style date grammars into ours, and must report what it could not map (PD-002). Anything it cannot translate is a rule the user loses silently otherwise. |
+| **UC-024** *(drafted)* | Settings are one storage item with sections as top-level keys. A future shard per section is mechanical and must stay so; the spec should not describe the item as opaque. |
+| **UC-029** *(not started)* | DD-002 is still open and inherits this layout rather than choosing it. |
+
+**One obligation belongs to nobody yet, and is the reason it is written here:** DD-005 accepted
+a tolerant parser instead of a migration ladder, so a future *structural* change to a section
+silently discards what it cannot recognise — the user's hand-written rules, with no error. The
+moment any spec proposes restructuring a section is the moment FR-073's ladder has to be built.
+Nothing currently enforces that, which is exactly the class of residual risk
+`requirements.md` records under "Guarantees held by construction".
 
 **DD-009** (dependent and late-appearing fields, resolved 2026-08-14) is parked here. It
 lands before UC-034 exists and it reopens two specs that are already drafted, so its

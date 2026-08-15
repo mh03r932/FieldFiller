@@ -54,7 +54,7 @@ function background(seed = 7): ValueSource {
       generateBatch(descriptors, {
         persona,
         randomFor: (token) => (token === undefined ? shared : tokenRandom(seed, token)),
-      }),
+      }).values,
     );
 }
 
