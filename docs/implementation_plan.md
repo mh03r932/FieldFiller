@@ -106,9 +106,20 @@ convenience and trust.
 ### Where Phase 2 actually stands, 2026-08-15
 
 Reconciling `requirements.md` against the test suite after DD-009 gave the first honest
-picture: **51 requirements Done, 13 Partial, 9 Blocked, 44 Open.** After DD-005 and DD-006 both
-landed later the same day the count reads **64 Done, 11 Partial, 1 Blocked, 55 Open and 1
-Deferred**, across 132 rows — the single remaining Blocked row is NFR-028, waiting on the data
+picture: **51 Done, 13 Partial, 9 Blocked, 44 Open** — 117 rows, being the 82 functional and 35
+non-functional requirements that existed at that moment. After DD-005 and DD-006 both landed
+later the same day the count reads **64 Done, 11 Partial, 1 Blocked, 55 Open and 1 Deferred**,
+across **132**: the same rows plus NFR-036, which DD-009 added, plus the 14 Constraints.
+
+**The two denominators are stated because they differ, and the difference is not only
+arithmetic.** The Constraints carry a status column and every one of the 14 reads `Open` — as a
+default nobody ever revisited, not as an assessment. Several are demonstrably satisfied and
+gated in CI (C-001 Manifest V3, C-002 TypeScript strict, C-003 the per-target background model),
+so the 132-row tally's `Open` count is inflated by rows that were never scored. Recorded here
+rather than corrected in passing: scoring 14 constraints is a judgement per row, and the
+regulatory ones are not ours to mark off between commits.
+
+The single remaining Blocked row is NFR-028, waiting on the data
 corpus rather than on any decision. Almost everything Phase 2
 lists is built and verified — every control kind, native constraints, the framework-safe write,
 the full exclusion set with honeypots, confirmation mirroring, coherent personas, frames, shadow
@@ -199,9 +210,11 @@ skipped rather than spending an unbounded amount of time — which is the same s
 other bound in DD-009, and the reason A10 already exists.
 
 **Landed 2026-08-15.** The ladder cost 3.8 KB, taking the page agent to 18.5 KB of its 40 KB.
-The cascade fixture is now **16/16**, at 17 claimed filled against 17 the page holds, of 18
-fillable — the eighteenth being the field the page will not let anyone fill, reported as a
-failure. One honesty gap is left and is recorded in BR-034-11 rather than in a comment: the
+The cascade fixture now passes **all 16 of its harness assertions** — the scoreboard rows in
+`scripts/e2e-cascade.mjs`, not a count of fields. Two of those rows are the fill counts, and
+they are the ones worth quoting: the report claims 17 filled, the page holds 17 filled, and the
+fixture offers 18 fillable controls — the eighteenth being the field the page will not let
+anyone fill, reported as a failure rather than quietly dropped from both sides. One honesty gap is left and is recorded in BR-034-11 rather than in a comment: the
 end-of-fill check on a combobox cannot tell a placeholder from an answer, because telling them
 apart means retaining the chosen option's label, which BR-034-11 forbids.
 

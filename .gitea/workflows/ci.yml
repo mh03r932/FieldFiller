@@ -61,10 +61,16 @@ jobs:
         run: pnpm run lint
 
       # NFR-012's 90% line and function coverage, enforced by globbed thresholds
-      # in `vitest.config.ts` across five areas: the page engine, the generators,
-      # the persona, the rule model and the result surface. A glob is added with
-      # the code it covers, so this floor grows with the engine rather than
-      # naming a fixed three and quietly excusing everything added later.
+      # in `vitest.config.ts` across seven areas: the page engine, the
+      # generators, the persona, the rule model, the result surface, the
+      # settings schema and the message contract.
+      #
+      # That the floor "grows with the engine" was a convention until 2026-08-15
+      # and is now a mechanism. Coverage *measures* `src/lib/**`, but only what a
+      # glob names is *held to* anything, so a new area appeared in the report
+      # gated by nothing. `scripts/check-coverage-scope.mjs`, in the gate job
+      # below, fails the build on any measured file no glob matches — and found
+      # two on the day it was written.
       #
       # Run instead of a bare `pnpm test` rather than beside it, so the suite is
       # not executed twice.
@@ -187,10 +193,12 @@ jobs:
       - name: Build Chrome and Firefox
         run: pnpm run build:all
 
-      # NFR-003, ND-4, NFR-006 and NFR-008. The permission gate is the newest:
-      # a permission list grows by accident far more easily than a dependency
-      # list does, and it is the claim an auditor reads first.
-      - name: Gate — page agent size, import graph, network absence, permissions
+      # NFR-003, ND-4, NFR-006, NFR-008 and NFR-012. The coverage-scope gate is
+      # the newest, and the others are why it exists: every gate here fails on a
+      # thing being *added* — a dependency, a permission, a kilobyte — because
+      # the additions are what arrive without anyone deciding. Coverage was the
+      # one floor that grew only when someone remembered to widen it by hand.
+      - name: Gate — page agent size, import graph, network absence, permissions, coverage scope
         run: pnpm run gate:all
 
       # Two clean builds, digests compared. Runs on every push rather than only

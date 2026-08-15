@@ -39,7 +39,7 @@ work through rather than a sentence somebody has to find.
 | | What holds it up today | What would enforce it |
 |---|---|---|
 | **FR-026** No credential leakage | No generated value is passed to a console, to storage, or to any element but its target. | A source gate rejecting any `console.*` call reachable from the generators, in the shape of `check-network.mjs`. |
-| **NFR-010** No retention of page data | Descriptors carry attributes, never values; the one read-back is compared in place and dropped. | Hard. The nearest practical check is a gate on the descriptor and message types, which would catch a field being added but not a value being smuggled through an existing one. |
+| **NFR-010** No retention of page data | Descriptors carry attributes, never values; the one read-back is compared in place and dropped. Its value-versus-identity line is drawn in the requirement itself, not left to reading. | Hard. The nearest practical check is a gate on the descriptor and message types, which would catch a field being added but not a value being smuggled through an existing one. |
 | **NFR-030** Descriptor confinement | `FieldDescriptor` has no value-bearing field, and the only thing outliving a fill is one report's field identities, in memory. | A shape assertion over the protocol types, which is the same check NFR-010 wants — plus, now, something to catch a report reaching a storage API. |
 | **NFR-031** Generated data lifetime | The operation map is cleared when a fill closes, and nothing writes it to storage. | A test that drives a fill through the background and asserts the map is empty afterwards — the most tractable of the four. |
 
@@ -72,12 +72,31 @@ rather than left to be read either way:
 | **Never** | Written to storage, in any form, for any duration. Sent anywhere but this extension's own options page, on request. |
 | **Not retained at all** | Any *value* from the page. Descriptors have never carried one, and provenance describes how a value was chosen rather than what it was. |
 
-NFR-030's wording was amended in the same change. It previously said descriptors "must not be
-persisted after the fill completes", which reads as forbidding this and was written before there
-was anything to forbid. The requirement's purpose — nothing page-derived reaches storage, and
-nothing outlives its usefulness — is unchanged; what changed is that "persisted" now means
-written down, and the in-memory window is bounded and stated. Reinterpreting the old wording
-silently would have been the alternative, and is exactly the move this catalog exists to prevent.
+**Two requirements were amended in the same change, because two of them said this.**
+
+NFR-030 previously said descriptors "must not be persisted after the fill completes", which
+reads as forbidding this and was written before there was anything to forbid. The requirement's
+purpose — nothing page-derived reaches storage, and nothing outlives its usefulness — is
+unchanged; what changed is that "persisted" now means written down, and the in-memory window is
+bounded and stated.
+
+NFR-010 says the broader thing: never retain "any value originating from a page — existing field
+contents, page text, or anything the user typed". A label is page text, so on its letter this
+table's first row is a breach — and the amendment adding it was made to NFR-030 alone on
+2026-08-15, which left the two requirements disagreeing for as long as it took a review to
+notice. NFR-010 now draws the value-versus-identity line in its own text: what a control
+*holds* is a value and is never retained; what a control is *called* is its identity, is
+retained under NFR-030's stated bound, and is the only page-derived thing that is.
+
+The distinction is worth the amendment rather than a footnote because the two carry different
+risk. A field's value is what the user typed and may be a password, a name or a card number. A
+field's identity is what the page's own author wrote into the markup, is identical for every
+visitor, and is already readable by anything with the page open. Retaining the second is not a
+weaker form of retaining the first.
+
+Reinterpreting the old wording silently would have been the alternative in both cases, and is
+exactly the move this catalog exists to prevent — including when the wording being reinterpreted
+is the one nobody thought to check.
 
 ---
 
@@ -223,11 +242,11 @@ silently would have been the alternative, and is exactly the move this catalog e
 | NFR-008 | Declared Permissions       | The extension must request no permission beyond `storage`, `contextMenus`, `scripting`, `activeTab` and a content script matching all URLs (per DD-001), and must not request `tabs`, `webRequest`, `cookies`, `history` or `downloads`. Marketing and store copy must not describe the extension as minimal-permission. | Security | High | Done — `scripts/check-permissions.mjs` fails the build on any permission outside the five, on any host permission, and on any permission it has never heard of |
 | NFR-009 | Pattern Vulnerability Rejection | A user-supplied pattern must be rejected when it is stored if static analysis identifies it as vulnerable to catastrophic backtracking. Rejection at authoring time is the primary control, because a running evaluation cannot be interrupted once started. | Security | High | Partial — `analysePattern` rejects the three catastrophic shapes (nested quantifier, nullable repetition, overlapping alternation) at save time, structurally rather than by timing. DD-005 allows a *match* pattern to use wider syntax than the analyser models, so it is a filter for the known shapes and **not a proof of safety** — stated here rather than implied |
 | NFR-032 | Pattern Evaluation Bound  | Any input a stored pattern is applied to must be truncated to 1,024 characters, and an evaluation exceeding 250 ms must be recorded with the affected field reported as failed. Detection is retrospective — the budget bounds the damage and surfaces the cause; it cannot pre-empt the overrun. | Security | High | Open — needs the rule authoring path (Phase 4) |
-| NFR-010 | No Retention of Page Data  | The extension must never retain any value originating from a page — existing field contents, page text, or anything the user typed — beyond the operation that read it, and must never write such a value to storage or include it in a message beyond the fill it belongs to. | Security | High | Done — no page value enters a descriptor, a message or storage; the one read-back is compared in place and dropped (BR-034-11). One consequence is recorded there rather than hidden |
+| NFR-010 | No Retention of Page Data  | The extension must never retain any **value** originating from a page — existing field contents, page text, or anything the user typed — beyond the operation that read it, and must never write such a value to storage or include it in a message beyond the fill it belongs to. A control's **identity** — the label, placeholder, name or id by which a user recognises it — is page-derived but is not a value under this requirement; NFR-030 states the only window in which it may be held and the bound on it. | Security | High | Done — no page *value* enters a descriptor, a message or storage; the one read-back is compared in place and dropped (BR-034-11). Amended 2026-08-15 by DD-006, in the same change as NFR-030: field *identities* now outlive the fill, in background memory only, for one report — see "What the fill report retains" above |
 | NFR-031 | Generated Data Lifetime    | Synthetic data the extension generates must be discarded when a fill completes, unless the user has explicitly asked for it to persist across fills; where they have, it must be held in volatile memory only, be discardable by a single user action, and never be written to storage or transmitted. | Security | High | Done — the persona and every generated value are dropped when the operation closes |
 | NFR-030 | Descriptor Confinement     | Field descriptors sent from the page agent to the background must carry only matching-relevant attributes, must never include a field's existing value, and must never be written to storage. A control's identity may be held in volatile memory beyond the fill only to render that fill's own report, for one fill at a time. | Security | High | Done — descriptors carry what a control *is*, never what it holds, and nothing is written to storage. Amended 2026-08-15 by DD-006: a control's *identity* now outlives the fill, in background memory only, for exactly one fill's report — see the note under the table |
 | NFR-011 | Reproducible Build         | Building the tagged source in CI must produce a package whose SHA-256 digest matches the published release artefact.            | Maintainability | High     | Done — `scripts/check-reproducible.mjs` runs in CI and digests are published per build |
-| NFR-012 | Engine Test Coverage       | The fill engine and generators must reach at least 90% line coverage under unit test.                                           | Maintainability | High     | Done — enforced from 2026-08-15 by globbed thresholds in `vitest.config.ts`: 90% lines and functions across **five** globs — `lib/page` (96.4% / 98.9%), `lib/generators` (100% / 100%), `lib/persona` (100% / 100%), `lib/rules` (95.9% / 100%) and `lib/report` (100% / 100%). A glob is added with the code it covers, so the floor grows with the engine rather than being a snapshot of it |
+| NFR-012 | Engine Test Coverage       | The fill engine and generators must reach at least 90% line coverage under unit test.                                           | Maintainability | High     | Done — enforced from 2026-08-15 by globbed thresholds in `vitest.config.ts`: 90% lines and functions across **seven** globs — `lib/page` (96.4% / 98.9%), `lib/generators` (100% / 100%), `lib/persona` (100% / 100%), `lib/rules` (95.9% / 100%), `lib/report` (100% / 100%), `lib/settings.ts` (100% / 100%) and `lib/protocol.ts` (100% / 100%). That the floor grows with the engine is enforced rather than intended: `scripts/check-coverage-scope.mjs` fails the build on any file coverage measures that no threshold glob matches, which is how the last two globs came to exist — at 62% and 22% lines, gated by nothing |
 | NFR-013 | Regression Suite           | Each defect listed in `docs/vision.md` §7.2 must have a dedicated failing-then-passing regression test.                         | Maintainability | High     | Done — every defect in §7.2 has a dedicated regression test. D6 was the last, and was untestable until the rule model existed: a randomized-list rule matching a radio group whose values the group does not offer now falls through to the built-in picker instead of indexing an empty array (`tests/rules.test.ts`) |
 | NFR-014 | End-to-End Coverage        | An automated browser test must fill the reference page covering every supported control type in Chromium on every change, and in Firefox on every release candidate. Engine unit tests run identically against both targets on every change. | Maintainability | High | Partial — Chromium is fully covered on every change (`smoke:chrome`, `e2e:chrome`, `cascade:chrome`). Firefox runs on tag builds only and runs `smoke:firefox`, which asserts that the add-on installs, that `gecko.id` is honoured and that a page loads — **it does not fill anything**, and there is no `e2e:firefox` or `cascade:firefox` to run. The unit suite runs once under happy-dom rather than per target; NFR-015 is what makes that defensible, since the engine takes a DOM root and never a browser, but it is not the same claim as "identically against both targets" |
 | NFR-015 | Engine Isolation           | The fill engine must contain no reference to the `chrome`/`browser` namespace and must be unit-testable without a browser extension host. | Maintainability | High | Done — the whole page engine, fixpoint loop included, runs under a test DOM with an injected scheduler |

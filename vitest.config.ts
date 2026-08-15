@@ -50,6 +50,18 @@ export default defineConfig({
         // which outcome joins to which control, whether the badge marks a capped
         // fill — is invisible when wrong, which is the argument for the floor.
         'src/lib/report/**': { lines: 90, functions: 90 },
+        // The two files that sit directly under `src/lib`, added 2026-08-15
+        // after `scripts/check-coverage-scope.mjs` found them measured by
+        // coverage and gated by nothing — `settings.ts` at 62% lines a day after
+        // it was written, `protocol.ts` at 22%.
+        //
+        // Both fail quietly by construction, which is the argument. The tolerant
+        // parser drops what it cannot read rather than throwing, so a wrong
+        // coercion returns a user's settings with their work missing and no
+        // error anywhere. The message guards decide what the background is
+        // allowed to believe about a page agent that may be a previous build.
+        'src/lib/settings.ts': { lines: 90, functions: 90 },
+        'src/lib/protocol.ts': { lines: 90, functions: 90 },
       },
     },
   },
