@@ -40,7 +40,7 @@ that exists before then.
 **Moved to Phase 4, 2026-08-14; moved back into Phase 2, 2026-08-15.** The settings-schema row
 — the discriminated union on generator type (ND-9, DD-005, FR-073) — sat in Phase 0 from the
 first draft and was deferred because writing a migration ladder against an undecided shape is
-what ordering principle 4 exists to prevent. What the deferral did not anticipate is that nine
+what ordering principle 4 exists to prevent. What the deferral did not anticipate is that eight
 Phase 2 requirements need the *rule model*, which needs the schema: the conflict is described
 under "Where Phase 2 actually stands" below. Resolved by deciding DD-005 early rather than by
 moving those rows, so the schema is designed once. The ladder itself is the one part not
@@ -106,9 +106,10 @@ convenience and trust.
 ### Where Phase 2 actually stands, 2026-08-15
 
 Reconciling `requirements.md` against the test suite after DD-009 gave the first honest
-picture: **51 requirements Done, 13 Partial, 9 Blocked, 44 Open.** After DD-005 landed later the
-same day the count reads **62 Done, 13 Partial, 1 Blocked, 55 Open** — the single remaining
-Blocked row is NFR-028, waiting on the data corpus rather than on any decision. Almost everything Phase 2
+picture: **51 requirements Done, 13 Partial, 9 Blocked, 44 Open.** After DD-005 and DD-006 both
+landed later the same day the count reads **64 Done, 11 Partial, 1 Blocked, 55 Open and 1
+Deferred**, across 132 rows — the single remaining Blocked row is NFR-028, waiting on the data
+corpus rather than on any decision. Almost everything Phase 2
 lists is built and verified — every control kind, native constraints, the framework-safe write,
 the full exclusion set with honeypots, confirmation mirroring, coherent personas, frames, shadow
 roots, error isolation, and all three steps of UC-034.
@@ -117,11 +118,13 @@ roots, error isolation, and all three steps of UC-034.
 FR-019..FR-022 (generator types, alphanumeric templates, regex, randomized list), FR-031
 (precedence), FR-067, FR-068 and FR-070 are all rule-driven, and the rule model needs the
 settings schema — DD-005, which was moved to Phase 4 on 2026-08-14 for its own good reasons.
-Nine requirements were therefore parked in a phase whose exit criterion could not include them.
+**Eight** requirements were therefore parked in a phase whose exit criterion could not include
+them. (Earlier revisions of this paragraph said nine, by reading the tally's nine `Blocked` rows
+as nine blocked *by DD-005*. The ninth was NFR-028, which waits on the corpus and always did.)
 
 **Resolved 2026-08-15 by bringing DD-005 forward**, the first of the two options recorded here.
 The whole schema is fixed rather than the rule model alone, because Phase 5 is stated below to
-be the last change to the schema and Phase 6 depends on that being true. The nine requirements
+be the last change to the schema and Phase 6 depends on that being true. All eight requirements
 are built and tested; the screens that author them remain Phase 4. See DD-005 in `vision.md`
 for the decision and for the one cost it accepts — no migration ladder, so a future structural
 change loses what the tolerant parser cannot recognise.

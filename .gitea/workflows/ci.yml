@@ -60,9 +60,14 @@ jobs:
       - name: Lint
         run: pnpm run lint
 
-      # NFR-012's 90% line coverage, enforced on the fill engine and generators
-      # by globbed thresholds in `vitest.config.ts`. Run instead of a bare `pnpm
-      # test` rather than beside it, so the suite is not executed twice.
+      # NFR-012's 90% line and function coverage, enforced by globbed thresholds
+      # in `vitest.config.ts` across five areas: the page engine, the generators,
+      # the persona, the rule model and the result surface. A glob is added with
+      # the code it covers, so this floor grows with the engine rather than
+      # naming a fixed three and quietly excusing everything added later.
+      #
+      # Run instead of a bare `pnpm test` rather than beside it, so the suite is
+      # not executed twice.
       - name: Unit tests and coverage floor
         run: pnpm run test:coverage
 

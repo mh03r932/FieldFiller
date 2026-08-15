@@ -494,7 +494,7 @@ blocks.
 > §7.4).
 >
 > **DD-005 was resolved the same day**, by being brought forward rather than by redefining the
-> phase around it: the schema is fixed in full, the rule model is built on it, and the nine
+> phase around it: the schema is fixed in full, the rule model is built on it, and the eight
 > requirements it blocked are unblocked. **DD-002 is the only decision still open**, and it
 > blocks nothing before Phase 6.
 
@@ -966,7 +966,7 @@ matching the country. This is the largest quality gap over every competitor foun
 DD-003 is what makes it affordable.
 
 **DD-005 — Settings schema. RESOLVED 2026-08-15.**
-Brought forward from Phase 4 to unblock the nine rule-driven requirements parked in Phase 2
+Brought forward from Phase 4 to unblock the eight rule-driven requirements parked in Phase 2
 (FR-019..FR-022, FR-031, FR-067, FR-068, FR-070). The whole shape is fixed now rather than
 rules alone, because Phase 5 is stated to be the last change to the schema and Phase 6 depends
 on that being true — deciding once is the entire reason for pulling this in early.

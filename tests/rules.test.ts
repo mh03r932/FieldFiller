@@ -600,6 +600,41 @@ describe('rules through a fill', () => {
     expect(result.values[0]).toMatchObject({ as: 'choice', values: ['free'] });
   });
 
+  it('falls back rather than indexing an empty list when a rule names no offered value (D6)', () => {
+    // The reference's `selectRandomRadio` filters the group's values down to the
+    // ones the rule allows and then indexes the result at random — so a rule
+    // whose values match none of the group throws a `TypeError` and abandons the
+    // rest of the page. Here the rule simply does not apply, and the built-in
+    // picker answers the group.
+    document.body.innerHTML = '';
+    const host = fragment(
+      `<label>Yes <input type="radio" name="contact" value="yes"></label>
+       <label>No <input type="radio" name="contact" value="no"></label>`,
+    );
+    const first = collectCandidates(host)[0]!;
+    const descriptor = describeField(first, 0, 'radio', { group: 'g0' });
+
+    const result = generateBatch([descriptor], {
+      persona,
+      randomFor: () => seededRandom(5),
+      rules: compileRules(
+        [
+          rule({
+            match: { mode: 'contains', pattern: 'contact' },
+            // Neither item exists in the group.
+            generator: { type: 'list', items: ['telephone', 'carrier pigeon'] },
+          }),
+        ],
+        DEFAULT_SOURCES,
+      ),
+    });
+
+    const value = result.values[0]!;
+    expect(value.as).toBe('choice');
+    if (value.as !== 'choice') throw new Error('a radio group is answered by choice');
+    expect(['yes', 'no']).toContain(value.values[0]);
+  });
+
   it('behaves exactly as before when no rule is configured', () => {
     const withNone = fill('<input name="given_name">', []);
     expect(textOf(withNone)).toBe(persona.firstName);

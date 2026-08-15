@@ -65,7 +65,7 @@ Legend — **Spec:** `Not started` · `Blocked` · `Drafted` · `Approved`
 |---|---|---|---|---|---|---|
 | UC-025 | Export Settings to a File | Power User | Write the configuration to a shareable file | FR-052 | High | Not started |
 | UC-026 | Import Settings from a File | Power User | Replace the configuration from a file, with validation and migration | FR-053, FR-054, FR-073 | High | Not started |
-| UC-027 | Migrate Settings from Fake Filler | Migrating User | Convert a Fake Filler backup into our schema and report the result | FR-055, FR-056, FR-073 | High | Blocked (DD-005, ND-9) |
+| UC-027 | Migrate Settings from Fake Filler | Migrating User | Convert a Fake Filler backup into our schema and report the result | FR-055, FR-056, FR-073 | High | Unblocked 2026-08-15 — DD-005 and ND-9 are both resolved and the target schema is fixed; Phase 6 |
 | UC-028 | Restore Default Settings | Power User | Return to the shipped defaults after confirmation | FR-048, FR-057 | Medium | Not started |
 | UC-029 | Synchronise Settings Across Devices | Power User | Keep configuration consistent across signed-in browsers, no account | FR-058, FR-059 | High | Blocked (DD-002) |
 
@@ -107,7 +107,7 @@ of what each one bought:
 **~~What blocks specification now is DD-005, not an ND.~~ Resolved 2026-08-15.** The schema was
 the last undecided input to the rule model, and the ordering conflict recorded here — those
 requirements in Phase 2 while the schema sat in Phase 4 — was resolved by bringing DD-005
-forward. FR-019..FR-022, FR-031, FR-067, FR-068 and FR-070 are built.
+forward. All eight — FR-019..FR-022, FR-031, FR-067, FR-068 and FR-070 — are built.
 
 **What this leaves the specs owing.** The rule model exists in code ahead of the use cases that
 describe authoring it: UC-009..UC-013 (create, edit, delete, reorder, preview) and UC-018 are
