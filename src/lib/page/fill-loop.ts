@@ -461,7 +461,9 @@ export async function runFill(options: FillLoopOptions): Promise<FillLoopResult>
     const byRef = new Map(entries.map((entry) => [entry.ref, entry]));
     // Spent across the whole pass, not per control: sixty comboboxes at a
     // quarter-second each is fifteen seconds, and no single one of them is at
-    // fault for that.
+    // fault for that. Milliseconds of real time, drawn down by what each drive
+    // measurably took — see the deduction below for why that distinction is not
+    // pedantic.
     let comboboxLeft = bounds.comboboxPassMs;
     let wrote = 0;
 
@@ -489,8 +491,17 @@ export async function runFill(options: FillLoopOptions): Promise<FillLoopResult>
       try {
         if (value.as === 'pick') {
           entry.written = value;
+          // Charged by what driving actually cost, not by the per-control cap.
+          // Deducting the cap made this an attempt counter wearing a time
+          // budget's clothes: `comboboxPassMs / comboboxControlMs` controls per
+          // pass and no more, so eight comboboxes that each failed fast in 5 ms
+          // exhausted a 2 s budget after 40 ms, and the ninth was reported
+          // `combobox-not-driveable` with the whole budget still unspent. The
+          // ceiling was never breached — every drive is capped internally — so
+          // the error was invisible in both directions a test usually looks.
+          const startedAt = scheduler.now();
           entry.outcome = await drive(entry, value.at, value.provenance, comboboxLeft);
-          comboboxLeft -= Math.min(comboboxLeft, bounds.comboboxControlMs);
+          comboboxLeft = Math.max(0, comboboxLeft - (scheduler.now() - startedAt));
           continue;
         }
 

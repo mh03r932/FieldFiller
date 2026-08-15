@@ -700,3 +700,90 @@ describe('telling the user apart from ourselves (FR-079)', () => {
     }
   });
 });
+
+describe('the combobox pass budget (NFR-036)', () => {
+  /**
+   * `count` comboboxes that each commit on the first Enter.
+   *
+   * Deliberately cheap to drive: one `ArrowDown` opens, one `Enter` commits, and
+   * the component reacts synchronously. The only time a drive costs is the two
+   * `REACTION_MS` waits the driver itself inserts, which is what makes this the
+   * shape that tells a time budget apart from an attempt counter.
+   */
+  function fastComboboxes(count: number): void {
+    document.body.innerHTML = Array.from(
+      { length: count },
+      (_unused, index) =>
+        `<div id="c${index}" role="combobox" tabindex="0" aria-haspopup="listbox"
+              aria-expanded="false" aria-controls="p${index}"><span>Select…</span></div>`,
+    ).join('');
+
+    for (let index = 0; index < count; index++) {
+      const control = document.getElementById(`c${index}`)!;
+      const shown = control.querySelector('span')!;
+      const choices = ['Alpha', 'Beta', 'Gamma'];
+      let active = 0;
+
+      control.addEventListener('keydown', (event) => {
+        const key = event.key;
+        if (key === 'ArrowDown') {
+          if (document.getElementById(`p${index}`) === null) {
+            const popup = document.createElement('ul');
+            popup.id = `p${index}`;
+            popup.setAttribute('role', 'listbox');
+            for (const text of choices) {
+              const option = document.createElement('li');
+              option.setAttribute('role', 'option');
+              option.textContent = text;
+              popup.append(option);
+            }
+            document.body.append(popup);
+            control.setAttribute('aria-expanded', 'true');
+            return;
+          }
+          active = Math.min(choices.length - 1, active + 1);
+          return;
+        }
+        if (key === 'Enter') {
+          shown.textContent = choices[active]!;
+          document.getElementById(`p${index}`)?.remove();
+          control.setAttribute('aria-expanded', 'false');
+        }
+      });
+    }
+  }
+
+  it('spends the pass budget in milliseconds, not in attempts', async () => {
+    // Eight controls against a 1000 ms pass budget and a 200 ms per-control cap.
+    // Charging each drive the full cap — which is what the code used to do —
+    // allows exactly five, and reports the other three as not driveable with the
+    // budget almost entirely unspent. Charging measured time allows all eight,
+    // because each costs the driver's two reaction waits and nothing more.
+    fastComboboxes(8);
+
+    // One pass, so the outcome is the pass budget's behaviour and not the loop's
+    // willingness to try again next time round.
+    const result = await fill(background(), { ...BOUNDS, maxPasses: 1 });
+
+    expect(statuses(result.outcomes)).toEqual(Array.from({ length: 8 }, () => 'filled'));
+  });
+
+  it('still refuses to exceed the budget when driving is genuinely slow', async () => {
+    // The ceiling is the other half of NFR-036 and must survive the change: a
+    // control that cannot be driven burns real time, so enough of them exhaust
+    // the pass budget and the rest are reported rather than waited for.
+    document.body.innerHTML = Array.from(
+      { length: 40 },
+      (_unused, index) => `<div id="c${index}" role="combobox" tabindex="0"></div>`,
+    ).join('');
+
+    const started = Date.now();
+    const result = await fill(background(), { ...BOUNDS, maxPasses: 1 });
+    const elapsed = Date.now() - started;
+
+    expect(statuses(result.outcomes)).toContain('skipped');
+    // Generous against the 1000 ms budget: this asserts the bound exists, not
+    // the machine's speed.
+    expect(elapsed).toBeLessThan(4000);
+  });
+});

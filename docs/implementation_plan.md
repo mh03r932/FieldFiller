@@ -303,6 +303,12 @@ users switch — but it is also the piece most damaged by a moving schema. It st
 - Attribution and licence surface (FR-062, C-009)
 - Store listings, privacy disclosures, screenshots — all original (C-010, C-011)
 - Full NFR verification pass: latency, bundle size, zero-network, accessibility, coverage
+- **A Firefox end-to-end fill**, which NFR-014 asks for and CI does not have. `smoke:firefox`
+  proves the add-on installs and that `gecko.id` is honoured; it fills nothing, and there is no
+  `e2e:firefox` or `cascade:firefox` to run. Corrected from Done to Partial on 2026-08-15 —
+  every claim about cross-browser *behaviour* currently rests on one browser plus a shared
+  source tree. The harness exists in outline: `smoke-firefox.mjs` already drives Firefox over
+  WebDriver BiDi, so what is missing is the fill trigger and the assertions, not the transport
 
 ---
 
