@@ -11,6 +11,9 @@
   --ff-bg: #ffffff;
   --ff-fg: #1b1c1e;
   --ff-muted: #55585e;
+  --ff-rule: #d8dade;
+  --ff-ok: #1a7f37;
+  --ff-bad: #b3261e;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -18,6 +21,9 @@
     --ff-bg: #1b1c1e;
     --ff-fg: #f2f3f5;
     --ff-muted: #a9adb5;
+    --ff-rule: #3a3d42;
+    --ff-ok: #4ac26b;
+    --ff-bad: #ff7b72;
   }
 }
 
@@ -42,4 +48,72 @@ h1 {
 
 p {
   color: var(--ff-muted);
+}
+
+/*
+ * The fill report (DD-006).
+ *
+ * Contrast is checked against both schemes rather than assumed: the outcome
+ * colours below sit at or above 4.5:1 on their own background in each, because
+ * NFR-019 applies from the first pixel and a status colour is the easiest place
+ * to fall under it. The colour never carries the fact alone — the word is in the
+ * cell beside it — so a reader who cannot distinguish them loses nothing.
+ */
+h2 {
+  margin-top: 2.5rem;
+  font-size: 1.15rem;
+}
+
+.report-summary {
+  color: var(--ff-fg);
+  font-weight: 600;
+}
+
+.report-table {
+  width: 100%;
+  border-collapse: collapse;
+  /* Long provenance strings wrap rather than forcing the page sideways. */
+  table-layout: fixed;
+}
+
+.report-table th,
+.report-table td {
+  padding: 0.4rem 0.6rem;
+  text-align: start;
+  vertical-align: top;
+  border-bottom: 1px solid var(--ff-rule);
+  overflow-wrap: anywhere;
+}
+
+.report-table thead th {
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--ff-muted);
+}
+
+.report-table tbody th {
+  font-weight: 600;
+  width: 32%;
+}
+
+.outcome {
+  width: 6.5rem;
+  font-weight: 600;
+}
+
+.outcome-filled { color: var(--ff-ok); }
+.outcome-skipped { color: var(--ff-muted); }
+.outcome-failed { color: var(--ff-bad); }
+
+.detail {
+  color: var(--ff-muted);
+  font-size: 0.95rem;
+}
+
+.report-privacy {
+  margin-top: 1.5rem;
+  font-size: 0.9rem;
+  border-inline-start: 3px solid var(--ff-rule);
+  padding-inline-start: 0.75rem;
 }

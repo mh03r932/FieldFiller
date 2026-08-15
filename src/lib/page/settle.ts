@@ -148,6 +148,23 @@ export type UserInputWatch = {
   readonly touched: WeakSet<Element>;
   /** Whether any trusted interaction has arrived, which ends the cascade. */
   readonly interrupted: () => boolean;
+  /**
+   * Runs one of our own writes with the watcher deaf (FR-079).
+   *
+   * `isTrusted` alone is not enough to tell the user apart from us, which is the
+   * thing this discovers. A synthetic `click()` on a checkbox or radio has
+   * **activation behaviour**: the browser toggles the control and fires `input`
+   * and `change` *itself*, so those events carry `isTrusted: true` even though
+   * no person was involved. Without this, ticking a consent box reads as the
+   * user typing, and the fill reports itself capped with "you started typing" on
+   * every page that has a checkbox.
+   *
+   * Safe because a write is synchronous and JavaScript is single-threaded: no
+   * genuine user event can interleave inside the call. Anything the page
+   * dispatches in response, synchronously or later, is script-made and untrusted
+   * regardless.
+   */
+  readonly ignoreWhile: <T>(write: () => T) => T;
   /** Removes the listeners. Called from a `finally`, never optional (NFR-035). */
   readonly release: () => void;
 };
@@ -155,9 +172,10 @@ export type UserInputWatch = {
 export function watchUserInput(root: Document): UserInputWatch {
   const touched = new WeakSet<Element>();
   let interrupted = false;
+  let writing = false;
 
   const noticed = (event: Event): void => {
-    if (!event.isTrusted) return;
+    if (writing || !event.isTrusted) return;
     interrupted = true;
     if (event.target instanceof Element) touched.add(event.target);
   };
@@ -172,6 +190,17 @@ export function watchUserInput(root: Document): UserInputWatch {
   return {
     touched,
     interrupted: () => interrupted,
+    ignoreWhile: (write) => {
+      writing = true;
+      try {
+        return write();
+      } finally {
+        // A throwing write must not leave the watcher deaf for the rest of the
+        // fill — that would turn one failed control into "the user is never
+        // noticed again", which is the opposite of what FR-079 guarantees.
+        writing = false;
+      }
+    },
     release: () => {
       for (const type of types) root.removeEventListener(type, noticed, true);
     },

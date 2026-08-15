@@ -19,6 +19,16 @@
     <main>
       <h1 data-i18n="optionsTitle"></h1>
       <p data-i18n="optionsPlaceholder"></p>
+
+      <!--
+        DD-006's third surface. The section exists in the markup so the heading
+        is present for a screen reader before the report arrives; main.ts fills
+        #report once the background has answered, or explains why it cannot.
+      -->
+      <section aria-labelledby="report-heading">
+        <h2 id="report-heading" data-i18n="reportHeading"></h2>
+        <div id="report" aria-live="polite"></div>
+      </section>
     </main>
     <script type="module" src="./main.ts"></script>
   </body>

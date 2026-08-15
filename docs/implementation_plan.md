@@ -229,6 +229,12 @@ normalisation table.
 UC-008 lands here rather than with its settings screen: "inert on my banking site" is a trust
 property, and trust properties should exist before the thing is shareable.
 
+**Unblocked 2026-08-15 by DD-006 being built.** This phase's precondition was a result that says
+*which* scope ran — a bare count reads identically for a form and for a whole page. The scope is
+now a field on the operation and the sentence names it from the i18n catalog, so UC-002 and
+UC-003 each supply a scope value and reuse strings that already exist. Neither has to touch the
+result surface.
+
 ---
 
 ## Phase 4 — Configuration
@@ -321,9 +327,9 @@ All the decisions that gated the engine are now closed, and **DD-005** closed wi
 2026-08-15 — pulled forward out of Phase 4, which is why the schema arrow above now feeds the
 engine rather than trailing it. **DD-002** (sync quota) is the only decision left on the path;
 it blocks nothing before Phase 6 and can be resolved as late as UC-029 without holding anything
-up. **DD-006** (the feedback surface) is decided but unbuilt: Phase 1's provisional badge and
-tooltip still ship, and the scope sentence, the capped marker and the options-page report are
-owed — which is what Phase 3 needs before UC-002 and UC-003 can say which scope ran.
+up. **DD-006** (the feedback surface) was decided and built on 2026-08-15: badge, tooltip and the
+options-page report. Phase 3 is therefore unblocked — UC-002 and UC-003 need only supply their
+own scope value, because the sentence already names one.
 
 The cold-start spike is the sole remaining unknown, and it is a tuning question rather than
 an architectural one: if the corpus loads too slowly, the corpus shrinks. It cannot invalidate

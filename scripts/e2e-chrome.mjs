@@ -327,6 +327,7 @@ try {
 
   let filled = {};
   let badgeSeen = '';
+  let titleSeen = '';
   for (let attempt = 0; attempt < 40; attempt++) {
     await sleep(200);
     filled = await collect();
@@ -340,6 +341,19 @@ try {
         awaitPromise: true, returnByValue: true,
       }, workerSession);
       badgeSeen = String(badge.result.value ?? '');
+
+      // Sampled in the same window as the badge, and for the same reason: the
+      // tooltip is transient too. It carries the sentence DD-006 puts there, so
+      // it is the only place the harness can read *why* a fill stopped — a badge
+      // that reads "33" cannot distinguish a settled fill from a capped one that
+      // happened to reach the same count.
+      if (badgeSeen !== '') {
+        const title = await cdp.send('Runtime.evaluate', {
+          expression: `chrome.tabs.query({}).then((tabs) => chrome.action.getTitle({ tabId: tabs[0].id }))`,
+          awaitPromise: true, returnByValue: true,
+        }, workerSession);
+        titleSeen = String(title.result.value ?? '');
+      }
     }
 
     if (filled.given_name && filled.xorigin_name && badgeSeen !== '') break;
@@ -468,6 +482,16 @@ try {
   // the point of it, and the failure message says which way.
   check('the badge counts every frame\'s outcomes', reported === EXPECTED_FILLED,
     `badge showed "${badgeSeen}", expected ${EXPECTED_FILLED} — a frame's report was lost if it is short`);
+
+  // The count alone cannot say this, which is the whole argument for DD-006's
+  // tooltip: a fill that stopped at a bound can reach the same number as one
+  // that settled. This row exists because it caught a real defect the moment it
+  // was written — ticking a checkbox with `click()` makes the *browser* fire
+  // `input`, so FR-079's watcher read our own write as the user typing and every
+  // fill of a page with a consent box reported "you started typing".
+  check('the reference page settles rather than stopping at a bound',
+    titleSeen !== '' && !titleSeen.includes('may be stale'),
+    `tooltip said ${JSON.stringify(titleSeen)}`);
 
   // Printed because coherence is far more convincing read than asserted: the
   // point of ND-1 is that these lines describe one person.

@@ -916,10 +916,43 @@ keyboard-only user never sees the sentence. The badge's capped marker is what th
 is why the badge carries a marker at all rather than only a number. If that proves too thin,
 the answer is a keyboard-reachable surface, not a toast.
 
-**What is built:** the badge count, its failure colour, and the tooltip. **What is owed:** the
-scope in the sentence (needs UC-002 and UC-003 to exist), the capped marker on the badge
-itself, and the options-page report — which is also what closes FR-009 and FR-069, both
-Partial today for exactly this reason.
+**Built 2026-08-15, all three layers.** The badge carries the count and a marker when the fill
+was capped; the tooltip carries the whole sentence, from the i18n catalog rather than assembled
+in code; the options page carries the per-control report — every field, its outcome and its
+provenance — which is what moves FR-009 and FR-069 off Partial.
+
+The scope half of the sentence is plumbed but reads "this page" for now, because `all-inputs`
+is the only scope that exists. Phase 3 adds the other two and the sentence follows without
+rework, which was the point of building the fact in rather than the wording.
+
+**What building it found.** The badge marker made a defect visible that had been there since
+FR-079 landed: `isTrusted` is not sufficient to tell the user apart from us. A checkbox or radio
+written with `click()` has *activation behaviour* — the browser toggles it and fires `input` and
+`change` **itself**, so those events arrive trusted with no person behind them. Ticking a
+consent box therefore read as the user typing, and **every fill of a page containing a checkbox
+reported itself capped with "you started typing"**, with the count still correct. Nothing caught
+it because no surface showed the difference: the badge was a bare number, and the only harness
+reading the tooltip was the cascade one, whose fixture has no checkbox. Fixed by muting the
+watcher for the duration of our own synchronous write, and the end-to-end harness now asserts
+that the reference page settles — the row that would have caught it.
+
+That is the argument for DD-006 restated by accident: a fill that stops at a bound and one that
+settles can reach the same count, and a surface that cannot tell them apart lets the difference
+go unnoticed for two decisions.
+
+**Retention, decided with it.** The report names each field the way the user sees it, which is
+page-derived data. It is held in the background's memory only, one fill's worth, replaced by the
+next fill and lost when the background is evicted — which is routine, so "no report available"
+is an ordinary answer the page gives in those words. It is never written to storage in any form.
+No page *value* is held: descriptors have never carried one, and provenance says how a value was
+chosen rather than what it was. NFR-030 was rewritten in the same change to draw that line
+explicitly rather than leaving "persisted" to be read either way.
+
+**Still owed:** a failure has a badge colour and no words. Neither the sentence nor the marker
+mentions a control that could not be filled, so a colour carries that fact alone — the same
+weakness DD-006 names for the tooltip, in the surface that was supposed to answer it. It is not
+one of the three facts this decision scoped, and it is written down here rather than folded in
+silently.
 
 **DD-004 — Build framework: WXT. RESOLVED.**
 One config emits both targets, absorbing the `service_worker` vs `background.scripts` split

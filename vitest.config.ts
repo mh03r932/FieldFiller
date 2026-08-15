@@ -46,6 +46,10 @@ export default defineConfig({
         // sits in front of: a pattern analyser or a template parser with
         // untested branches is precisely where a wrong answer is invisible.
         'src/lib/rules/**': { lines: 90, functions: 90 },
+        // The result surface (DD-006). What it decides — how a field is named,
+        // which outcome joins to which control, whether the badge marks a capped
+        // fill — is invisible when wrong, which is the argument for the floor.
+        'src/lib/report/**': { lines: 90, functions: 90 },
       },
     },
   },

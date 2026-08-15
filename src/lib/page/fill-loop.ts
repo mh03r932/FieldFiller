@@ -494,7 +494,12 @@ export async function runFill(options: FillLoopOptions): Promise<FillLoopResult>
           continue;
         }
 
-        applyValue(entry.element, value, { dispatchEvents: settings.dispatchEvents });
+        // Wrapped, because a checkbox or radio written with `click()` makes the
+        // *browser* fire `input` and `change` — trusted events with no user
+        // behind them (FR-079). See `ignoreWhile`.
+        watch.ignoreWhile(() =>
+          applyValue(entry.element, value, { dispatchEvents: settings.dispatchEvents }),
+        );
 
         // FR-076, the first of the two checks: did the write take. `applyValue`
         // dispatches its events synchronously, so a page that reverts us from a

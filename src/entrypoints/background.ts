@@ -7,11 +7,22 @@ import { createPersona, seededRandom, type Persona, type Random } from '@/lib/pe
 import { generateBatch, tokenRandom } from '@/lib/generators/batch';
 import { compileRules, type CompiledRule } from '@/lib/rules/match';
 import {
+  badgeFor,
+  fieldsFromReport,
+  noteDescriptors,
+  resultSentence,
+  type FieldNotes,
+} from '@/lib/report/surface';
+import {
   isFromAgentMessage,
   type CapReason,
+  type FieldReportEntry,
+  type FillReport,
   type FillScope,
+  type FromPageMessage,
   type FrameReport,
   type OperationId,
+  type ReportResponse,
   type ValuesResponse,
 } from '@/lib/protocol';
 
@@ -77,6 +88,17 @@ type Operation = {
   capped: CapReason | undefined;
   /** How many controls those frames say may be stale (FR-078). */
   stale: number;
+  /** Which scope was asked for, so the result can say which one ran (DD-006, DD-008). */
+  readonly scope: FillScope;
+  /**
+   * What each frame said its controls were, keyed by frame and ref.
+   *
+   * Page-derived, and held only for this operation and the one report it
+   * produces — `lib/report/surface.ts` states the bound in full.
+   */
+  readonly notes: FieldNotes;
+  /** The per-control rows, accumulated as frames report (FR-009, FR-069). */
+  fields: FieldReportEntry[];
   /**
    * The user's rules, compiled once when the fill begins (NFR-025, ND-15).
    *
@@ -92,6 +114,20 @@ type Operation = {
 type FieldOutcomeCounts = { filled: number; skipped: number; failed: number };
 
 const operations = new Map<OperationId, Operation>();
+
+/**
+ * The last fill's report, for the options page (DD-006).
+ *
+ * A module-level variable, deliberately: it lives exactly as long as the
+ * background context does, and the background is evicted routinely. That makes
+ * "there is no report" an ordinary outcome rather than a failure, and the
+ * options page says so in those words.
+ *
+ * One fill's worth. Assigning here is what discards the previous one, so the
+ * window in which page-derived identity exists is bounded by the next fill
+ * rather than by anything remembering to clean up (NFR-010, NFR-030).
+ */
+let lastReport: FillReport | undefined;
 
 /** Tabs with a fill in progress, so a second invocation is ignored (UC-001 A7). */
 const filling = new Set<number>();
@@ -162,6 +198,9 @@ async function startFill(tabId: number, scope: FillScope): Promise<void> {
       settle: undefined,
       capped: undefined,
       stale: 0,
+      scope,
+      notes: new Map(),
+      fields: [],
       // Profile rules would be concatenated ahead of the global list here, and
       // first-match-wins does the rest (FR-031). Profiles are Phase 5, so today
       // this is the global list alone.
@@ -299,14 +338,23 @@ function complete(operationId: OperationId): void {
         : `, capped (${operation.capped}) with ${operation.stale} possibly stale`),
   );
 
+  // Held before the badge is drawn, so the report exists the moment the user
+  // could act on seeing it. One fill's worth, in memory, replacing whatever the
+  // previous fill left — see `lib/report/surface.ts` on what that permits.
+  lastReport = {
+    scope: operation.scope,
+    finishedAt: Date.now(),
+    counts: { ...operation.outcomes },
+    capped: operation.capped,
+    stale: operation.stale,
+    skippedRules: [...operation.skippedRules],
+    fields: operation.fields,
+  };
+
   // BR-001-4: nothing to fill is a success, not a failure, and must be
   // distinguishable from one.
-  void showBadge(
-    operation.tabId,
-    filled > 0 ? String(filled) : '0',
-    failed > 0 ? '#c0392b' : filled > 0 ? '#2f6fed' : '#8a8f98',
-    capNote(operation),
-  );
+  const badge = badgeFor(operation.outcomes, operation.capped);
+  void showBadge(operation.tabId, badge.text, badge.colour, resultTitle(lastReport));
   finish(operationId, operation.tabId);
 }
 
@@ -355,35 +403,32 @@ async function showBadge(
 }
 
 /**
- * What the badge cannot say (FR-078, DD-006).
+ * The tooltip's sentence (DD-006).
  *
- * "6 filled" and "6 filled, 2 may be stale" are different facts about the same
- * page, and a user who cannot tell them apart is back to the reference's problem
- * of not knowing whether anything went wrong. A count has no room for the
- * difference, so it goes in the tooltip — provisionally, exactly as the count
- * itself is provisional. DD-006 is the decision about what replaces both.
+ * Wording is the catalog's (NFR-018) and the choice of *which* sentence is
+ * `lib/report`'s, so this is only the join between them. Passing `message`
+ * directly is what makes the key list type-safe: a key the sentence builder
+ * names and nobody added to `messages.json` fails to compile here.
  */
-function capNote(operation: Operation): string | undefined {
-  // A rule that could not run is a fact about the *configuration* rather than
-  // about this page, so it is reported even when the fill settled cleanly
-  // (DD-005). It is appended rather than given its own surface because DD-006
-  // owes a real one; until then the tooltip is the only place with room.
-  const ruleNote =
-    operation.skippedRules.size === 0
-      ? undefined
-      : `${operation.skippedRules.size} rule(s) skipped — ${[...operation.skippedRules].join('; ')}`;
+function resultTitle(report: FillReport): string {
+  return resultSentence(report, (key, substitutions) => message(key, substitutions));
+}
 
-  if (operation.capped === undefined) return ruleNote;
+function isReportRequest(raw: unknown): raw is FromPageMessage {
+  return typeof raw === 'object' && raw !== null && (raw as { kind?: unknown }).kind === 'report-request';
+}
 
-  const reason =
-    operation.capped === 'user-input'
-      ? 'stopped because you started typing'
-      : operation.capped === 'values-unavailable'
-        ? 'stopped: could not reach the extension'
-        : 'the page did not settle';
-  const capped = `${operation.outcomes.filled} filled — ${reason}, ${operation.stale} field(s) may be stale`;
-
-  return ruleNote === undefined ? capped : `${capped}. ${ruleNote}`;
+/**
+ * Whether a message came from one of this extension's own pages.
+ *
+ * A content script always has a `tab`; an extension page never does. Combined
+ * with the origin check, that distinguishes our options page from an agent
+ * running inside a document we do not control — which is the whole reason the
+ * report request is not part of `FromAgentMessage`.
+ */
+function fromExtensionPage(sender: { tab?: unknown; url?: string | undefined }): boolean {
+  if (sender.tab !== undefined) return false;
+  return sender.url?.startsWith(browser.runtime.getURL('/')) === true;
 }
 
 function summarise(report: FrameReport, counts: FieldOutcomeCounts): void {
@@ -439,7 +484,17 @@ export default defineBackground(() => {
   // The agent's half of the round trip: descriptors in, values out. Answered
   // with `sendResponse` and an explicit `return true`, which is the one form
   // both browsers agree on for an asynchronous reply.
-  browser.runtime.onMessage.addListener((raw: unknown, _sender, sendResponse) => {
+  browser.runtime.onMessage.addListener((raw: unknown, sender, sendResponse) => {
+    // The options page asking for the last report (DD-006). Checked before the
+    // agent messages and answered only for our own pages: a content script
+    // shares a process with a document we do not control, and the report spans
+    // every frame — one frame's agent has no business reading another's.
+    if (isReportRequest(raw)) {
+      if (!fromExtensionPage(sender)) return;
+      sendResponse({ kind: 'report-response', report: lastReport } satisfies ReportResponse);
+      return true;
+    }
+
     // `pong` and `accepted` are replies to something the background asked, not
     // messages it must act on — they arrive through `sendResponse`, not here.
     if (!isFromAgentMessage(raw) || raw.kind === 'pong' || raw.kind === 'accepted') return;
@@ -465,6 +520,14 @@ export default defineBackground(() => {
         trace(`fill ${raw.operationId} went quiet before reporting; abandoning`);
         finish(raw.operationId, operation.tabId);
       }, OPERATION_TIMEOUT_MS);
+
+      // Recorded before generation, so a control that fails to receive a value
+      // still has a name in the report. An agent that predates DD-006 sends no
+      // frame token; its rows then join to nothing and say "unknown field",
+      // which is the honest outcome rather than attributing them to a frame.
+      if (raw.frame !== undefined) {
+        noteDescriptors(operation.notes, raw.frame, raw.descriptors);
+      }
 
       const batch = generateBatch(raw.descriptors, {
         persona: operation.persona,
@@ -495,6 +558,9 @@ export default defineBackground(() => {
     if (operation.frames.has(raw.report.frame)) return;
     operation.frames.add(raw.report.frame);
     summarise(raw.report, operation.outcomes);
+    // The counts above and the rows here come from the same outcomes, so the
+    // report cannot disagree with the badge about how many fields were filled.
+    operation.fields.push(...fieldsFromReport(operation.notes, raw.report));
 
     // One frame stopping at a bound caps the whole fill: the user is being told
     // whether this page was settled, and "settled except for that iframe" is not

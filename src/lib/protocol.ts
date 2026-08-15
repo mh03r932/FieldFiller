@@ -316,6 +316,46 @@ export type FrameReport = {
   readonly stale?: number;
 };
 
+/**
+ * One control's line in the fill report (DD-006, FR-009, FR-069).
+ *
+ * Lives here rather than beside the code that assembles it because it crosses a
+ * message boundary — the options page receives it — and everything that crosses
+ * a boundary is defined in one place.
+ *
+ * `identity` is page-derived, and `lib/report/surface.ts` documents in full what
+ * that permits: memory only, one fill's worth, never written to storage. There
+ * is deliberately no field for the control's *value*, here or anywhere: a
+ * descriptor has never carried one (BR-004-10, NFR-030) and provenance says how
+ * a value was chosen, not what it was.
+ */
+export type FieldReportEntry = {
+  readonly frame: FrameId;
+  readonly ref: number;
+  /** How the user would name this field — its label, or the nearest thing to one. */
+  readonly identity: string;
+  readonly kind: ControlKind;
+  readonly status: 'filled' | 'skipped' | 'failed';
+  /** Provenance for a filled control, the reason or cause otherwise (FR-069). */
+  readonly detail: string;
+};
+
+export type OutcomeCounts = { filled: number; skipped: number; failed: number };
+
+/** A whole fill, across every frame that took part (BR-001-5). */
+export type FillReport = {
+  readonly scope: FillScope;
+  /** When the fill finished, so the options page can say how old this is. */
+  readonly finishedAt: number;
+  readonly counts: OutcomeCounts;
+  /** Absent when the fill settled rather than stopping at a bound (FR-078). */
+  readonly capped: CapReason | undefined;
+  readonly stale: number;
+  /** Rules that could not run, by label and reason (DD-005). */
+  readonly skippedRules: readonly string[];
+  readonly fields: readonly FieldReportEntry[];
+};
+
 export type ToAgentMessage =
   | { readonly kind: 'ping' }
   | {
@@ -359,6 +399,16 @@ export type FromAgentMessage =
   | {
       readonly kind: 'descriptors';
       readonly operationId: OperationId;
+      /**
+       * Which frame is asking (DD-006).
+       *
+       * Optional, like `token` and `passes` before it, because an agent injected
+       * before this build keeps running until its tab reloads and its batches
+       * must still validate. Its absence costs only the report: refs from an
+       * agent that does not identify itself cannot be joined to a name, and
+       * those rows say so rather than guessing.
+       */
+      readonly frame?: FrameId;
       readonly descriptors: readonly FieldDescriptor[];
     }
   | { readonly kind: 'report'; readonly operationId: OperationId; readonly report: FrameReport };
@@ -368,6 +418,31 @@ export type ValuesResponse = {
   readonly kind: 'values';
   readonly operationId: OperationId;
   readonly values: readonly FieldValue[];
+};
+
+/**
+ * Sent by the options page to fetch the last fill's report (DD-006).
+ *
+ * A separate union from `FromAgentMessage` on purpose: this comes from an
+ * extension page, which is our own code and a different trust position from a
+ * content script sharing a process with a hostile document. Merging the two
+ * would let a compromised page agent ask for a report it has no business
+ * reading — the report covers every frame, and one frame's agent may see only
+ * its own.
+ */
+export type FromPageMessage = { readonly kind: 'report-request' };
+
+/**
+ * The answer, which is legitimately "nothing".
+ *
+ * The report lives in the background's memory and the background is evicted
+ * routinely, so having no report is an ordinary outcome rather than an error —
+ * and the options page says so in those terms rather than rendering an empty
+ * table (DD-006, NFR-020).
+ */
+export type ReportResponse = {
+  readonly kind: 'report-response';
+  readonly report: FillReport | undefined;
 };
 
 /**

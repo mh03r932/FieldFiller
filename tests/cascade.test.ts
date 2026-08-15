@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { runFill, type Bounds, type ValueSource } from '@/lib/page/fill-loop';
-import { realScheduler, type Scheduler } from '@/lib/page/settle';
+import { realScheduler, watchUserInput, type Scheduler } from '@/lib/page/settle';
 import { generateBatch, tokenRandom } from '@/lib/generators/batch';
 import { createPersona, seededRandom } from '@/lib/persona/persona';
 import type { AgentSettings, FieldOutcome } from '@/lib/protocol';
@@ -359,15 +359,26 @@ describe('bounds and the user', () => {
   it('stops the cascade and leaves a control alone once the user touches it', async () => {
     page(
       `<select name="type"><option value=""></option><option value="business">B</option></select>
-       <input name="notes">`,
+       <input name="notes" disabled>`,
       () => {
         field('type').addEventListener('change', () => {
+          field('notes').removeAttribute('disabled');
           // The user starts typing while the fill is still running. In happy-dom
           // a dispatched event is untrusted, exactly as ours are, so the flag is
           // set the way the platform would set it.
-          const typed = new Event('input', { bubbles: true });
-          Object.defineProperty(typed, 'isTrusted', { value: true });
-          field('notes').dispatchEvent(typed);
+          //
+          // On a timer rather than inline, because inline is not a simulation of
+          // a user at all: it would run *inside* our own synchronous write, and
+          // a real keystroke cannot interleave there — the browser is
+          // single-threaded and our write runs to completion first. Dispatching
+          // it from the event loop is where a genuine one would arrive, between
+          // passes, and `notes` starts disabled so the fill has not already
+          // written it by then.
+          setTimeout(() => {
+            const typed = new Event('input', { bubbles: true });
+            Object.defineProperty(typed, 'isTrusted', { value: true });
+            field('notes').dispatchEvent(typed);
+          }, 0);
         });
       },
     );
@@ -612,5 +623,80 @@ describe('what the loop carries through from a single pass', () => {
     expect(statuses(result.outcomes)).toEqual(['filled', 'failed', 'filled']);
     expect(value('first')).not.toBe('');
     expect(value('third')).not.toBe('');
+  });
+});
+
+describe('telling the user apart from ourselves (FR-079)', () => {
+  /**
+   * `isTrusted` is not sufficient on its own, which is the thing this covers.
+   *
+   * A checkbox or radio written with `click()` has *activation behaviour*: the
+   * browser toggles the control and fires `input` and `change` itself, so those
+   * events arrive trusted with no person behind them. Before `ignoreWhile`,
+   * ticking a consent box therefore read as the user typing, and every fill of a
+   * page with a checkbox reported itself capped with "you started typing" — with
+   * the count still correct, which is why nothing caught it until DD-006 put a
+   * marker on the badge.
+   *
+   * Asserted here against a forced `isTrusted`, because the test DOM reports
+   * every event as untrusted and so cannot reproduce the browser's behaviour on
+   * its own. The end-to-end harness covers the real thing.
+   */
+  function trusted(type: string): Event {
+    const event = new Event(type, { bubbles: true });
+    Object.defineProperty(event, 'isTrusted', { value: true });
+    return event;
+  }
+
+  it('does not mistake its own write for the user', () => {
+    const watch = watchUserInput(document);
+    try {
+      const box = document.createElement('input');
+      box.type = 'checkbox';
+      document.body.append(box);
+
+      watch.ignoreWhile(() => box.dispatchEvent(trusted('input')));
+
+      expect(watch.interrupted()).toBe(false);
+      expect(watch.touched.has(box)).toBe(false);
+    } finally {
+      watch.release();
+    }
+  });
+
+  it('still notices the user immediately after a write', () => {
+    const watch = watchUserInput(document);
+    try {
+      const field = document.createElement('input');
+      document.body.append(field);
+
+      watch.ignoreWhile(() => field.dispatchEvent(trusted('input')));
+      field.dispatchEvent(trusted('keydown'));
+
+      expect(watch.interrupted()).toBe(true);
+      expect(watch.touched.has(field)).toBe(true);
+    } finally {
+      watch.release();
+    }
+  });
+
+  it('is not left deaf by a write that throws', () => {
+    // One failed control must not mean the user is never noticed again.
+    const watch = watchUserInput(document);
+    try {
+      const field = document.createElement('input');
+      document.body.append(field);
+
+      expect(() =>
+        watch.ignoreWhile(() => {
+          throw new Error('write failed');
+        }),
+      ).toThrow('write failed');
+
+      field.dispatchEvent(trusted('input'));
+      expect(watch.interrupted()).toBe(true);
+    } finally {
+      watch.release();
+    }
   });
 });

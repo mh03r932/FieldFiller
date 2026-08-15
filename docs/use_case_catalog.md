@@ -125,11 +125,26 @@ recorded here so the spec work picks them up rather than rediscovering the quest
 **DD-006** (result feedback surface, resolved 2026-08-15) obliges three specs that are already
 drafted, and none of them can be closed until the surfaces exist:
 
+**Built 2026-08-15 — all three surfaces.** The table below is kept for the record of what each
+spec owed and how it was discharged.
+
 | Owed by | Obligation |
 |---|---|
-| **UC-001** *(drafted)* | The result must name the scope it filled, and say whether the fill settled or was capped. Today the badge carries a count and the tooltip carries the capped sentence; the scope half waits on UC-002 and UC-003 existing to be distinguishable from. |
-| **UC-002, UC-003** *(not started)* | Both must state their scope in the result, which is the obligation that made a bare count insufficient in the first place (DD-008). |
-| **UC-004** *(drafted)* | FR-069's provenance is generated and carried but never shown. DD-006 puts it in the options-page report, which Phase 4 builds. |
+| ~~**UC-001**~~ *(drafted)* | ~~The result must name the scope it filled, and say whether the fill settled or was capped.~~ **Discharged 2026-08-15** — the postconditions now state all three facts and where each is carried, plus the report's retention bound. The scope reads "this page" until there is another scope to distinguish it from. |
+| **UC-002, UC-003** *(not started)* | Both must state their scope in the result. The fact is plumbed and the sentence is written from the catalog, so each needs only its own scope value and its two catalog strings, which already exist. |
+| ~~**UC-004**~~ *(drafted)* | ~~FR-069's provenance is generated and carried but never shown.~~ **Discharged 2026-08-15** — the options-page report shows every field with its outcome and provenance. |
+| **UC-024** *(drafted)* | New, from building it: the report is deliberately *not* a setting and not stored. A spec for the options page must not describe it as persisted state. |
+
+**What building it found, and what it leaves owed.** The badge's capped marker exposed a defect
+in FR-079 that had been present since it landed — a checkbox written with `click()` makes the
+browser fire a *trusted* `input` event, so the extension's own write read as the user typing and
+capped the fill. UC-034's A7 and BR-034-5 describe that watcher; neither is wrong, but both are
+worth reading with the knowledge that `isTrusted` alone does not separate the user from us.
+
+Still owed by DD-006 itself: **a failed control has a badge colour and no words.** Neither the
+sentence nor the marker mentions failures, so colour carries that fact alone — which is the same
+accessibility weakness DD-006 names for its hover-only tooltip, in the surface meant to answer
+it. It was not one of the three facts the decision scoped, so it is recorded rather than added.
 
 **DD-005** (settings schema, resolved 2026-08-15) is parked here. The whole rule model exists
 in code before a single line of its authoring UX is specified, which is the reverse of this

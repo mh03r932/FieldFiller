@@ -156,6 +156,9 @@ async function requestValues(
     response = await browser.runtime.sendMessage({
       kind: 'descriptors',
       operationId,
+      // The same token `joined` and `report` carry, so the background can tell
+      // whose refs these are (DD-006). Refs are only unique within a frame.
+      frame: FRAME_ID,
       descriptors,
     } satisfies FromAgentMessage);
   } catch {
