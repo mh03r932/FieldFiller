@@ -131,7 +131,23 @@ export const DEFAULT_BOUNDS: Bounds = {
 };
 
 export type FillLoopOptions = {
+  /**
+   * The document being filled. Always the whole document, whatever the scope:
+   * it is what the quiescence observer and the user-input watcher attach to,
+   * because a page reacting to a form fill can change anything (UC-034), and a
+   * user typing outside the scope is still a user typing (FR-079).
+   */
   readonly root: Document;
+  /**
+   * What to fill within it (DD-008). A subtree to walk, or exactly one control.
+   *
+   * Defaults to the whole document, which is the page scope and what every
+   * caller before Phase 3 meant. A form root is *walked*, never a page walked
+   * and filtered — that is ND-5's correction and BR-002-3 restates it.
+   */
+  readonly within?: ParentNode | undefined;
+  /** The single-control scope (UC-003). Mutually exclusive with `within`. */
+  readonly only?: Element | undefined;
   readonly settings: AgentSettings;
   readonly requestValues: ValueSource;
   /**
@@ -172,6 +188,17 @@ type Tracked = {
 
 export async function runFill(options: FillLoopOptions): Promise<FillLoopResult> {
   const { root, settings, requestValues, writtenByUs } = options;
+  // One place decides what the walk covers, so no later code has to remember
+  // which scope it is running under.
+  const candidates = (): readonly Element[] =>
+    options.only === undefined
+      ? collectCandidates(options.within ?? root)
+      : // A radio button is not independently fillable: "fill this input" on one
+        // member can only mean "answer this question", so the group is the unit
+        // (UC-003 A4, BR-005-3).
+        options.only.isConnected
+        ? radioUnit(options.only)
+        : [];
   const bounds = options.bounds ?? DEFAULT_BOUNDS;
   const scheduler = options.scheduler ?? realScheduler;
   const { patterns, invalid } = compilePatterns(settings.ignorePatterns);
@@ -371,7 +398,7 @@ export async function runFill(options: FillLoopOptions): Promise<FillLoopResult>
   function collect(record: boolean): Tracked[] {
     const fillable: Tracked[] = [];
 
-    for (const element of collectCandidates(root)) {
+    for (const element of candidates()) {
       const classification = classifyStructural(element, structural);
       const entry = trackedFor(element, classification.fillable ? classification.kind : 'text');
 
@@ -456,7 +483,22 @@ export async function runFill(options: FillLoopOptions): Promise<FillLoopResult>
     return { ref: entry.ref, status: 'filled', provenance: `${provenance} (${result.rung})` };
   }
 
-  /** Writes one pass's values, and returns how many controls were acted on. */
+  /**
+ * The controls the single-control scope actually covers.
+ *
+ * The anchor alone, unless it is a radio button — in which case the unit is its
+ * group, because one button is not independently answerable and writing the
+ * pointed-at one specifically would mean the user chose the value rather than
+ * the system (UC-003 A4).
+ */
+function radioUnit(anchor: Element): readonly Element[] {
+  if (anchor instanceof HTMLInputElement && anchor.type === 'radio') {
+    return radioGroup(anchor);
+  }
+  return [anchor];
+}
+
+/** Writes one pass's values, and returns how many controls were acted on. */
   async function apply(entries: readonly Tracked[], values: readonly FieldValue[]): Promise<number> {
     const byRef = new Map(entries.map((entry) => [entry.ref, entry]));
     // Spent across the whole pass, not per control: sixty comboboxes at a

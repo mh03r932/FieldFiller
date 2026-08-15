@@ -152,5 +152,23 @@
   "reportPrivacyNote": {
     "message": "This report is held in memory only, covers one fill, and is never written to storage. No value from the page is recorded — only how each field was named and why it received what it did.",
     "description": "States the retention bound the report operates under (NFR-010, NFR-030)."
+  },
+  "resultExcluded": {
+    "message": "Filling is off here — $PATTERN$ is on your excluded list",
+    "description": "Toolbar tooltip on a domain the user excluded (FR-038, UC-008). Names the pattern so it can be found and changed.",
+    "placeholders": {
+      "pattern": {
+        "content": "$1",
+        "example": "*.bank.example.com/*"
+      }
+    }
+  },
+  "resultRefusedNoForm": {
+    "message": "No form found around what you pointed at, so nothing was filled",
+    "description": "Shown when the DD-008 ladder cannot resolve a form root from an anchor (UC-002 A3)."
+  },
+  "resultRefusedNoAnchor": {
+    "message": "Nothing was selected to fill",
+    "description": "Shown when a narrow scope was invoked with no anchor at all (UC-003 A2)."
   }
 }

@@ -148,7 +148,9 @@ export type ResultMessageKey =
   | 'resultCapPassCap'
   | 'resultCapTimeBudget'
   | 'resultCapValuesUnavailable'
-  | 'resultRulesSkipped';
+  | 'resultRulesSkipped'
+  | 'resultRefusedNoForm'
+  | 'resultRefusedNoAnchor';
 
 export type Translate = (key: ResultMessageKey, substitutions?: readonly string[]) => string;
 
@@ -165,6 +167,16 @@ export type Translate = (key: ResultMessageKey, substitutions?: readonly string[
  * DD-006 gave the transient surfaces no room for a fourth fact (DD-005).
  */
 export function resultSentence(report: FillReport, translate: Translate): string {
+  // A refusal is not a fill that found nothing (UC-002 A3, UC-003 A2). It gets
+  // its own sentence, because "0 filled in this form" describes a form with
+  // nothing in it — which is a different thing to tell the user than "I could
+  // not work out which form you meant".
+  if (report.refused !== undefined) {
+    return translate(
+      report.refused === 'no-anchor' ? 'resultRefusedNoAnchor' : 'resultRefusedNoForm',
+    );
+  }
+
   const scope = translate(scopeKey(report.scope));
   const filled = String(report.counts.filled);
 

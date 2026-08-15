@@ -314,7 +314,36 @@ export type FrameReport = {
    * reached — the "may be stale" figure FR-078 requires. Absent unless `capped`.
    */
   readonly stale?: number;
+  /**
+   * Which rule of DD-008's ladder decided this frame's scope (BR-002-4).
+   *
+   * A Tester surprised by where the boundary fell needs to know why it fell
+   * there, which is the argument provenance makes for values (FR-069) applied
+   * to the scope. Absent from an agent that predates Phase 3, which only ever
+   * filled the page.
+   */
+  readonly scopeRule?: ScopeRule;
+  /**
+   * Set when the frame declined to fill anything, and why (UC-002 A3, UC-003 A2).
+   *
+   * Distinct from an empty `outcomes` list, which means "I looked and found
+   * nothing fillable" — a different sentence, and a different thing to tell the
+   * user. Refusing to widen a scope the user narrowed is a decision, not a
+   * shortage of controls.
+   */
+  readonly refused?: ScopeRefusal;
 };
+
+/** Which rule of DD-008's ladder resolved a fill's scope (UC-002, UC-003). */
+export type ScopeRule =
+  | 'element-form'
+  | 'role-form'
+  | 'submit-container'
+  | 'only-unit'
+  | 'whole-page'
+  | 'anchor-control';
+
+export type ScopeRefusal = 'no-form-around-anchor' | 'no-anchor';
 
 /**
  * One control's line in the fill report (DD-006, FR-009, FR-069).
@@ -353,6 +382,13 @@ export type FillReport = {
   readonly stale: number;
   /** Rules that could not run, by label and reason (DD-005). */
   readonly skippedRules: readonly string[];
+  /**
+   * Set when the scope refused to resolve, and why (UC-002 A3, UC-003 A2).
+   *
+   * Distinct from a fill that found nothing: refusing to widen a scope the user
+   * narrowed is a decision, and it gets its own sentence.
+   */
+  readonly refused: ScopeRefusal | undefined;
   readonly fields: readonly FieldReportEntry[];
 };
 

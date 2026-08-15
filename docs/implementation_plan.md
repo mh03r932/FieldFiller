@@ -108,8 +108,9 @@ convenience and trust.
 Reconciling `requirements.md` against the test suite after DD-009 gave the first honest
 picture: **51 Done, 13 Partial, 9 Blocked, 44 Open** — 117 rows, being the 82 functional and 35
 non-functional requirements that existed at that moment. After DD-005 and DD-006 both landed
-later the same day the count reads **64 Done, 11 Partial, 1 Blocked, 55 Open and 1 Deferred**,
-across **132**: the same rows plus NFR-036, which DD-009 added, plus the 14 Constraints.
+later the same day, and Phase 3 after them, the count reads **70 Done, 10 Partial, 1 Blocked,
+50 Open and 1 Deferred**, across **132**: the same rows plus NFR-036, which DD-009 added, plus
+the 14 Constraints.
 
 **The two denominators are stated because they differ, and the difference is not only
 arithmetic.** The Constraints carry a status column and every one of the 14 reads `Open` — as a
@@ -245,11 +246,27 @@ normalisation table.
 UC-008 lands here rather than with its settings screen: "inert on my banking site" is a trust
 property, and trust properties should exist before the thing is shareable.
 
-**Unblocked 2026-08-15 by DD-006 being built.** This phase's precondition was a result that says
-*which* scope ran — a bare count reads identically for a form and for a whole page. The scope is
-now a field on the operation and the sentence names it from the i18n catalog, so UC-002 and
-UC-003 each supply a scope value and reuse strings that already exist. Neither has to touch the
-result surface.
+**Built 2026-08-15.** DD-006 unblocked it — a bare count reads identically for a form and for a
+whole page — and the scope turned out to cost exactly what was predicted on the result surface:
+nothing. UC-002, UC-003 and UC-008 are specified and built; `scripts/e2e-scopes.mjs` proves each
+rung of DD-008's ladder in a real browser, which is where the two defects below were found.
+
+What building it changed:
+
+- **`<body>` cannot be a form root.** Rule 3 walks up looking for a container holding both the
+  anchor and a submit control. Almost every page has *a* submit button somewhere, so a walk that
+  admits the body returns the whole page — the page scope arriving under the form scope's name,
+  and precisely the widening BR-002-2 forbids. The unit tests missed it because their fixtures
+  had no submit button outside the block under test; the harness filled all four blocks of its
+  fixture and said so.
+- **A transient badge must not erase a persistent one.** A fill's badge reverts after three
+  seconds. That timer was clearing whatever was on the badge when it fired, so filling a page and
+  then invoking a fill on an excluded site inside the window showed "off" and then wiped it. The
+  revert now clears only what it set.
+- **`activeTab` cannot be synthesised**, so the harness cannot exercise the pattern-matching path
+  of UC-008 — a menu click dispatched over CDP is not a user gesture, and the tab's URL comes
+  back empty. It asserts UC-008 A1 instead (an unreadable address is treated as excluded), and
+  `matchesGlob` carries the patterns in unit tests. Recorded against FR-037 rather than glossed.
 
 ---
 

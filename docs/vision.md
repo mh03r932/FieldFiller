@@ -497,6 +497,11 @@ blocks.
 > phase around it: the schema is fixed in full, the rule model is built on it, and the eight
 > requirements it blocked are unblocked. **DD-002 is the only decision still open**, and it
 > blocks nothing before Phase 6.
+>
+> **Phase 3 followed on 2026-08-15**: DD-008's ladder is built as UC-002 and UC-003, and UC-008
+> makes an excluded domain inert. FR-074 was rewritten in the same change — from "the code is
+> never injected there" to "nothing runs there" — because the structural guarantee needs runtime
+> content-script registration and that was declined (UC-008 BR-008-4).
 
 ### Resolved
 
@@ -601,6 +606,12 @@ the same defect as a rule they cannot predict (ND-2).
 is present: HTML associates a control with a form by the `form="id"` attribute too, which is
 how a modal or a sticky footer holds the submit button for fields outside it. `element.form`
 answers this natively. Same class of fix as `element.labels` over `label[for]` (ND-3).
+
+**Built 2026-08-15** as UC-002 and UC-003, with every rung of the ladder verified in a real
+browser (`scripts/e2e-scopes.mjs`). One correction that building it forced: rule 3 must stop
+before `<body>`. Almost every page has *a* submit button somewhere, so a walk that admits the
+body returns the whole page — the page scope under the form scope's name, and exactly the
+widening rule 4 exists to refuse.
 
 **What this obliges elsewhere.** The scope is now inferable three ways, so a fill result must
 state which scope ran — "6 fields in the form around your cursor" against "6 fields on the

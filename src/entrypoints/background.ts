@@ -6,6 +6,7 @@ import { agentSettings } from '@/lib/settings';
 import { createPersona, seededRandom, type Persona, type Random } from '@/lib/persona/persona';
 import { generateBatch, tokenRandom } from '@/lib/generators/batch';
 import { compileRules, type CompiledRule } from '@/lib/rules/match';
+import { excludedBy } from '@/lib/page/scope';
 import {
   badgeFor,
   fieldsFromReport,
@@ -23,6 +24,7 @@ import {
   type FrameReport,
   type OperationId,
   type ReportResponse,
+  type ScopeRefusal,
   type ValuesResponse,
 } from '@/lib/protocol';
 
@@ -34,11 +36,10 @@ import {
  * onto a fill. The page agent walks and applies; nothing that carries data
  * crosses into it (DD-003).
  *
- * All three trigger channels reach the page scope (UC-001). The form and
- * single-control scopes are registered on the menu and the commands but not yet
- * implemented — when they land they must produce results identical to the same
- * scope reached any other way, because a channel chooses which scopes it can
- * reach and nothing else (BR-001-6).
+ * All three trigger channels reach all three scopes as of Phase 3, and a scope
+ * produces the same result whichever channel reached it: a channel decides which
+ * scopes it can *offer* — the toolbar has no cursor to narrow from — and nothing
+ * else (BR-001-6).
  */
 
 const MENU_ITEMS: ReadonlyArray<{ id: FillScope; titleMessage: MessageKey }> = [
@@ -109,6 +110,8 @@ type Operation = {
   readonly rules: readonly CompiledRule[];
   /** Rules that could not run, by label, so the user is told (DD-005). */
   readonly skippedRules: Set<string>;
+  /** Set when the frame refused to resolve a scope (UC-002 A3, UC-003 A2). */
+  refused: ScopeRefusal | undefined;
 };
 
 type FieldOutcomeCounts = { filled: number; skipped: number; failed: number };
@@ -131,6 +134,26 @@ let lastReport: FillReport | undefined;
 
 /** Tabs with a fill in progress, so a second invocation is ignored (UC-001 A7). */
 const filling = new Set<number>();
+
+/**
+ * What the badge on each tab is currently showing, as a counter.
+ *
+ * A fill's badge reverts after a few seconds; an exclusion mark does not. Without
+ * this, the revert timer armed by one fill erases whatever was put there
+ * afterwards — fill a page, move to an excluded site inside the revert window,
+ * and the "off" mark appears and then silently vanishes. The timer therefore
+ * clears only what it set, which it checks by comparing this counter.
+ *
+ * Found by the scope harness rather than reasoned about: the mark was being set
+ * correctly and read back empty.
+ */
+const badgeGeneration = new Map<number, number>();
+
+function claimBadge(tabId: number): number {
+  const next = (badgeGeneration.get(tabId) ?? 0) + 1;
+  badgeGeneration.set(tabId, next);
+  return next;
+}
 
 function trace(text: string): void {
   if (import.meta.env.COMMAND === 'serve') console.debug(`[fieldfiller] ${text}`);
@@ -164,7 +187,23 @@ async function registerContextMenus(): Promise<void> {
  * page is asked what it contains, which is what lets several frames be filled
  * from one person without coordinating them.
  */
-async function startFill(tabId: number, scope: FillScope): Promise<void> {
+/**
+ * Which frame a scope is directed at.
+ *
+ * `undefined` broadcasts to every frame, which is the page scope (FR-007). The
+ * narrower scopes go to exactly one frame, because every frame would otherwise
+ * resolve the scope against *its own* anchor: a form fill would find no anchor
+ * in the sibling frames and widen to their whole documents (UC-002 A2), turning
+ * "fill this form" into "fill everything except where you pointed".
+ *
+ * The context menu supplies the frame it was opened in. A keyboard shortcut has
+ * none, so it goes to the top frame, which is where a focused control or the
+ * anchorless widening will be found.
+ */
+type Target = { readonly tabId: number; readonly frameId?: number | undefined };
+
+async function startFill(target: Target, scope: FillScope): Promise<void> {
+  const { tabId } = target;
   if (filling.has(tabId)) {
     // UC-001 A7: a second invocation during a running fill is ignored rather
     // than queued. Two overlapping fills would write two personas into one form.
@@ -181,9 +220,21 @@ async function startFill(tabId: number, scope: FillScope): Promise<void> {
   const operationId = crypto.randomUUID();
 
   try {
+    const settings = await getSettings();
+
+    // BR-008-1: before the persona exists and before any frame is contacted. An
+    // excluded domain must not be able to observe that the extension exists by
+    // being asked a question.
+    const exclusion = await exclusionFor(tabId, settings.exclusions.domains);
+    if (exclusion !== undefined) {
+      trace(`fill in tab ${tabId} refused: ${exclusion}`);
+      await showExcluded(tabId, exclusion);
+      filling.delete(tabId);
+      return;
+    }
+
     const seed = Math.floor(Math.random() * 2 ** 32);
     const random = seededRandom(seed);
-    const settings = await getSettings();
 
     operations.set(operationId, {
       persona: createPersona(random),
@@ -201,6 +252,7 @@ async function startFill(tabId: number, scope: FillScope): Promise<void> {
       scope,
       notes: new Map(),
       fields: [],
+      refused: undefined,
       // Profile rules would be concatenated ahead of the global list here, and
       // first-match-wins does the rest (FR-031). Profiles are Phase 5, so today
       // this is the global list alone.
@@ -219,6 +271,16 @@ async function startFill(tabId: number, scope: FillScope): Promise<void> {
     // acknowledgement the resolved value is unspecified: measured on Chrome 151
     // a listener that answers nothing still resolves, with `undefined`, so
     // "nobody is listening" and "everybody heard me" would look identical.
+    // Broadcast for the page scope, which is what FR-007 asks for: the operation
+    // stays open until every frame that announced itself has reported (see
+    // `complete`) rather than ending on the first, so every frame's outcomes are
+    // counted and a frame whose page cascades for seconds is still waited for.
+    //
+    // Directed for the narrower scopes — see `Target` for why every frame
+    // answering would be wrong rather than merely wasteful.
+    const addressed =
+      scope === 'all-inputs' ? undefined : { frameId: target.frameId ?? TOP_FRAME };
+
     const acknowledgement: unknown = await browser.tabs.sendMessage(
       tabId,
       {
@@ -227,11 +289,7 @@ async function startFill(tabId: number, scope: FillScope): Promise<void> {
         scope,
         settings: agentSettings(settings),
       },
-      // No `frameId`: this broadcasts to every frame in the tab, which is what
-      // FR-007 asks for. The operation stays open until every frame that
-      // announced itself has reported (see `complete`) rather than ending on the
-      // first one, so every frame's outcomes are counted and a frame whose page
-      // cascades for seconds is still waited for.
+      addressed,
     );
 
     if (!isFromAgentMessage(acknowledgement) || acknowledgement.kind !== 'accepted') {
@@ -252,6 +310,61 @@ async function startFill(tabId: number, scope: FillScope): Promise<void> {
     trace(`fill in tab ${tabId} did not start: ${String(error)}`);
     await showBadge(tabId, '—', '#8a8f98');
     finish(operationId, tabId);
+  }
+}
+
+/** The top-level frame. A shortcut has no frame of its own to name (see `Target`). */
+const TOP_FRAME = 0;
+
+/**
+ * The pattern excluding this tab, if any (UC-008).
+ *
+ * The URL is read here and nowhere else, at the moment the user asks for a fill
+ * — which is what `activeTab` grants and what keeps the `tabs` permission off
+ * the manifest (BR-008-2, NFR-008). The extension does not watch the user
+ * browse, and cannot: without a fill it never learns a single URL.
+ *
+ * A tab whose URL cannot be read is treated as excluded (UC-008 A1). That is the
+ * safe direction and the only one available: the point of the list is that some
+ * pages must not be filled, so a fill proceeding because the check could not run
+ * is the one failure this must not have.
+ */
+async function exclusionFor(tabId: number, patterns: readonly string[]): Promise<string | undefined> {
+  if (patterns.length === 0) {
+    // An empty list is the default state of a new install and means the user has
+    // excluded nothing — the opposite direction to A1, and deliberately so
+    // (UC-008 A2). Checked first so a tab whose URL is unreadable is still
+    // fillable when nothing was ever excluded.
+    return undefined;
+  }
+
+  let url: string | undefined;
+  try {
+    url = (await browser.tabs.get(tabId)).url;
+  } catch {
+    url = undefined;
+  }
+
+  if (url === undefined || url === '') return 'this page (its address could not be read)';
+  return excludedBy(url, patterns);
+}
+
+/**
+ * Marks a tab as excluded (FR-038).
+ *
+ * Standing, unlike the count a completed fill leaves: a count is about something
+ * that happened, and this is about something that will keep not happening. It is
+ * cleared when the tab navigates (see the `onUpdated` listener), which needs the
+ * tab's identity and its loading state but never its address (BR-008-3).
+ */
+async function showExcluded(tabId: number, pattern: string): Promise<void> {
+  claimBadge(tabId);
+  try {
+    await browser.action.setBadgeBackgroundColor({ tabId, color: '#6c737f' });
+    await browser.action.setBadgeText({ tabId, text: 'off' });
+    await browser.action.setTitle({ tabId, title: message('resultExcluded', [pattern]) });
+  } catch {
+    // A tab that closed cannot show a badge. Not a fill failure.
   }
 }
 
@@ -348,6 +461,7 @@ function complete(operationId: OperationId): void {
     capped: operation.capped,
     stale: operation.stale,
     skippedRules: [...operation.skippedRules],
+    refused: operation.refused,
     fields: operation.fields,
   };
 
@@ -389,11 +503,14 @@ async function showBadge(
   /** FR-078's "and it says that it stopped", where a count cannot say it. */
   title?: string,
 ): Promise<void> {
+  const generation = claimBadge(tabId);
   try {
     await browser.action.setBadgeBackgroundColor({ tabId, color: colour });
     await browser.action.setBadgeText({ tabId, text });
     if (title !== undefined) await browser.action.setTitle({ tabId, title });
     setTimeout(() => {
+      // Only if nothing has claimed the badge since. See `badgeGeneration`.
+      if (badgeGeneration.get(tabId) !== generation) return;
       void browser.action.setBadgeText({ tabId, text: '' }).catch(() => undefined);
       if (title !== undefined) void browser.action.setTitle({ tabId, title: '' }).catch(() => undefined);
     }, 3000);
@@ -463,22 +580,39 @@ export default defineBackground(() => {
   browser.contextMenus.onClicked.addListener((info, tab) => {
     const scope = MENU_ITEMS.find((item) => item.id === info.menuItemId)?.id;
     if (scope === undefined || tab?.id === undefined) return;
-    if (scope === 'all-inputs') void startFill(tab.id, scope);
-    else trace(`context menu → ${scope} (Phase 3)`);
+    // `info.frameId` is the frame the menu was opened in, and it is the whole
+    // reason the narrower scopes work from here: it names the document holding
+    // the element the user right-clicked (UC-003 A3). Chrome supplies no
+    // *element* identifier, which is why the agent has to have seen the click
+    // itself — DD-001's argument, restated.
+    void startFill({ tabId: tab.id, frameId: info.frameId }, scope);
   });
 
   // FR-004: the toolbar reaches only "fill all inputs" — it has no cursor
   // position to derive a narrower scope from (BR-001-6). It is also the
   // zero-configuration path DD-007 leans on.
+  // UC-008 A5. The mark says "this tab is excluded", so it must not outlive the
+  // page it was about. This listener is told a tab changed and what state it is
+  // in — never what it changed *to* — which is all that clearing needs and is
+  // why it costs no permission (BR-008-3).
+  browser.tabs.onUpdated.addListener((tabId, changes) => {
+    if (changes.status !== 'loading') return;
+    claimBadge(tabId);
+    void browser.action.setBadgeText({ tabId, text: '' }).catch(() => undefined);
+    void browser.action.setTitle({ tabId, title: '' }).catch(() => undefined);
+  });
+
   browser.action.onClicked.addListener((tab) => {
-    if (tab.id !== undefined) void startFill(tab.id, 'all-inputs');
+    if (tab.id !== undefined) void startFill({ tabId: tab.id }, 'all-inputs');
   });
 
   browser.commands.onCommand.addListener((command, tab) => {
     const scope = COMMAND_SCOPES[command];
     if (scope === undefined || tab?.id === undefined) return;
-    if (scope === 'all-inputs') void startFill(tab.id, scope);
-    else trace(`command ${command} → ${scope} (Phase 3)`);
+    // No frame: a keyboard shortcut is not aimed at anything. The narrower
+    // scopes go to the top frame, which resolves them from what is focused there
+    // or — for the form scope with nothing focused — by widening (UC-002 A2).
+    void startFill({ tabId: tab.id }, scope);
   });
 
   // The agent's half of the round trip: descriptors in, values out. Answered
@@ -561,6 +695,10 @@ export default defineBackground(() => {
     // The counts above and the rows here come from the same outcomes, so the
     // report cannot disagree with the badge about how many fields were filled.
     operation.fields.push(...fieldsFromReport(operation.notes, raw.report));
+    // First refusal wins, as the first cap does: a page-scope fill broadcasts to
+    // every frame and only the narrow scopes can refuse, so at most one frame
+    // ever sets this.
+    operation.refused ??= raw.report.refused;
 
     // One frame stopping at a bound caps the whole fill: the user is being told
     // whether this page was settled, and "settled except for that iframe" is not

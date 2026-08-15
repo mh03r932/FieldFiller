@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>FieldFiller — scope fixture</title>
+  </head>
+  <body>
+    <!--
+      The DD-008 ladder, one rung per block, and one block that reaches no rung
+      at all. Deliberately small: every control here exists to be filled or to
+      prove it was left alone, and a field with no job makes a failure harder to
+      read rather than easier.
+    -->
+
+    <!-- Rung 1: the page says so. `element.form` answers this natively. -->
+    <form id="alpha">
+      <label>Alpha one <input name="a_one" /></label>
+      <label>Alpha two <input name="a_two" /></label>
+      <button type="submit">Save alpha</button>
+    </form>
+
+    <!-- Rung 2: the author said so without a <form> tag — a React checkout. -->
+    <div id="beta" role="form">
+      <label>Beta one <input name="b_one" /></label>
+      <label>Beta two <input name="b_two" /></label>
+    </div>
+
+    <!-- Rung 3: no declaration, but there is something to submit. -->
+    <div id="gamma">
+      <label>Gamma one <input name="g_one" /></label>
+      <label>Gamma two <input name="g_two" /></label>
+      <button type="submit">Save gamma</button>
+    </div>
+
+    <!--
+      No rung reaches this: no owning form, no role, no fieldset, and the only
+      button near it submits nothing. An anchored fill here must refuse rather
+      than widen to the page (BR-002-2), which is the case worth the fixture.
+    -->
+    <div id="delta">
+      <label>Delta one <input name="d_one" /></label>
+      <button type="button">Toggle</button>
+    </div>
+
+    <label>Loose <input name="loose" /></label>
+  </body>
+</html>

@@ -50,6 +50,7 @@ function report(overrides: Partial<FillReport> = {}): FillReport {
     capped: undefined,
     stale: 0,
     skippedRules: [],
+    refused: undefined,
     fields: [],
     ...overrides,
   };

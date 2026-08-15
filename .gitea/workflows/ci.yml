@@ -145,6 +145,17 @@ jobs:
         # root — all from one persona.
         run: pnpm run e2e:chrome
 
+      - name: Scopes and exclusion (Chromium)
+        # UC-002, UC-003 and UC-008. What this covers that the unit tests cannot:
+        # the context menu's frameId, the badge, and the fact that the agent has
+        # to have seen the right-click itself because Chrome names no element
+        # (DD-001). It has already earned its place twice — it caught a form
+        # scope that widened to the whole page through `<body>`, and a badge
+        # revert timer that erased the exclusion mark set after it.
+        run: |
+          export CHROME_PATH="$(node -e 'console.log(require("playwright").chromium.executablePath())')"
+          pnpm run scopes:chrome
+
       - name: Dependent fields (Chromium)
         # UC-034's scoreboard, and since 2026-08-15 a regression gate: all three
         # DD-009 steps have landed and every row is expected to pass. A red build

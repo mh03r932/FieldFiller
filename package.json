@@ -38,6 +38,7 @@
     "e2e:chrome": "node scripts/e2e-chrome.mjs",
     "e2e": "pnpm run e2e:chrome",
     "cascade:chrome": "node scripts/e2e-cascade.mjs",
+    "scopes:chrome": "node scripts/e2e-scopes.mjs",
     "spike:combobox": "node scripts/spike-combobox.mjs",
     "spike:coldstart": "node scripts/spike-coldstart.mjs"
   },
