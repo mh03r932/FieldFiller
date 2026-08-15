@@ -154,9 +154,11 @@ be trusted without the earlier ones.
 Step B landed with three things the decision did not anticipate — a per-control write bound, a
 control the page removed being dropped from the report rather than double-counted, and frames
 announcing themselves so completion is known rather than inferred from silence. Each is
-recorded under "What building it changed" in DD-009. The cascade fixture now reports **16
-claimed filled against 16 the page holds**, of 17 fillable; the seventeenth is the field the
-page will not let anyone fill, and it is reported as a failure.
+recorded under "What building it changed" in DD-009. At the point B landed the cascade fixture
+reported **16 claimed filled against 16 the page holds**, of 17 fillable, the seventeenth being
+the field the page will not let anyone fill — reported as a failure. Step C moved those figures
+by adding a control the fixture had never been able to fill; see below for where they stand
+now.
 
 The pass cap was set by measurement rather than by argument: lowering it until the fixture
 broke showed the matrix fills in three passes and settles in four, and the shipped cap is that

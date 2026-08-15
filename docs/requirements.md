@@ -24,9 +24,29 @@ code base where most of the fill engine was built, verified end-to-end and runni
 column that says nothing is finished when most of it is cannot be used to decide what to do
 next, which is the only reason it exists.
 
-A status here is a claim about evidence that exists. Where a requirement is met but nothing
-enforces it — FR-026 is the clearest case — the cell says so rather than borrowing confidence
-from the requirements that are gated.
+A status here is a claim about evidence that exists.
+
+### Guarantees held by construction, with nothing enforcing them
+
+`Done` covers two different situations, and collapsing them would be the kind of quiet
+overclaim this column exists to prevent. Most of the requirements below are gated: a CI check
+fails the build if they stop being true. These four are not. They are true because of how the
+code is written, and they would go on reading `Done` for as long as it took someone to notice.
+
+Tracked here rather than left as prose inside a status cell, so the gap is a list somebody can
+work through rather than a sentence somebody has to find.
+
+| | What holds it up today | What would enforce it |
+|---|---|---|
+| **FR-026** No credential leakage | No generated value is passed to a console, to storage, or to any element but its target. | A source gate rejecting any `console.*` call reachable from the generators, in the shape of `check-network.mjs`. |
+| **NFR-010** No retention of page data | Descriptors carry attributes, never values; the one read-back is compared in place and dropped. | Hard. The nearest practical check is a gate on the descriptor and message types, which would catch a field being added but not a value being smuggled through an existing one. |
+| **NFR-030** Descriptor confinement | `FieldDescriptor` has no value-bearing field, and nothing persists it. | A shape assertion over the protocol types, which is the same check NFR-010 wants. |
+| **NFR-031** Generated data lifetime | The operation map is cleared when a fill closes, and nothing writes it to storage. | A test that drives a fill through the background and asserts the map is empty afterwards — the most tractable of the four. |
+
+**Decided 2026-08-15:** offered alongside the NFR-008 and NFR-012 gates, the FR-026 gate was
+not taken. That is a deliberate scope choice and not an oversight, which is the reason to write
+it down: the next person to read `Done` against FR-026 should find the decision rather than
+assume the check exists.
 
 ---
 

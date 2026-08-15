@@ -122,10 +122,15 @@ jobs:
           pnpm run e2e:chrome
 
       - name: Dependent fields (Chromium)
-        # UC-034's scoreboard. Most rows are expected to fail until DD-009 lands;
-        # the harness compares against a recorded expectation, so it fails the
-        # build on a regression *or* on a case that starts passing without its
-        # expectation being updated in the same change.
+        # UC-034's scoreboard, and since 2026-08-15 a regression gate: all three
+        # DD-009 steps have landed and every row is expected to pass. A red build
+        # here means a cascade the engine used to follow and no longer does.
+        #
+        # It stays expectation-based rather than becoming a plain assertion, so
+        # it still fails on a case that starts passing without its expectation
+        # being updated in the same change. That direction matters as much as the
+        # other: the table is the record of what this engine can do, and a row
+        # that quietly starts passing is a claim nobody wrote down.
         run: |
           export CHROME_PATH="$(node -e 'console.log(require("playwright").chromium.executablePath())')"
           pnpm run cascade:chrome

@@ -17,10 +17,13 @@
  *   · the fill not running at all, which otherwise looks like every case failing
  *     for its own reason.
  *
- * So this harness can be committed and run in CI today, and each of DD-009's
- * three steps announces itself by flipping rows from `fail` to `pass`. The
- * `EXPECTED` table below is the progress bar. Steps A and B have landed; step C
- * — the custom combobox ladder — has not, and is gated on a measurement.
+ * So this harness could be committed and run in CI before any of DD-009 existed,
+ * and each of its three steps announced itself by flipping rows from `fail` to
+ * `pass`. **All three have now landed (2026-08-15), every row is expected to
+ * pass, and the table has stopped being a progress bar and become a regression
+ * gate.** It keeps its shape rather than collapsing into plain assertions,
+ * because the second exit condition is still worth having: a row that starts
+ * passing on its own is a capability nobody recorded.
  *
  * Usage: node scripts/e2e-cascade.mjs   (after `pnpm run build`)
  *   CHROME_PATH=…  override the browser binary
