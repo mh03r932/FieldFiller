@@ -97,9 +97,9 @@ function optionsOf(element: Element, kind: ControlKind): readonly ControlOption[
  * matching `/span/` fires on every wrapped label in the page (D1).
  */
 function labelText(element: Element): string | undefined {
-  if (!('labels' in element)) return undefined;
+  if (!('labels' in element)) return labelledBy(element);
   const labels = (element as { labels?: NodeListOf<HTMLLabelElement> | null }).labels;
-  if (labels === null || labels === undefined || labels.length === 0) return undefined;
+  if (labels === null || labels === undefined || labels.length === 0) return labelledBy(element);
 
   // No null guard because `textContent` is declared with asymmetric accessors in
   // lib.dom: `get textContent(): string`, `set textContent(value: string | null)`.
@@ -108,6 +108,34 @@ function labelText(element: Element): string | undefined {
   // `strictNullChecks` is on regardless (WXT's base config sets `strict`).
   const text = [...labels]
     .map((label) => label.textContent.trim())
+    .filter((value) => value !== '')
+    .join(' ');
+  return text === '' ? undefined : text;
+}
+
+/**
+ * The label a control points at, for controls the platform will not label.
+ *
+ * `element.labels` is only populated for form-associated elements, so a custom
+ * combobox — a `<div role="combobox">` — has no labels at all however carefully
+ * the page labelled it. `aria-labelledby` is how that page *did* label it, and
+ * without reading it such a control reaches rule matching carrying nothing but
+ * an `id`, which is the source ND-2 says is the least trustworthy of the lot.
+ *
+ * Resolved within the control's own root, never the document: an identifier
+ * inside a shadow root is scoped to that root, and a document-wide lookup finds
+ * an unrelated element or nothing (BR-004-12).
+ */
+function labelledBy(element: Element): string | undefined {
+  const ids = element.getAttribute('aria-labelledby');
+  if (ids === null) return undefined;
+
+  const root = element.getRootNode() as Node & {
+    getElementById?: (id: string) => Element | null;
+  };
+  const text = ids
+    .split(/\s+/)
+    .map((id) => root.getElementById?.(id)?.textContent.trim() ?? '')
     .filter((value) => value !== '')
     .join(' ');
   return text === '' ? undefined : text;

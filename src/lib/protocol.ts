@@ -56,7 +56,16 @@ export type ControlKind =
   | 'radio'
   | 'select-one'
   | 'select-multiple'
-  | 'contenteditable';
+  | 'contenteditable'
+  /**
+   * A control that behaves as a select without being one — the ARIA combobox
+   * and listbox patterns every design system reimplements (FR-081, UC-034 A9).
+   *
+   * Never a native control wearing the role: an `<input role="combobox">` is a
+   * text input with autocomplete attached, and filling it as text is right.
+   * Only a non-native element gets this kind.
+   */
+  | 'combobox';
 
 /** One choice offered by a select or a radio group. */
 export type ControlOption = {
@@ -171,6 +180,25 @@ export type FieldValue = {
   /** Options to select, by value. One for a radio or single select, any number for a multi-select. */
   | { readonly as: 'choice'; readonly values: readonly string[] }
   | { readonly as: 'toggle'; readonly checked: boolean }
+  /**
+   * A choice among options only the agent can see (FR-081).
+   *
+   * A custom combobox does not publish its options until it is opened, and
+   * opening it is an interaction — so the background cannot be given a list to
+   * choose from without the agent first touching the page. Rather than move
+   * generation into the agent, or spend a second round trip per control, the
+   * background sends the *draw* and the agent maps it onto whatever the control
+   * turned out to offer.
+   *
+   * `at` is in [0, 1). It is a position in a list of unknown length, and it
+   * carries no information about the page — which is what keeps this inside
+   * DD-003 rather than an exception to it.
+   *
+   * FR-082 will want the option *labels*, to prefer the one matching the
+   * persona. That needs either a second round trip or the agent describing the
+   * control again once it is open, and is deliberately not decided here.
+   */
+  | { readonly as: 'pick'; readonly at: number }
   /** UC-004 A3.6: nothing selectable, so the control is left untouched. */
   | { readonly as: 'skip'; readonly reason: ExclusionReason }
 );
@@ -203,6 +231,20 @@ export type ExclusionReason =
    * that was already there when the fill started.
    */
   | 'user-touched'
+  /**
+   * A custom combobox that neither the keyboard nor the pointer could drive to a
+   * verified answer (UC-034 A10). The page was put back as it was found.
+   */
+  | 'combobox-not-driveable'
+  /**
+   * A custom combobox, with "skip pre-filled" on and no way to tell whether it
+   * already holds an answer (BR-005-1). A native control exposes its value; a
+   * `<div>` exposes rendered text, in which a chosen answer and a placeholder
+   * look identical. Excluding is the fail-safe direction, and saying so is
+   * better than reporting `pre-filled`, which would claim knowledge we do not
+   * have.
+   */
+  | 'content-unknown'
   | 'unclassifiable';
 
 /**

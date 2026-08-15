@@ -10,6 +10,7 @@ import { collectCandidates } from './walk';
 import { classifyStructural, matchesIgnorePattern, radioGroup, type StructuralContext } from './exclude';
 import { describe } from './identify';
 import { applyValue, verifyWrite } from './apply';
+import { driveCombobox, stillAnswered } from './combobox';
 import { realScheduler, waitForQuiescence, watchUserInput, type Scheduler } from './settle';
 
 /**
@@ -97,6 +98,26 @@ export type Bounds = {
    * before concluding that the page means it.
    */
   readonly writeAttempts: number;
+  /**
+   * How long one custom combobox may take before it is abandoned and the page
+   * put back as it was found (FR-081, UC-034 A10).
+   *
+   * A combobox is not written, it is *driven*: opened, read, chosen from and
+   * verified, with a wait for the page to render between each. That is orders of
+   * magnitude more expensive than an assignment, and the cost is per control.
+   */
+  readonly comboboxControlMs: number;
+  /**
+   * How much of one pass may go on comboboxes in total.
+   *
+   * The measurement that opened step C found the *selector* costs 0.05 ms on a
+   * 500-control page — but sixty comboboxes driven one after another is seconds,
+   * and that is what would threaten NFR-001. Controls past the budget are
+   * reported skipped, exactly as one that could not be driven is: the fill stays
+   * inside its budget and says what it did not reach, rather than silently
+   * becoming slow on the pages that use a design system.
+   */
+  readonly comboboxPassMs: number;
 };
 
 export const DEFAULT_BOUNDS: Bounds = {
@@ -105,6 +126,8 @@ export const DEFAULT_BOUNDS: Bounds = {
   maxQuietWaitMs: 1500,
   cascadeBudgetMs: 5000,
   writeAttempts: 3,
+  comboboxControlMs: 250,
+  comboboxPassMs: 2000,
 };
 
 export type FillLoopOptions = {
@@ -200,7 +223,7 @@ export async function runFill(options: FillLoopOptions): Promise<FillLoopResult>
         break;
       }
 
-      const wrote = apply(pass, values);
+      const wrote = await apply(pass, values);
 
       // The user outranks the fill, and their first real interaction ends the
       // cascade rather than merely narrowing it (BR-034-5).
@@ -247,7 +270,12 @@ export async function runFill(options: FillLoopOptions): Promise<FillLoopResult>
     // the page happens to have put something there itself.
     for (const entry of tracked) {
       if (entry.outcome?.status !== 'filled' || entry.written === undefined) continue;
-      const verified = verifyWrite(entry.element, entry.written);
+
+      const verified =
+        entry.written.as === 'pick'
+          ? stillAnswered(entry.element)
+          : verifyWrite(entry.element, entry.written);
+
       if (!verified.landed) {
         entry.outcome = { ref: entry.ref, status: 'failed', cause: verified.reason };
       }
@@ -351,7 +379,11 @@ export async function runFill(options: FillLoopOptions): Promise<FillLoopResult>
       // already earned. Reporting it as `pre-filled` would be a lie about why it
       // was left alone, and one the badge would then repeat (BR-034-7).
       if (entry.outcome?.status === 'filled' && entry.written !== undefined) {
-        if (verifyWrite(element, entry.written).landed) continue;
+        const holding =
+          entry.written.as === 'pick'
+            ? stillAnswered(element)
+            : verifyWrite(element, entry.written);
+        if (holding.landed) continue;
       }
 
       // FR-079. Ahead of classification, so a control the user is typing into is
@@ -391,9 +423,46 @@ export async function runFill(options: FillLoopOptions): Promise<FillLoopResult>
     return fillable;
   }
 
-  /** Writes one pass's values, and returns how many controls were written to. */
-  function apply(entries: readonly Tracked[], values: readonly FieldValue[]): number {
+  /**
+   * Drives one custom combobox, and turns the result into an outcome (FR-081).
+   *
+   * The two ways of not succeeding are kept apart, because they mean different
+   * things to whoever reads the report: a control the ladder could not operate
+   * is a gap in what this extension supports, and one that never got a turn is a
+   * page too big for the budget. Both are skips, and neither is a failure —
+   * nothing was written, and the page was put back as it was found (UC-034 A10).
+   */
+  async function drive(
+    entry: Tracked,
+    at: number,
+    provenance: string,
+    budgetLeft: number,
+  ): Promise<FieldOutcome> {
+    if (budgetLeft <= 0) {
+      return { ref: entry.ref, status: 'skipped', reason: 'combobox-not-driveable' };
+    }
+
+    const result = await driveCombobox(entry.element, {
+      at,
+      scheduler,
+      budgetMs: Math.min(budgetLeft, bounds.comboboxControlMs),
+    });
+
+    if (!result.driven) {
+      return { ref: entry.ref, status: 'skipped', reason: 'combobox-not-driveable' };
+    }
+
+    writtenByUs.add(entry.element);
+    return { ref: entry.ref, status: 'filled', provenance: `${provenance} (${result.rung})` };
+  }
+
+  /** Writes one pass's values, and returns how many controls were acted on. */
+  async function apply(entries: readonly Tracked[], values: readonly FieldValue[]): Promise<number> {
     const byRef = new Map(entries.map((entry) => [entry.ref, entry]));
+    // Spent across the whole pass, not per control: sixty comboboxes at a
+    // quarter-second each is fifteen seconds, and no single one of them is at
+    // fault for that.
+    let comboboxLeft = bounds.comboboxPassMs;
     let wrote = 0;
 
     for (const value of values) {
@@ -418,6 +487,13 @@ export async function runFill(options: FillLoopOptions): Promise<FillLoopResult>
       // Per element, so one hostile control cannot end the run (BR-004-11,
       // FR-010). The reference lets a single throw abandon the rest of the page.
       try {
+        if (value.as === 'pick') {
+          entry.written = value;
+          entry.outcome = await drive(entry, value.at, value.provenance, comboboxLeft);
+          comboboxLeft -= Math.min(comboboxLeft, bounds.comboboxControlMs);
+          continue;
+        }
+
         applyValue(entry.element, value, { dispatchEvents: settings.dispatchEvents });
 
         // FR-076, the first of the two checks: did the write take. `applyValue`

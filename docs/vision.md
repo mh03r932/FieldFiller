@@ -794,6 +794,15 @@ correctness (§3), and the detection also widens the walk's candidate selector o
 budget everywhere to serve a minority of pages. It is gated on measuring that inflation
 first.
 
+**Measured and built 2026-08-15, and the gate was aimed at the wrong quantity.** On a
+500-control application page with no combobox anywhere, the widened selector adds **zero**
+candidates and 0.05 ms of matching — 0.01% of NFR-001. An attribute selector matches only
+elements carrying the attribute, so classification, identification and generation see exactly
+what they saw before; there is no inflation to trade against. The ladder itself cost 3.8 KB of
+the 25 KB still spare. What genuinely costs is *driving* a control — an interaction and a wait
+per rung, per control — so that is bounded per control and per pass instead (NFR-036), and a
+page too full of them produces a partial fill that says so rather than a slow one.
+
 #### Also considered and rejected
 
 - **Blind re-fill N times, or a fixed sleep between passes.** Both die on the debounced

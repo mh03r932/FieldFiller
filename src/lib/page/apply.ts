@@ -1,6 +1,18 @@
 import type { FieldValue } from '../protocol';
 
 /**
+ * The values that are *written*, as opposed to driven.
+ *
+ * A custom combobox is not written to — it is opened, chosen from and verified
+ * through the interactions a user would make (`combobox.ts`, BR-034-9), and it
+ * is asynchronous because the page renders its popup on the next frame. Excluding
+ * it here makes routing it elsewhere a compile error rather than a convention,
+ * which matters because the shortcut — writing the hidden input behind the
+ * component — is one line and looks like it works.
+ */
+export type WritableValue = Extract<FieldValue, { as: 'text' | 'choice' | 'toggle' | 'skip' }>;
+
+/**
  * Writes a value so the page registers it, then dispatches the interaction a
  * user would really have produced (FR-013, FR-014, ND-6, BR-004-8).
  *
@@ -69,7 +81,7 @@ export type ApplyOptions = {
  * that per field, because one field's failure is one field's failure
  * (BR-004-11).
  */
-export function applyValue(element: Element, value: FieldValue, options: ApplyOptions): void {
+export function applyValue(element: Element, value: WritableValue, options: ApplyOptions): void {
   switch (value.as) {
     case 'skip':
       return;
@@ -243,7 +255,7 @@ const LANDED: WriteVerification = { landed: true };
  * Nothing read here is retained, returned or reported: the reason strings below
  * describe the control, never its contents (BR-034-11, NFR-010, NFR-030).
  */
-export function verifyWrite(element: Element, value: FieldValue): WriteVerification {
+export function verifyWrite(element: Element, value: WritableValue): WriteVerification {
   switch (value.as) {
     case 'skip':
       return LANDED;

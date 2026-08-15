@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { collectCandidates } from '@/lib/page/walk';
 import { classifyStructural } from '@/lib/page/exclude';
-import type { FieldValue } from '@/lib/protocol';
+import type { WritableValue } from '@/lib/page/apply';
 
 /** Defaults for the structural checks: honeypots skipped, pre-filled allowed. */
 const CONTEXT = {
@@ -13,7 +13,7 @@ const CONTEXT = {
 const classify = (element: Element) => classifyStructural(element, CONTEXT);
 
 /** A text value, as the generator would produce it. */
-const textValue = (value: string): FieldValue => ({ ref: 0, as: 'text', value, provenance: 'test' });
+const textValue = (value: string): WritableValue => ({ ref: 0, as: 'text', value, provenance: 'test' });
 import { describe as describeField } from '@/lib/page/identify';
 import { applyValue, verifyWrite } from '@/lib/page/apply';
 
@@ -312,14 +312,14 @@ describe('apply', () => {
  * failures (BR-034-4).
  */
 describe('verify', () => {
-  const choiceValue = (...values: string[]): FieldValue => ({
+  const choiceValue = (...values: string[]): WritableValue => ({
     ref: 0, as: 'choice', values, provenance: 'test',
   });
-  const toggleValue = (checked: boolean): FieldValue => ({
+  const toggleValue = (checked: boolean): WritableValue => ({
     ref: 0, as: 'toggle', checked, provenance: 'test',
   });
 
-  const write = (element: Element, value: FieldValue) => {
+  const write = (element: Element, value: WritableValue) => {
     applyValue(element, value, { dispatchEvents: true });
     return verifyWrite(element, value);
   };
@@ -439,7 +439,7 @@ describe('verify', () => {
 
   it('has nothing to verify for a control the generator skipped', () => {
     const input = fragment('<input>').firstElementChild as HTMLInputElement;
-    const skip: FieldValue = { ref: 0, as: 'skip', reason: 'no-selectable-option', provenance: 'test' };
+    const skip: WritableValue = { ref: 0, as: 'skip', reason: 'no-selectable-option', provenance: 'test' };
     expect(verifyWrite(input, skip).landed).toBe(true);
   });
 });

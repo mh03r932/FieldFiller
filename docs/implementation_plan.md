@@ -112,7 +112,7 @@ be trusted without the earlier ones.
 |---|---|---|---|
 | **A · Honesty floor** | Per-kind write verification (FR-076), the stale/rejected outcome, `summarise` handling it. No NFR changes, no loop, shippable alone. | — | **Landed 2026-08-15** |
 | **B · The fixpoint loop** | Element tokens and token-seeded generation (FR-080), the two observation signals, the re-fill rules, the pass and time bounds (FR-078, NFR-034), the trusted-input rule (FR-079), teardown (NFR-035), the sliding operation deadline, the compatible protocol delta. | A — a loop that cannot tell whether a write survived cannot decide what to re-fill | **Landed 2026-08-15** |
-| **C · Combobox ladder** | FR-081, with the restore rung. | B, and a measurement | Open |
+| **C · Combobox ladder** | FR-081, with the restore rung. | B, and a measurement | **Landed 2026-08-15** |
 
 Step B landed with three things the decision did not anticipate — a per-control write bound, a
 control the page removed being dropped from the report rather than double-counted, and frames
@@ -154,9 +154,16 @@ the wrong quantity.
 **The cost that does exist is somewhere else, and this measurement does not cover it.** Driving
 a combobox means interacting with it and waiting for the page to respond, per control. Sixty of
 them on one page is the number that could threaten NFR-001, not the selector. So C ships with a
-per-control interaction budget and a per-pass total, and reports the overflow as skipped rather
-than spending an unbounded amount of time — which is the same shape as every other bound in
-DD-009, and the reason A10 already exists.
+per-control interaction budget and a per-pass total (NFR-036), and reports the overflow as
+skipped rather than spending an unbounded amount of time — which is the same shape as every
+other bound in DD-009, and the reason A10 already exists.
+
+**Landed 2026-08-15.** The ladder cost 3.8 KB, taking the page agent to 18.5 KB of its 40 KB.
+The cascade fixture is now **16/16**, at 17 claimed filled against 17 the page holds, of 18
+fillable — the eighteenth being the field the page will not let anyone fill, reported as a
+failure. One honesty gap is left and is recorded in BR-034-11 rather than in a comment: the
+end-of-fill check on a combobox cannot tell a placeholder from an answer, because telling them
+apart means retaining the chosen option's label, which BR-034-11 forbids.
 
 **Not** gated on NFR-003, which is where an earlier draft of this section pointed. Measured
 2026-08-14, the page agent was **10.73 KB of its 40 KB** budget, with the full walk, exclusion,

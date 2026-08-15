@@ -78,9 +78,11 @@ export function classifyStructural(element: Element, context: StructuralContext)
     // Step 6: hidden, which is where honeypots are caught.
     if (context.skipHidden && !isPerceivable(element)) return excluded('hidden');
 
-    // Step 7: pre-filled.
+    // Step 7: pre-filled. A custom combobox gets its own reason, because
+    // `pre-filled` would assert that we read it and found content, and the
+    // reason we are excluding it is that we cannot read it at all.
     if (context.skipPreFilled && holdsUserContent(element, kind, context)) {
-      return excluded('pre-filled');
+      return excluded(kind === 'combobox' ? 'content-unknown' : 'pre-filled');
     }
 
     return { fillable: true, kind };
@@ -150,7 +152,37 @@ function kindOf(element: Element): ControlKind | undefined {
   }
 
   if (element instanceof HTMLElement && element.isContentEditable) return 'contenteditable';
+  if (isCustomCombobox(element)) return 'combobox';
   return undefined;
+}
+
+/**
+ * A control that behaves as a select without being one (FR-081, UC-034 A9).
+ *
+ * Native elements are excluded by construction, and that is the whole subtlety:
+ * `<input role="combobox">` is the ARIA autocomplete pattern — a text input with
+ * a popup attached — and it is filled by typing into it, which the `input`
+ * branch above already does correctly. Treating it as a combobox would replace a
+ * working fill with an interaction ladder that has to be verified.
+ *
+ * `aria-haspopup="listbox"` catches the trigger-button shape, where the role
+ * sits on the popup rather than on the thing you click.
+ */
+function isCustomCombobox(element: Element): boolean {
+  if (
+    element instanceof HTMLInputElement ||
+    element instanceof HTMLTextAreaElement ||
+    element instanceof HTMLSelectElement
+  ) {
+    return false;
+  }
+
+  const role = element.getAttribute('role');
+  return (
+    role === 'combobox' ||
+    role === 'listbox' ||
+    element.getAttribute('aria-haspopup') === 'listbox'
+  );
 }
 
 function isUnavailable(element: Element): boolean {
@@ -234,6 +266,18 @@ function holdsUserContent(element: Element, kind: ControlKind, context: Structur
   switch (kind) {
     case 'checkbox':
       return false;
+
+    case 'combobox':
+      // We cannot tell, and BR-005-1 says which way to fail. A native control
+      // exposes its value; a custom one exposes rendered text, and a chosen
+      // answer and a placeholder are the same shape of text — "United Kingdom"
+      // and "Select a country" are both non-empty strings in a `<span>`.
+      //
+      // With the toggle on, the user has asked for content to be left alone, so
+      // a control we cannot read is left alone. It is reported as
+      // `content-unknown` rather than `pre-filled` by the caller, because
+      // `pre-filled` would claim we looked and found something.
+      return true;
 
     case 'radio':
       // A1: the group is answered, not the individual button. Scoped to the

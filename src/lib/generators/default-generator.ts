@@ -104,9 +104,38 @@ export function generateValue(
     case 'select-one':
     case 'select-multiple':
       return choose(descriptor, random);
+    case 'combobox':
+      return offeredPosition(descriptor, random);
     default:
       return text(descriptor, persona, random);
   }
+}
+
+/**
+ * A custom combobox, whose options nobody here has seen (FR-081).
+ *
+ * The control does not publish what it offers until it is opened, and opening it
+ * is an interaction with the page — which the background cannot perform and must
+ * not learn the result of. So what is generated is the *draw*, not the answer:
+ * a position in a list of unknown length, which the agent maps onto whatever the
+ * control turned out to hold.
+ *
+ * Seeded from the same stream as everything else, so it is as stable across
+ * passes as any other value (FR-080). Re-driving a combobox the page reset picks
+ * the same position again, and — if the page is offering the same list — the
+ * same answer.
+ *
+ * FR-082 will want the labels, to prefer the option matching the persona's
+ * country or region. That needs the agent to describe the control again once it
+ * is open, and is deliberately left undecided here rather than half-built.
+ */
+function offeredPosition(descriptor: FieldDescriptor, random: Random): FieldValue {
+  return {
+    ref: descriptor.ref,
+    as: 'pick',
+    at: random(),
+    provenance: 'combobox → position in the offered list',
+  };
 }
 
 /**

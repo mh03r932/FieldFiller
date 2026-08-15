@@ -26,7 +26,7 @@ Legend — **Spec:** `Not started` · `Blocked` · `Drafted` · `Approved`
 | UC-006 | Reuse a Value for a Confirmation Field | *(extends UC-004)* | Repeat the previously generated value in a confirmation field | FR-024, FR-032 | High | Not started |
 | UC-007 | Apply a URL Profile | *(extends UC-004)* | Give profile rules precedence over global rules on a matching page | FR-031, FR-045 | High | Not started |
 | UC-008 | Suspend Filling on an Excluded Domain | *(extends UC-001..003)* | Make the extension inert on domains the user has excluded | FR-037, FR-038, FR-074 | High | Not started |
-| UC-034 | Fill Fields That Depend on an Earlier Answer | *(included)* | Follow the page's own cascade — options rewritten, fields revealed, controls enabled — verifying each write and stopping honestly at a declared bound | FR-076..079, FR-081, DD-009 | High | **Drafted** |
+| UC-034 | Fill Fields That Depend on an Earlier Answer | *(included)* | Follow the page's own cascade — options rewritten, fields revealed, controls enabled — verifying each write and stopping honestly at a declared bound | FR-076..081, DD-009 | High | **Drafted** *(built in full; A3, A7 and A9 revised by what implementing them showed)* |
 
 ## Rules
 

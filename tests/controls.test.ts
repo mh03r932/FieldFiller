@@ -2,11 +2,11 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { collectCandidates } from '@/lib/page/walk';
 import { classifyStructural, radioGroup } from '@/lib/page/exclude';
 import { describe as describeField } from '@/lib/page/identify';
-import { applyValue } from '@/lib/page/apply';
+import { applyValue, type WritableValue } from '@/lib/page/apply';
 import { createPersona, seededRandom } from '@/lib/persona/persona';
 import { generateValue } from '@/lib/generators/default-generator';
 import { generateBatch } from '@/lib/generators/batch';
-import type { ControlKind, FieldDescriptor, FieldValue } from '@/lib/protocol';
+import type { ControlKind, FieldDescriptor } from '@/lib/protocol';
 
 /** Phase 2: every control kind, the full exclusion set, and confirmation fields. */
 
@@ -197,7 +197,11 @@ describe('radio groups are decided once per group', () => {
       { persona: groupPersona, randomFor: () => random },
     );
     for (const [index, entry] of fillable.entries()) {
-      applyValue(entry.radio, values[index]!, { dispatchEvents: true });
+      const value = values[index]!;
+      // Narrowed rather than cast: `pick` is driven, not written, and a radio
+      // group producing one would be a routing bug worth failing on.
+      if (value.as === 'pick') throw new Error('a radio group is never a combobox');
+      applyValue(entry.radio, value, { dispatchEvents: true });
     }
     return radios;
   }
@@ -348,7 +352,7 @@ describe('confirmation fields (UC-006, ND-7, D2)', () => {
 });
 
 describe('applying each kind', () => {
-  const apply = (element: Element, value: FieldValue) =>
+  const apply = (element: Element, value: WritableValue) =>
     applyValue(element, value, { dispatchEvents: true });
 
   it('clicks a checkbox rather than only setting it', () => {

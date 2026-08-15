@@ -62,7 +62,10 @@ const EXPECTED = {
   'c8 · a replaced control ends up holding a value': { now: 'pass', fixedBy: undefined },
   'c9 · a reformatted value counts as filled': { now: 'pass', fixedBy: undefined },
   'c9 · a normalised number counts as filled': { now: 'pass', fixedBy: undefined },
-  'c10 · a custom combobox is answered': { now: 'fail', fixedBy: 'C' },
+  // Landed 2026-08-15 with the ladder. The row below it is what stops the ladder
+  // from being "improved" into writing the hidden input, which would pass this
+  // one and lie about the page.
+  'c10 · a custom combobox is answered': { now: 'pass', fixedBy: undefined },
   'c10 · the hidden carrier was not written directly': { now: 'pass', fixedBy: undefined },
   'report · filled count does not exceed what the page holds': { now: 'pass', fixedBy: undefined },
   'report · every value the page holds was claimed by the report': { now: 'pass', fixedBy: undefined },
@@ -274,6 +277,19 @@ try {
         if (el.closest('[hidden]') !== null) continue;
         fillable++;
         if (String(el.value ?? '') !== '') holding++;
+      }
+
+      // A custom combobox is a control the engine can fill and the page can
+      // hold an answer in, and it is none of the three tags above — so without
+      // this the arithmetic counts step C's successes as an overcount. It has
+      // no readable value either: what it holds is what it displays, and the
+      // only way to tell an answer from a placeholder is to know the fixture's
+      // placeholder, which this harness does because it owns the fixture.
+      for (const el of document.querySelectorAll('[role="combobox"]')) {
+        if (el.getAttribute('aria-disabled') === 'true') continue;
+        if (el.closest('[hidden]') !== null) continue;
+        fillable++;
+        if (el.textContent.trim() !== 'Select…') holding++;
       }
 
       return {

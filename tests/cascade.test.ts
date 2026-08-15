@@ -28,6 +28,8 @@ const BOUNDS: Bounds = {
   maxQuietWaitMs: 120,
   cascadeBudgetMs: 2000,
   writeAttempts: 3,
+  comboboxControlMs: 200,
+  comboboxPassMs: 1000,
 };
 
 const SETTINGS: AgentSettings = {
