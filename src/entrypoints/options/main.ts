@@ -1,15 +1,18 @@
 import { browser } from 'wxt/browser';
 import { localise, message } from '@/lib/platform/i18n';
+import { getSettings, saveSettings } from '@/lib/platform/settings-store';
+import { DEFAULT_SETTINGS, type Settings } from '@/lib/settings';
 import { resultSentence, scopeRuleSentence } from '@/lib/report/surface';
+import { renderRules } from './rules';
 import type { FieldReportEntry, FillReport, ReportResponse } from '@/lib/protocol';
 
 /**
- * Options page. Settings are Phase 4; what it carries today is DD-006's third
- * surface — the per-control report for the last fill.
+ * Options page. Two sections so far: the rule editor (UC-009..UC-013) and the
+ * per-control report DD-006 put here.
  *
- * The badge holds a count and the tooltip holds a sentence. Neither can say
- * *why this field got that value*, which is FR-069's whole purpose, and the
- * answer needs a row per control. This is the surface with room for one.
+ * Sections on one scrolling page rather than tabs, so every setting stays
+ * findable with the browser's own find-in-page and there is no navigation state
+ * to keep accessible. The remaining Phase 4 screens land as more sections.
  *
  * Every user-facing string comes from the i18n catalog (NFR-018), and every
  * value that came from a page is written with `textContent` rather than any form
@@ -21,6 +24,47 @@ document.title = message('extName');
 localise(document);
 
 void render();
+void mountRules();
+
+/**
+ * The rule editor, and the settings state it edits (UC-009..UC-013).
+ *
+ * Held here in memory and written through on every valid change. The write goes
+ * to the same store the background reads, and the background drops its cache on
+ * a storage change — so a rule edited here applies to the next fill in every
+ * open tab with nothing pushed anywhere (UC-024, BR-024-6).
+ */
+async function mountRules(): Promise<void> {
+  const host = document.querySelector('#rules');
+  const live = document.querySelector('#announcements');
+  if (!(host instanceof HTMLElement)) return;
+
+  let settings: Settings = DEFAULT_SETTINGS;
+  try {
+    settings = await getSettings();
+  } catch {
+    // A page that cannot read settings shows the defaults rather than nothing:
+    // the defaults are a complete, self-consistent state.
+  }
+
+  renderRules(
+    {
+      settings: () => settings,
+      save: (next) => {
+        // Optimistic in memory, durable in storage. A rejected write leaves
+        // storage holding the previous state (BR-024-2); the page would then be
+        // ahead of it, which the next load corrects — stated because it is a
+        // real gap and Phase 4's remaining screens are where it gets a surface.
+        settings = next;
+        void saveSettings(next);
+      },
+      announce: (text) => {
+        if (live instanceof HTMLElement) live.textContent = text;
+      },
+    },
+    host,
+  );
+}
 
 async function render(): Promise<void> {
   const host = document.querySelector('#report');

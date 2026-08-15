@@ -498,8 +498,9 @@ blocks.
 > requirements it blocked are unblocked. **DD-002 is the only decision still open**, and it
 > blocks nothing before Phase 6.
 >
-> **Phase 3 followed on 2026-08-15**: DD-008's ladder is built as UC-002 and UC-003, and UC-008
-> makes an excluded domain inert. FR-074 was rewritten in the same change — from "the code is
+> **Phase 3 followed on 2026-08-15**, then the data corpus and the rule editor: DD-008's ladder
+> is built as UC-002 and UC-003, UC-008 makes an excluded domain inert, the corpus ships two
+> locales, and UC-009..UC-013 make the rule model reachable without hand-editing storage. FR-074 was rewritten in the same change — from "the code is
 > never injected there" to "nothing runs there" — because the structural guarantee needs runtime
 > content-script registration and that was declined (UC-008 BR-008-4).
 

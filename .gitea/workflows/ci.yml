@@ -204,6 +204,17 @@ jobs:
         # revert timer that erased the exclusion mark set after it.
         run: pnpm run scopes:chrome
 
+      - name: Options page (Chromium)
+        # UC-009..UC-013 driven the way a person drives them — clicking Add,
+        # typing into fields — so what is under test is the wiring rather than
+        # the logic. It has already earned its place: it caught a rule editor
+        # whose handlers closed over stale state, so editing two fields in a row
+        # discarded the first, and a change of generator type that never
+        # re-rendered its own fields.
+        run: |
+          export CHROME_PATH="$(node -e 'console.log(require("playwright").chromium.executablePath())')"
+          pnpm run options:chrome
+
       - name: Corpus per locale (Chromium)
         # The path a unit test cannot reach: a locale written to storage, parsed
         # back, resolved, and turned into a record on a real page. Until this

@@ -40,6 +40,7 @@
     "cascade:chrome": "node scripts/e2e-cascade.mjs",
     "scopes:chrome": "node scripts/e2e-scopes.mjs",
     "locale:chrome": "node scripts/e2e-locale.mjs",
+    "options:chrome": "node scripts/e2e-options.mjs",
     "spike:combobox": "node scripts/spike-combobox.mjs",
     "spike:coldstart": "node scripts/spike-coldstart.mjs"
   },
