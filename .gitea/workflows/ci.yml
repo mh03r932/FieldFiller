@@ -60,8 +60,11 @@ jobs:
       - name: Lint
         run: pnpm run lint
 
-      - name: Unit tests
-        run: pnpm test
+      # NFR-012's 90% line coverage, enforced on the fill engine and generators
+      # by globbed thresholds in `vitest.config.ts`. Run instead of a bare `pnpm
+      # test` rather than beside it, so the suite is not executed twice.
+      - name: Unit tests and coverage floor
+        run: pnpm run test:coverage
 
   # NFR-014: the Chromium end-to-end suite runs on every change, and Firefox on
   # every release candidate. This job is the requirement — before it existed, the
@@ -174,7 +177,10 @@ jobs:
       - name: Build Chrome and Firefox
         run: pnpm run build:all
 
-      - name: Gate — page agent size, import graph, network absence
+      # NFR-003, ND-4, NFR-006 and NFR-008. The permission gate is the newest:
+      # a permission list grows by accident far more easily than a dependency
+      # list does, and it is the claim an auditor reads first.
+      - name: Gate — page agent size, import graph, network absence, permissions
         run: pnpm run gate:all
 
       # Two clean builds, digests compared. Runs on every push rather than only

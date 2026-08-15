@@ -488,11 +488,14 @@ and the differentiators in §3, not on the name.
 These need resolution during detailed use case work. Each is flagged on the use case it
 blocks.
 
-> **Status as of 2026-08-14:** DD-001, DD-003, DD-004 and DD-007 are resolved; ND-1, ND-2
-> and ND-9 are decided (see §7.4). **DD-008 resolved 2026-08-13. DD-009 resolved 2026-08-14,
-> amending DD-003.** DD-002, DD-005 and DD-006 remain open — and DD-006 now carries two
-> obligations: from DD-008, a result must name the scope it filled; from DD-009, it must be
-> able to say that a fill stopped at its cap rather than finishing.
+> **Status as of 2026-08-15:** DD-001, DD-003, DD-004, DD-007, DD-008 and DD-009 are
+> resolved, and so is **DD-006**, which the other two kept adding obligations to until it had
+> three facts to carry and one surface to carry them on. ND-1, ND-2 and ND-9 are decided (see
+> §7.4).
+>
+> **DD-002 and DD-005 remain open**, and DD-005 is the one that blocks work: the settings
+> schema is the last undecided input to the rule model, which nine requirements are waiting
+> on. See `implementation_plan.md` for the two ways out of that.
 
 ### Resolved
 
@@ -600,9 +603,9 @@ answers this natively. Same class of fix as `element.labels` over `label[for]` (
 
 **What this obliges elsewhere.** The scope is now inferable three ways, so a fill result must
 state which scope ran — "6 fields in the form around your cursor" against "6 fields on the
-page". That is a requirement on **DD-006**, which remains open: a bare badge count cannot
-express it, so whatever feedback surface is chosen has to carry the scope as well as the
-count.
+page". That was a requirement on **DD-006**, resolved 2026-08-15: the scope goes in the
+toolbar tooltip's sentence, which is the surface with room for it. The badge keeps the count
+alone.
 
 **DD-003 — Generation runs in the background. RESOLVED.** *(Amended 2026-08-14 by DD-009.)*
 The page agent walks, classifies and applies; it carries no corpus. Field descriptors go to
@@ -820,7 +823,8 @@ page too full of them produces a partial fill that says so rather than a slow on
 - **DD-003** is amended: one round trip per pass, with the stateless-oracle invariant restated
   above so the amendment cannot be read as permission to move DOM semantics across.
 - **DD-006** gains a second obligation. A capped fill is a distinct outcome and a bare count
-  cannot express it, exactly as DD-008 made scope inexpressible in a count.
+  cannot express it, exactly as DD-008 made scope inexpressible in a count. *(Discharged
+  2026-08-15 when DD-006 resolved: the sentence carries it, and the badge carries a marker.)*
 - **NFR-001 is split rather than loosened.** The 500-controls-in-500 ms budget is what the
   user perceives — the form visibly filling — and it stays, scoped to the first pass. Cascade
   resolution gets its own budget (NFR-034) that is explicitly not part of the responsiveness
@@ -883,6 +887,39 @@ have been incoherent by construction. The decision to synthesise a record before
 page — taken for §7.4's reasons, not for this one — is what made this change tractable two
 phases later.
 
+**DD-006 — Result feedback surface. RESOLVED 2026-08-15.**
+
+A fill has to report three things and a badge holds one. Which **scope** ran, because DD-008
+made that inferable three ways and "6 filled" reads identically for a form and for a whole
+page. **How many** fields were filled. And whether the fill **settled or stopped at a bound**,
+because DD-009 made a capped fill a distinct outcome — "6 filled" and "6 filled, 2 may be
+stale" are different facts about the same page, and a user who cannot tell them apart is back
+to the reference's problem of not knowing whether anything went wrong.
+
+**The decision: one fact per surface, layered by how much the user has asked for.**
+
+| Surface | Carries | Why there |
+|---|---|---|
+| **Badge** | The count, and a marker when the fill was capped | It is glanceable and already exists. It is also contended — the active profile (UC-017) and domain-off (UC-008) indicators are persistent facts that outrank a transient count — so it carries the least. |
+| **Toolbar tooltip** | The whole sentence: *"6 filled in this form — 2 may be stale"* | Room for all three facts in the user's own language, at no cost to the page. Already carries the capped note as of DD-009 step B. |
+| **Options page** | The per-control report: every field, its outcome, and its provenance | The place to answer *why did this field get that value*, which is FR-069's whole purpose and needs more room than any transient surface has. |
+
+**Rejected: an in-page toast.** It is the most visible option and needs no hover, and it was
+rejected anyway. It puts our markup into every page the user visits, which is the tax DD-001
+already made expensive; it spends NFR-003's budget on presentation rather than on filling; and
+it can collide with the page's own interface, on a product whose entire job is not to disturb
+the page more than a user would. §4 already says we do not put our UI in the user's document.
+
+**The known weakness, stated rather than discovered later:** a tooltip is hover-only, so a
+keyboard-only user never sees the sentence. The badge's capped marker is what they get, and it
+is why the badge carries a marker at all rather than only a number. If that proves too thin,
+the answer is a keyboard-reachable surface, not a toast.
+
+**What is built:** the badge count, its failure colour, and the tooltip. **What is owed:** the
+scope in the sentence (needs UC-002 and UC-003 to exist), the capped marker on the badge
+itself, and the options-page report — which is also what closes FR-009 and FR-069, both
+Partial today for exactly this reason.
+
 **DD-004 — Build framework: WXT. RESOLVED.**
 One config emits both targets, absorbing the `service_worker` vs `background.scripts` split
 (C-003) and `gecko.id` (C-004). PD-003 put both browsers in v1, which made cross-browser
@@ -918,23 +955,6 @@ schema consequences, so it must be settled before Phase 5 freezes the schema.
 **DD-005 — Settings schema versioning.** Our schema v1 must be forward-migratable, and the
 importer must map Fake Filler's v1 onto it. Needs an explicit migration ladder before the
 first release, not after.
-
-**DD-006 — Result feedback surface.** Badge count, toast, or nothing. Affects UC-001..003
-postconditions.
-
-Constrained by DD-008: the scope of a fill is now inferable three ways, so the surface must
-convey *which* scope ran and not only how many fields were filled. A bare badge count cannot
-do that. It is also contended — the badge is where the active profile (UC-017) and domain-off
-(UC-008) indicators must live, and those are persistent facts that outrank a transient count.
-Phase 1 ships a count that reverts after a few seconds as a provisional answer; the decision
-is what replaces it.
-
-Constrained again by DD-009: a fill can now stop at its cap with fields left stale, and that
-is a third thing the surface must be able to say. "6 filled" and "6 filled, 2 may be stale"
-are different facts about the same page, and a user who cannot tell them apart is back to the
-reference's problem of not knowing whether anything went wrong. Three facts — scope, count,
-completeness — is past what a badge holds, which is now the strongest argument in the
-decision rather than an aside.
 
 ---
 

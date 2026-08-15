@@ -373,7 +373,74 @@ function constrain(value: string, descriptor: FieldDescriptor): string {
     // policy ND-11 exists to satisfy: constrained, and useless.
     result = descriptor.kind === 'password' ? fitPassword(result, maxLength) : result.slice(0, maxLength);
   }
-  return result;
+
+  return descriptor.kind === 'password' ? fitPasswordPattern(result, descriptor) : result;
+}
+
+/**
+ * Whether a value satisfies a control's `pattern` (D9, FR-072).
+ *
+ * The attribute is implicitly anchored at both ends — `pattern="\d{4}"` means
+ * the whole value is four digits, not that four digits appear in it — so the
+ * anchors are added here rather than trusted to be in the attribute.
+ *
+ * An unparseable pattern counts as satisfied. We cannot judge against a rule we
+ * cannot read, and refusing to fill the field would punish the user for the
+ * page's mistake; the browser will not enforce it either. This is the same call
+ * UC-005 A5 makes for an invalid ignore pattern.
+ */
+function satisfiesPattern(value: string, pattern: string | undefined): boolean {
+  if (pattern === undefined) return true;
+  try {
+    return new RegExp(`^(?:${pattern})$`, 'v').test(value);
+  } catch {
+    try {
+      // `v` is the flag the HTML spec requires, and it rejects some patterns an
+      // older `u`-flag regex accepted. Falling back rather than giving up keeps
+      // us matching whatever the page's own browser would do.
+      return new RegExp(`^(?:${pattern})$`, 'u').test(value);
+    } catch {
+      return true;
+    }
+  }
+}
+
+/**
+ * Bends a generated password towards the field's own `pattern` (FR-072).
+ *
+ * Satisfying an arbitrary regular expression is not solvable in general — that
+ * is FR-021's regex generator, and it needs a rule model that does not exist
+ * yet. What is solvable is the shape real registration forms actually use: a
+ * restricted character set. `[A-Za-z0-9]{8,}` and `[A-Za-z0-9!@#$%^&*]{8,}` are
+ * most of the population, and both reject our default password for exactly one
+ * reason — the symbol it chose.
+ *
+ * So this is a bounded ladder over that one variable, not a search. Where none
+ * of the rungs fits, the original value is kept and the write-verification step
+ * reports the control as failed rather than the fill claiming a value the page
+ * will reject (FR-076). A wrong password reported as filled is the outcome worth
+ * avoiding; a right one is a bonus.
+ */
+function fitPasswordPattern(password: string, descriptor: FieldDescriptor): string {
+  const { pattern, minLength } = descriptor.constraints;
+  if (pattern === undefined || satisfiesPattern(password, pattern)) return password;
+
+  const body = password.replace(/[^A-Za-z0-9]/g, '');
+  const floor = minLength ?? 0;
+  const candidates = [
+    password.replace(/[^A-Za-z0-9]/g, '!'),
+    password.replace(/[^A-Za-z0-9]/g, '@'),
+    password.replace(/[^A-Za-z0-9]/g, '-'),
+    body,
+    // Removing the symbol can drop below a length floor the ceiling had already
+    // squeezed against, so the alphanumeric rungs are re-padded before testing.
+    body.padEnd(floor, 'x'),
+  ];
+
+  for (const candidate of candidates) {
+    if (satisfiesPattern(candidate, pattern)) return candidate;
+  }
+  return password;
 }
 
 /**

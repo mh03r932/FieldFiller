@@ -227,7 +227,13 @@ function isPerceivable(element: Element): boolean {
 
   const style = element.ownerDocument.defaultView?.getComputedStyle(element);
   if (style !== undefined) {
-    if (Number(style.opacity) === 0) return false;
+    // `!== ''` first, because `Number('') === 0`. A computed style that does not
+    // state an opacity means "not stated", not "fully transparent" — and a
+    // browser that returned the empty string here would otherwise make this
+    // function reject every control on the page, silently turning "skip
+    // honeypots" into "fill nothing". Browsers return "1"; the test DOM returns
+    // "", which is how this was found.
+    if (style.opacity !== '' && Number(style.opacity) === 0) return false;
     // `clip-path: inset(100%)` and the legacy `clip: rect(0,0,0,0)` are both
     // ways to render a control invisible while keeping it in the layout.
     if (style.clipPath === 'inset(100%)') return false;

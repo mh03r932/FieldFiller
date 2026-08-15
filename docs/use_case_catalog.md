@@ -118,6 +118,15 @@ recorded here so the spec work picks them up rather than rediscovering the quest
 **DD-007** was parked here on 2026-08-13 and discharged the same day into
 `use_cases/UC-023.md` and `use_cases/UC-030.md`.
 
+**DD-006** (result feedback surface, resolved 2026-08-15) obliges three specs that are already
+drafted, and none of them can be closed until the surfaces exist:
+
+| Owed by | Obligation |
+|---|---|
+| **UC-001** *(drafted)* | The result must name the scope it filled, and say whether the fill settled or was capped. Today the badge carries a count and the tooltip carries the capped sentence; the scope half waits on UC-002 and UC-003 existing to be distinguishable from. |
+| **UC-002, UC-003** *(not started)* | Both must state their scope in the result, which is the obligation that made a bare count insufficient in the first place (DD-008). |
+| **UC-004** *(drafted)* | FR-069's provenance is generated and carried but never shown. DD-006 puts it in the options-page report, which Phase 4 builds. |
+
 **DD-009** (dependent and late-appearing fields, resolved 2026-08-14) is parked here. It
 lands before UC-034 exists and it reopens two specs that are already drafted, so its
 obligations are listed rather than left to be rediscovered:

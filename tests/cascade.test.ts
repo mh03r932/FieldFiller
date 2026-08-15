@@ -58,10 +58,14 @@ function background(seed = 7): ValueSource {
     );
 }
 
-async function fill(source: ValueSource = background(), bounds: Bounds = BOUNDS) {
+async function fill(
+  source: ValueSource = background(),
+  bounds: Bounds = BOUNDS,
+  settings: AgentSettings = SETTINGS,
+) {
   return runFill({
     root: document,
-    settings: SETTINGS,
+    settings,
     writtenByUs: new WeakSet<Element>(),
     requestValues: source,
     bounds,
@@ -515,5 +519,98 @@ describe('the scheduler is a parameter, not a global', () => {
     // attribute (NFR-015).
     expect(calls).toContain(BOUNDS.quietMs);
     expect(calls).toContain(BOUNDS.maxQuietWaitMs);
+  });
+});
+
+describe('what the loop carries through from a single pass', () => {
+  it('answers a radio group once, however many members it has', async () => {
+    page(`<form>
+      <label><input type="radio" name="plan" value="a"> A</label>
+      <label><input type="radio" name="plan" value="b"> B</label>
+      <label><input type="radio" name="plan" value="c"> C</label>
+    </form>`);
+
+    const result = await fill();
+
+    // Each member carries the whole group's options, so a per-element decision
+    // makes them disagree — and since applying a choice means "tick me if I am
+    // the chosen one", members choosing each other tick nothing at all.
+    const checked = [...document.querySelectorAll<HTMLInputElement>('input')].filter((r) => r.checked);
+    expect(checked).toHaveLength(1);
+    expect(result.outcomes).toHaveLength(3);
+  });
+
+  it('keeps a group answered the same way when the page makes us write it again', async () => {
+    let wiped = false;
+    page(`<form>
+      <label><input type="radio" name="plan" value="a"> A</label>
+      <label><input type="radio" name="plan" value="b"> B</label>
+    </form>`, () => {
+      document.querySelector('form')!.addEventListener('change', () => {
+        if (wiped) return;
+        wiped = true;
+        setTimeout(() => {
+          for (const r of document.querySelectorAll<HTMLInputElement>('input')) r.checked = false;
+        }, 5);
+      });
+    });
+
+    await fill();
+
+    // The group token is derived from its first member, which is stable across
+    // passes — so the second write reaches the same conclusion as the first.
+    const checked = [...document.querySelectorAll<HTMLInputElement>('input')].filter((r) => r.checked);
+    expect(checked).toHaveLength(1);
+  });
+
+  it('leaves a control whose identity matches an ignore pattern', async () => {
+    page(`<input name="captcha_answer"><input name="email">`);
+
+    const result = await fill(background(), BOUNDS, { ...SETTINGS, ignorePatterns: ['captcha'] });
+
+    expect(value('captcha_answer')).toBe('');
+    expect(value('email')).not.toBe('');
+    expect(result.outcomes).toContainEqual({ ref: 0, status: 'skipped', reason: 'ignored-pattern' });
+  });
+
+  it('skips an unusable ignore pattern rather than abandoning the fill', async () => {
+    page(`<input name="email">`);
+    const warnings: unknown[][] = [];
+    const original = console.warn;
+    console.warn = (...args: unknown[]) => void warnings.push(args);
+
+    try {
+      const result = await fill(background(), BOUNDS, {
+        ...SETTINGS,
+        ignorePatterns: ['(unclosed', 'also[bad'],
+      });
+      expect(statuses(result.outcomes)).toEqual(['filled']);
+    } finally {
+      console.warn = original;
+    }
+
+    // Once per fill, not once per field — and not once per pass either, which is
+    // the regression the loop could have introduced.
+    expect(warnings).toHaveLength(1);
+  });
+
+  it('keeps filling after a control the page will not accept a value for (D10)', async () => {
+    // The reference lets one uncaught exception abort the rest of the page, so a
+    // single bad rule silently halves the form. Here the impossible value is
+    // handed to a text input on purpose: `applyValue` throws, and the throw must
+    // be that control's outcome and nothing else's.
+    page(`<input name="first"><input name="second"><input name="third">`);
+
+    const real = background();
+    const result = await fill(async (descriptors) => {
+      const values = await real(descriptors);
+      return values?.map((value) =>
+        value.ref === 1 ? { ref: 1, as: 'choice' as const, values: ['x'], provenance: 'impossible' } : value,
+      );
+    });
+
+    expect(statuses(result.outcomes)).toEqual(['filled', 'failed', 'filled']);
+    expect(value('first')).not.toBe('');
+    expect(value('third')).not.toBe('');
   });
 });

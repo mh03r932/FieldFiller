@@ -33,6 +33,7 @@ export function describe(
     sources: compact({
       name: attribute(element, 'name'),
       id: element.id === '' ? undefined : element.id,
+      className: attribute(element, 'class'),
       label: labelText(element),
       placeholder: attribute(element, 'placeholder'),
       ariaLabel: attribute(element, 'aria-label'),

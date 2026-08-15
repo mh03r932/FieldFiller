@@ -21,12 +21,28 @@ export default defineConfig({
     environment: 'happy-dom',
     include: ['tests/**/*.test.ts'],
     coverage: {
-      // NFR-012 requires 90% line coverage of the engine and generators. The
-      // threshold is not enforced yet — there is no engine to cover, and a
-      // threshold over an empty directory would either pass vacuously or block
-      // every commit. Phase 1 turns it on with the walk.
       include: ['src/lib/**'],
       reporter: ['text', 'json-summary'],
+      /**
+       * NFR-012, enforced from 2026-08-15.
+       *
+       * Scoped by glob to exactly what the requirement names — "the fill engine
+       * and generators" — rather than applied to `src/lib/**` as a whole. The
+       * rest of that tree is the message contract and the two platform adapters,
+       * which are thin wrappers over browser APIs: covering them means asserting
+       * against a mock of `chrome.storage`, which tests the mock. A single
+       * project-wide number would have to be set low enough to admit them, and
+       * would then stop being a floor for the code that matters.
+       *
+       * Lines and functions only. NFR-012 asks for lines; branches sit at ~85%
+       * here and the shortfall is mostly the defensive arms of platform guards —
+       * worth having, not worth manufacturing a test for.
+       */
+      thresholds: {
+        'src/lib/page/**': { lines: 90, functions: 90 },
+        'src/lib/generators/**': { lines: 90, functions: 90 },
+        'src/lib/persona/**': { lines: 90, functions: 90 },
+      },
     },
   },
 });

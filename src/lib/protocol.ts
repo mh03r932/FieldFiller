@@ -111,6 +111,19 @@ export type FieldDescriptor = {
   readonly sources: {
     readonly name?: string;
     readonly id?: string;
+    /**
+     * The `class` attribute, verbatim (FR-027).
+     *
+     * The noisiest source by a distance — a utility-first stylesheet puts twenty
+     * meaningless tokens here, and a component library puts its own vocabulary.
+     * It is carried anyway because the other half of real markup names its
+     * fields in exactly this attribute and nowhere else, and because FR-028's
+     * per-source toggles are how a user turns off a source that is noise on
+     * *their* pages. The alternative — deciding for everyone that class is
+     * untrustworthy — is the flattening ND-2 exists to prevent, made worse by
+     * being invisible.
+     */
+    readonly className?: string;
     readonly label?: string;
     readonly placeholder?: string;
     readonly ariaLabel?: string;

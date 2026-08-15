@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { collectCandidates } from '@/lib/page/walk';
-import { classifyStructural, radioGroup } from '@/lib/page/exclude';
+import { classify, classifyStructural, matchesIgnorePattern, radioGroup } from '@/lib/page/exclude';
 import { describe as describeField } from '@/lib/page/identify';
 import { applyValue, type WritableValue } from '@/lib/page/apply';
 import { createPersona, seededRandom } from '@/lib/persona/persona';
@@ -252,21 +252,78 @@ describe('radio groups (BR-005-3, ND-5)', () => {
   });
 });
 
+/**
+ * Gives an element a real geometry.
+ *
+ * The test DOM lays nothing out: every element reports a zero-sized rect, and
+ * `isPerceivable` rejects a zero-sized control before it reaches any of the
+ * checks below. So without this every one of these cases passed for the same
+ * wrong reason — the control was not *hidden*, it was unmeasured — and a build
+ * that had deleted the honeypot logic entirely would have passed them all.
+ *
+ * Stubbed per element rather than globally, so the off-screen case can still
+ * report the coordinates that make it off-screen.
+ */
+function laidOut(element: Element, box: Partial<DOMRect> = {}): Element {
+  const rect = { x: 0, y: 0, top: 0, left: 0, width: 120, height: 24, ...box };
+  Object.defineProperty(element, 'getBoundingClientRect', {
+    value: () => ({ ...rect, right: rect.left + rect.width, bottom: rect.top + rect.height }),
+    configurable: true,
+  });
+  return element;
+}
+
 describe('hidden and honeypot exclusion (UC-005 A3, ND-16)', () => {
+  const hidden = (element: Element) => classifyStructural(element, context({ skipHidden: true }));
+
+  beforeEach(() => {
+    // The document's own extent is layout too, and the test DOM reports zero for
+    // it — which would put every control below the first pixel "outside the
+    // document". A page tall enough to scroll is the ordinary case, so that is
+    // what these tests describe.
+    for (const [property, value] of [['scrollWidth', 1200], ['scrollHeight', 8000]] as const) {
+      Object.defineProperty(document.documentElement, property, { value, configurable: true });
+    }
+  });
+
+  it('fills an ordinary visible control', () => {
+    // The control case, and the one that was missing. Every assertion below is
+    // only meaningful if this one holds: they claim a *reason* for exclusion,
+    // which means nothing unless a control without that reason survives.
+    expect(hidden(laidOut(only('<input>'))).fillable).toBe(true);
+  });
+
   it.each([
-    ['display:none', 'display:none'],
-    ['visibility:hidden', 'visibility:hidden'],
-    ['zero opacity', 'opacity:0'],
-  ])('excludes a control hidden by %s', (_label, style) => {
-    const element = only(`<input style="${style}">`);
-    expect(classifyStructural(element, context({ skipHidden: true }))).toEqual({
-      fillable: false,
-      reason: 'hidden',
-    });
+    ['display:none', 'display:none', {}],
+    ['visibility:hidden', 'visibility:hidden', {}],
+    ['zero opacity', 'opacity:0', {}],
+    ['clip-path', 'clip-path:inset(100%)', {}],
+    ['the legacy clip rectangle', 'clip:rect(0px, 0px, 0px, 0px)', {}],
+    ['zero size', '', { width: 0, height: 0 }],
+    ['being positioned off the left of the document', '', { left: -9999, width: 100 }],
+    ['being positioned above the document', '', { top: -9999, height: 100 }],
+  ])('excludes a control hidden by %s', (_label, style, box) => {
+    const element = laidOut(only(`<input style="${style}">`), box);
+    expect(hidden(element)).toEqual({ fillable: false, reason: 'hidden' });
+  });
+
+  it('excludes a control hidden from assistive technology and the tab order', () => {
+    // Either alone is too weak: `aria-hidden` appears on decorative wrappers and
+    // `tabindex="-1"` on controls a script focuses. Together they are a honeypot.
+    const element = laidOut(only('<input aria-hidden="true" tabindex="-1">'));
+    expect(hidden(element)).toEqual({ fillable: false, reason: 'hidden' });
+  });
+
+  it('fills a control that is only removed from the tab order', () => {
+    expect(hidden(laidOut(only('<input tabindex="-1">'))).fillable).toBe(true);
+  });
+
+  it('fills a control merely below the fold, which the user can scroll to', () => {
+    expect(hidden(laidOut(only('<input>'), { top: 4000 })).fillable).toBe(true);
   });
 
   it('fills a hidden control when the user has turned the check off', () => {
-    const element = only('<input style="display:none">');
+    const element = laidOut(only('<input style="display:none">'));
     expect(classifyStructural(element, context({ skipHidden: false })).fillable).toBe(true);
   });
 });
@@ -434,5 +491,234 @@ describe('kind coverage', () => {
       expect(value.provenance, `${kind} must explain itself`).not.toBe('');
       if (value.as === 'text') expect(value.value, `${kind} must not be empty`).not.toBe('');
     }
+  });
+});
+
+describe('identity sources (FR-027, ND-2)', () => {
+  it('collects every source separately, class included', () => {
+    const element = only(
+      '<input name="n" id="i" class="Field__input" placeholder="p" aria-label="a">',
+    );
+    // Separately, never concatenated. A blob cannot be anchored, cannot say
+    // which source matched, and lets a class trigger a rule meant for a name.
+    expect(describeField(element, 0, 'text').sources).toEqual({
+      name: 'n',
+      id: 'i',
+      className: 'Field__input',
+      label: undefined,
+      placeholder: 'p',
+      ariaLabel: 'a',
+    });
+  });
+
+  it('reads a label the control points at with aria-labelledby', () => {
+    // `element.labels` is empty for anything not form-associated, so a custom
+    // combobox arrives at matching carrying nothing but an id without this.
+    const root = fragment('<span id="lbl">Currency</span><div id="c" role="combobox" aria-labelledby="lbl"></div>');
+    const combobox = root.querySelector('#c')!;
+    expect(describeField(combobox, 0, 'combobox').sources.label).toBe('Currency');
+  });
+
+  it('joins several labelling elements in the order the page listed them', () => {
+    const root = fragment('<span id="a">Billing</span><span id="b">Country</span><div id="c" role="combobox" aria-labelledby="a b"></div>');
+    expect(describeField(root.querySelector('#c')!, 0, 'combobox').sources.label).toBe('Billing Country');
+  });
+
+  it('prefers a real label over aria-labelledby where both exist', () => {
+    const root = fragment('<span id="lbl">Pointed at</span><label for="f">Real</label><input id="f" aria-labelledby="lbl">');
+    expect(describeField(root.querySelector('#f')!, 0, 'text').sources.label).toBe('Real');
+  });
+
+  it('omits a source the control does not carry rather than storing it empty', () => {
+    expect(describeField(only('<input name="n">'), 0, 'text').sources).toEqual({ name: 'n' });
+  });
+});
+
+describe('custom combobox detection (FR-081)', () => {
+  it.each([
+    ['a div declaring itself a combobox', '<div role="combobox"></div>'],
+    ['a div declaring itself a listbox', '<div role="listbox"></div>'],
+    ['a button that opens a listbox', '<button aria-haspopup="listbox"></button>'],
+  ])('recognises %s', (_label, html) => {
+    expect(classifyStructural(only(html), context())).toEqual({ fillable: true, kind: 'combobox' });
+  });
+
+  it('treats an input wearing the role as the text input it is', () => {
+    // The ARIA autocomplete pattern: a text input with a popup attached. Typing
+    // into it is right, and driving it through the ladder would replace a
+    // working fill with an interaction that has to be verified.
+    expect(classifyStructural(only('<input role="combobox">'), context())).toEqual({
+      fillable: true,
+      kind: 'text',
+    });
+  });
+
+  it('cannot tell whether a custom combobox already holds an answer, so leaves it alone', () => {
+    // BR-005-1 decides the direction. A `<div>` exposes rendered text, in which
+    // a chosen answer and a placeholder are the same shape — so with the toggle
+    // on we say we do not know rather than claiming we looked.
+    expect(classifyStructural(only('<div role="combobox">Select…</div>'), context({ skipPreFilled: true }))).toEqual({
+      fillable: false,
+      reason: 'content-unknown',
+    });
+  });
+});
+
+describe('ignore patterns (UC-005 step 5, BR-005-6)', () => {
+  const withPatterns = (patterns: RegExp[], overrides = {}) => ({
+    ...context(overrides),
+    ignorePatterns: patterns,
+    identity: [] as string[],
+  });
+
+  it('excludes a control whose identity matches', () => {
+    const element = only('<input name="captcha_answer">');
+    const ctx = { ...withPatterns([/captcha/i]), identity: ['captcha_answer'] };
+    expect(classify(element, ctx)).toEqual({ fillable: false, reason: 'ignored-pattern' });
+  });
+
+  it('reports the pattern as the reason even when the control is also hidden', () => {
+    // The first rule to fire in UC-005's order is the reason reported, and step
+    // 5 sits before step 6. A user debugging a skipped field needs one answer.
+    const element = only('<input name="captcha" style="display:none">');
+    const ctx = { ...withPatterns([/captcha/i], { skipHidden: true }), identity: ['captcha'] };
+    expect(classify(element, ctx)).toEqual({ fillable: false, reason: 'ignored-pattern' });
+  });
+
+  it('still reports a structural exclusion ahead of the pattern', () => {
+    // A disabled control was never fillable; saying it was "ignored" would send
+    // someone looking for a pattern that is not the cause.
+    const element = only('<input name="captcha" disabled>');
+    const ctx = { ...withPatterns([/captcha/i]), identity: ['captcha'] };
+    expect(classify(element, ctx)).toEqual({ fillable: false, reason: 'disabled' });
+  });
+
+  it('does not let a global pattern carry state between fields', () => {
+    // A `/g` pattern keeps `lastIndex` between calls, so it matches every other
+    // field. Reset per test, which this asserts by testing the same source twice.
+    const sticky = /token/g;
+    expect(matchesIgnorePattern(['csrf_token'], [sticky])).toBe(true);
+    expect(matchesIgnorePattern(['csrf_token'], [sticky])).toBe(true);
+  });
+
+  it('matches each source on its own so a pattern can be anchored', () => {
+    // Anchoring is the property a flattened blob destroys (ND-2): `^name$` can
+    // only mean anything if it is tested against one source at a time.
+    expect(matchesIgnorePattern(['name', 'a-long-label'], [/^name$/])).toBe(true);
+    expect(matchesIgnorePattern(['username', 'a-long-label'], [/^name$/])).toBe(false);
+  });
+});
+
+describe('pre-filled exclusion, per control kind (UC-005 step 7)', () => {
+  const filled = (html: string) => classifyStructural(only(html), context({ skipPreFilled: true }));
+
+  it('treats a chosen option as content', () => {
+    expect(filled('<select><option value="">Choose…</option><option value="a" selected>A</option></select>')).toEqual({
+      fillable: false,
+      reason: 'pre-filled',
+    });
+  });
+
+  it('does not treat a placeholder option as content', () => {
+    // A select resting on its empty placeholder has not been answered.
+    expect(filled('<select><option value="" selected>Choose…</option><option value="a">A</option></select>').fillable).toBe(true);
+  });
+
+  it('treats text in a content-editable region as content', () => {
+    expect(filled('<div contenteditable="true">a draft</div>')).toEqual({
+      fillable: false,
+      reason: 'pre-filled',
+    });
+  });
+
+  it('does not treat whitespace in a content-editable region as content', () => {
+    expect(filled('<div contenteditable="true">   </div>').fillable).toBe(true);
+  });
+});
+
+describe('generated credentials never leak (D5, FR-026)', () => {
+  it('writes nothing to the console while generating a password', () => {
+    // The reference writes the generated password to the page console via
+    // `console.info`, which puts credentials into the page's log and into any
+    // console-capturing tooling watching it.
+    const seen: unknown[][] = [];
+    const methods = ['log', 'info', 'warn', 'error', 'debug'] as const;
+    // Bound as it is captured: referencing `console.log` as a value detaches it
+    // from `console`, and restoring the detached form later would be a subtler
+    // change than this test is trying to make.
+    const originals = methods.map((name) => [name, console[name].bind(console)] as const);
+    for (const name of methods) console[name] = (...args: unknown[]) => void seen.push(args);
+
+    try {
+      for (let seed = 0; seed < 25; seed++) {
+        generateValue(descriptorFor('<input type="password">'), persona, seededRandom(seed));
+      }
+    } finally {
+      for (const [name, fn] of originals) console[name] = fn;
+    }
+
+    expect(seen).toEqual([]);
+  });
+});
+
+describe('passwords honour what the field itself demands (FR-072, D9)', () => {
+  const passwordFor = (attributes: string) =>
+    generateValue(descriptorFor(`<input type="password" ${attributes}>`), persona, seededRandom(3));
+
+  const text = (value: ReturnType<typeof passwordFor>) => (value.as === 'text' ? value.value : '');
+
+  it('keeps one of each character class when squeezed by maxlength', () => {
+    // Plain slicing takes the tail off, where the digit and symbol sit — leaving
+    // a value that is short enough and fails the policy it was built for.
+    const value = text(passwordFor('maxlength="10"'));
+    expect(value).toHaveLength(10);
+    expect(value).toMatch(/[A-Z]/);
+    expect(value).toMatch(/[a-z]/);
+    expect(value).toMatch(/[0-9]/);
+  });
+
+  it('reaches a minimum length the field demands', () => {
+    expect(text(passwordFor('minlength="40"')).length).toBeGreaterThanOrEqual(40);
+  });
+
+  it('drops the symbol for a field whose pattern forbids one', () => {
+    // The commonest real pattern by a distance, and the one thing our default
+    // password fails on. Satisfying an arbitrary regex is not solvable; this one
+    // shape is, and it is most of the population.
+    const value = text(passwordFor('pattern="[A-Za-z0-9]{8,}"'));
+    expect(value).toMatch(/^[A-Za-z0-9]{8,}$/);
+  });
+
+  it('uses a symbol the pattern does allow', () => {
+    const value = text(passwordFor('pattern="[A-Za-z0-9!]{8,}"'));
+    expect(value).toMatch(/^[A-Za-z0-9!]{8,}$/);
+    expect(value).toMatch(/!/);
+  });
+
+  it('honours a pattern and a length ceiling together', () => {
+    const value = text(passwordFor('pattern="[A-Za-z0-9]{6,}" maxlength="12"'));
+    expect(value).toMatch(/^[A-Za-z0-9]{6,12}$/);
+  });
+
+  it('keeps its value when no rung of the ladder fits', () => {
+    // An unsatisfiable pattern is not a reason to write nothing: the value is
+    // kept, and write-verification reports the control as failed rather than the
+    // fill claiming a value the page will reject (FR-076).
+    const value = text(passwordFor('pattern="[0-9]{4}"'));
+    expect(value).not.toBe('');
+  });
+
+  it('treats a pattern it cannot parse as satisfied', () => {
+    // We cannot judge against a rule we cannot read, and the browser will not
+    // enforce it either. Same call UC-005 A5 makes for an invalid ignore pattern.
+    expect(text(passwordFor('pattern="([unclosed"'))).not.toBe('');
+  });
+
+  it('anchors the pattern, as the platform does', () => {
+    // `pattern="\\d{4}"` means the whole value is four digits, not that four
+    // digits appear somewhere in it. An unanchored test would accept our default
+    // password unchanged and call the field satisfied.
+    const value = text(passwordFor('pattern="[A-Za-z0-9]{8,}"'));
+    expect(/[^A-Za-z0-9]/.test(value)).toBe(false);
   });
 });
