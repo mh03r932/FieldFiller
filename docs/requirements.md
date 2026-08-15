@@ -58,6 +58,23 @@ noticing that a change restructures a section. It is written here, in DD-005, an
 obligations list of `use_case_catalog.md`, because it is the sort of cost that otherwise gets
 paid by a user rather than by a build.
 
+### What the corpus is and is not checked against, added 2026-08-15
+
+`tests/corpus.test.ts` checks the data mechanically: every canton code is a canton, every state
+code is a state, every PLZ is four digits inside its canton's range, every ZIP prefix sits in its
+state's allocated band, no list holds a duplicate, and one region code never maps to two spellings.
+`tests/persona.test.ts` then checks that a generated record keeps those pairings.
+
+**What none of that proves is that a place's real postal code is the one written down.** The
+coherence test looks the city up in the same table the generator drew from, so a wrong code typed
+into the corpus satisfies it perfectly. The range and band checks narrow the gap to "this is the
+wrong real code for this real place" rather than "this is not a code" — the mistakes a person
+actually makes when typing a few hundred rows — but the residue is real and no unit test can
+close it, because the fact is external to the program.
+
+Stated here because a coherence claim that quietly rests on its own input is the kind of
+overclaim this column exists to prevent.
+
 ### What the fill report retains, added 2026-08-15 with DD-006
 
 DD-006's options-page report names each field the way the user sees it, which means a control's

@@ -154,6 +154,15 @@ jobs:
         # revert timer that erased the exclusion mark set after it.
         run: pnpm run scopes:chrome
 
+      - name: Corpus per locale (Chromium)
+        # The path a unit test cannot reach: a locale written to storage, parsed
+        # back, resolved, and turned into a record on a real page. Until this
+        # existed de-CH had never run in a browser at all — every other run uses
+        # the default, which resolves to en-US on a headless Chrome.
+        run: |
+          export CHROME_PATH="$(node -e 'console.log(require("playwright").chromium.executablePath())')"
+          pnpm run locale:chrome
+
       - name: Dependent fields (Chromium)
         # UC-034's scoreboard, and since 2026-08-15 a regression gate: all three
         # DD-009 steps have landed and every row is expected to pass. A red build
