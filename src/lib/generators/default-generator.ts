@@ -36,12 +36,15 @@ const AUTOCOMPLETE_ATTRIBUTES: Record<string, keyof Persona> = {
   organization: 'organisation',
   'street-address': 'streetAddress',
   'address-line1': 'streetAddress',
+  'address-line2': 'addressLine2',
   'address-level2': 'locality',
   'address-level1': 'region',
   'postal-code': 'postalCode',
-  country: 'country',
+  country: 'countryCode',
   'country-name': 'country',
   url: 'url',
+  bday: 'dateOfBirth',
+  'organization-title': 'jobTitle',
   'new-password': 'password',
   'current-password': 'password',
 };
@@ -83,6 +86,16 @@ const IDENTITY_HINTS: ReadonlyArray<readonly [RegExp, keyof Persona]> = [
   [/country/i, 'country'],
   [/company|organisation|organization|employer/i, 'organisation'],
   [/web[\s_-]*site|homepage|url/i, 'url'],
+  // Later than the address block on purpose: `address2` must reach the second
+  // line, but `address` alone must still reach the first.
+  [/address[\s_-]*(line)?[\s_-]*2|apartment|apt|suite|stock/i, 'addressLine2'],
+  [/birth|geburt|dob\b/i, 'dateOfBirth'],
+  [/job[\s_-]*title|position|beruf|funktion/i, 'jobTitle'],
+  // The identifiers this locale emits. A locale without one leaves the slot
+  // empty, and an empty slot falls through to A2's neutral value rather than
+  // writing nothing and calling the field filled.
+  [/ahv|avs|social[\s_-]*security|versicherten/i, 'nationalId'],
+  [/iban|bank[\s_-]*account|kontonummer/i, 'iban'],
 ];
 
 const LOREM = [
@@ -231,7 +244,12 @@ function select(
 
   const attribute = personaAttribute(descriptor);
   if (attribute !== undefined) {
-    return { value: persona[attribute.key], provenance: attribute.provenance };
+    const value = persona[attribute.key];
+    // An empty slot means this locale has no such thing — a US persona has no
+    // AHV number. Writing `''` would report the control as filled while leaving
+    // it blank, so it falls through to A2's neutral value instead, and the
+    // provenance says which slot was empty rather than pretending none matched.
+    if (value !== '') return { value, provenance: attribute.provenance };
   }
 
   // UC-004 A2: no meaningful default for this kind, so a short neutral value

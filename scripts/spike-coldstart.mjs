@@ -15,13 +15,18 @@
  *     worker has been stopped, so it pays for its own restart.
  *
  * **What this cannot measure yet, and says so rather than implying otherwise.**
- * NFR-028 budgets 250 ms for loading the data corpus. There is no corpus:
- * `src/lib/persona/persona.ts` carries about fifty placeholder entries, so its
- * load time is indistinguishable from zero. The cold number below is therefore a
- * *floor*, and its value now is not pass/fail — it is budget allocation. What
- * NFR-027's 400 ms has left over after the restart is the envelope the real
- * corpus has to fit inside, and knowing that before the corpus is written is the
- * whole reason to run this early.
+ * **NFR-028, and why it is bounded rather than isolated.** The corpus is a
+ * statically bundled module — it must be, because a `fetch()` of an extension
+ * URL would put a network call into shipped code and `check-network.mjs` fails
+ * the build on one (NFR-006, G3). So there is no moment at which the corpus
+ * "loads" that could be timed on its own: V8 parses it while the worker starts,
+ * as part of the same evaluation.
+ *
+ * What can be measured is the whole restart *including* it, and that is the
+ * stronger claim anyway: if everything the worker does on a cold start fits in
+ * single-digit milliseconds, the corpus's share of it cannot exceed that. The
+ * figure below is therefore an upper bound on NFR-028 rather than a reading of
+ * it, and it is reported as such.
  *
  * **Nothing here is a test hook.** The trigger is `action.onClicked.dispatch`,
  * as in `e2e-chrome.mjs`; the round trip is the protocol's own `ping`; and the
@@ -457,24 +462,24 @@ try {
     console.log('    NFR-034 budgets 5 s for the whole cascade; messaging should be a rounding error in it.');
   }
 
-  if (cold.length > 0) {
-    const { median } = summarise(cold);
-    const left = BUDGETS.cold.ms - median;
-    console.log('\n  What this leaves for the corpus (NFR-028 budgets 250 ms):');
+  if (restart.length > 0) {
+    const { median } = summarise(restart);
+    console.log('\n  NFR-028 (corpus load, budget 250 ms):');
     console.log(
-      `    ${BUDGETS.cold.ms} ms − ${median.toFixed(0)} ms restart-and-fill = ${left.toFixed(0)} ms of envelope`,
+      `    The corpus is bundled into the worker, so it is parsed inside the ${median.toFixed(1)} ms restart`,
     );
+    console.log('    above — there is no separate load to time. That whole figure is an upper bound');
     console.log(
-      left >= 250
-        ? '    The corpus can be built to NFR-028 as written.'
-        : '    NFR-028 cannot be met inside NFR-027 as measured — the corpus budget or the corpus has to shrink.',
+      median <= 250
+        ? `    on the corpus's own cost, so NFR-028 is met with ${(250 - median).toFixed(0)} ms to spare.`
+        : '    on the corpus\'s own cost, and it already exceeds the budget: the corpus has to shrink.',
     );
   }
 
   console.log(
     '\n  Caveats, so these numbers are not quoted as more than they are:\n' +
-      '    · The corpus does not exist yet (src/lib/persona/persona.ts is a ~50-entry placeholder),\n' +
-      '      so every figure here is a floor and NFR-028 remains unmeasured.\n' +
+      '    · NFR-028 is bounded, not isolated: a bundled module has no load event to time,\n' +
+      '      so the restart figure stands in for it and can only overstate the cost.\n' +
       '    · The cold figure is composed, not observed: dispatching the toolbar listener requires\n' +
       '      reaching into the worker, which starts it. Restart and fill overlap in reality, so the\n' +
       '      sum is an upper bound.\n' +

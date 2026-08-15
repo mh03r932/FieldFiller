@@ -108,9 +108,9 @@ convenience and trust.
 Reconciling `requirements.md` against the test suite after DD-009 gave the first honest
 picture: **51 Done, 13 Partial, 9 Blocked, 44 Open** — 117 rows, being the 82 functional and 35
 non-functional requirements that existed at that moment. After DD-005 and DD-006 both landed
-later the same day, and Phase 3 after them, the count reads **70 Done, 10 Partial, 1 Blocked,
-50 Open and 1 Deferred**, across **132**: the same rows plus NFR-036, which DD-009 added, plus
-the 14 Constraints.
+later the same day, then Phase 3 and the data corpus after them, the count reads **72 Done, 9
+Partial, 50 Open and 1 Deferred — and nothing Blocked**, across **132**: the same rows plus
+NFR-036, which DD-009 added, plus the 14 Constraints.
 
 **The two denominators are stated because they differ, and the difference is not only
 arithmetic.** The Constraints carry a status column and every one of the 14 reads `Open` — as a
@@ -120,11 +120,10 @@ so the 132-row tally's `Open` count is inflated by rows that were never scored. 
 rather than corrected in passing: scoring 14 constraints is a judgement per row, and the
 regulatory ones are not ours to mark off between commits.
 
-The single remaining Blocked row is NFR-028, waiting on the data
-corpus rather than on any decision. Almost everything Phase 2
-lists is built and verified — every control kind, native constraints, the framework-safe write,
-the full exclusion set with honeypots, confirmation mirroring, coherent personas, frames, shadow
-roots, error isolation, and all three steps of UC-034.
+NFR-028 was the last Blocked row, and the data corpus it waited for now exists. Almost
+everything Phase 2 lists is built and verified — every control kind, native constraints, the
+framework-safe write, the full exclusion set with honeypots, confirmation mirroring, coherent
+personas, frames, shadow roots, error isolation, and all three steps of UC-034.
 
 **What was left in this phase was blocked by a decision this plan deferred past it.**
 FR-019..FR-022 (generator types, alphanumeric templates, regex, randomized list), FR-031
@@ -146,10 +145,13 @@ change loses what the tolerant parser cannot recognise.
 **Two things remain unscheduled anywhere**, and both were surfaced by DD-009's work rather than
 by this plan:
 
-- **The data corpus.** `persona.ts` carries about fifty placeholder entries. Every Phase 0
-  latency budget was written against a corpus that does not exist: NFR-028 (250 ms to load it)
-  has never been measurable, and NFR-027's cold-start figure is a floor rather than a result,
-  with roughly 390 ms of its 400 ms budget reserved for something unwritten.
+- ~~**The data corpus.**~~ **Built 2026-08-15.** Two locales (en-US, de-CH), ~2,300 entries held
+  as parts and combined, so the number of distinct records is effectively unbounded while the
+  data stays small enough to read in a diff. Real cities, regions and postal districts — the
+  only way the coherence claim means anything — with invented people and streets. NFR-027 is no
+  longer a floor (14.0 ms with the corpus in place) and NFR-028 is measured as a bound: the
+  corpus is a bundled module, so it is parsed inside an 11.0 ms worker start and has no separate
+  load to time.
 - **FR-082**, persona-preferred options, which UC-004 owes and DD-009 deliberately split off.
 
 ### UC-034 in three steps

@@ -16,8 +16,17 @@
  * that never reports delays nothing.
  *
  * Background-only, by the import gate: this module and its corpus must never
- * reach the page agent (DD-003, ND-4).
+ * reach the page agent (DD-003, ND-4). `scripts/check-imports.mjs` enforces it,
+ * and the corpus is the reason it matters — it is by some way the largest thing
+ * the extension ships, and a stray import would put all of it into every page.
  */
+
+import { between, pick, type Corpus, type Locale } from './corpus/corpus';
+import { EN_US } from './corpus/en-US';
+import { DE_CH } from './corpus/de-CH';
+
+export type { Locale } from './corpus/corpus';
+export { LOCALES } from './corpus/corpus';
 
 export type Persona = {
   readonly firstName: string;
@@ -42,7 +51,28 @@ export type Persona = {
   readonly region: string;
   readonly postalCode: string;
   readonly country: string;
+  readonly countryCode: string;
   readonly url: string;
+
+  /** A second address line, which a great many forms ask for and few require. */
+  readonly addressLine2: string;
+  /** The abbreviation a state or canton select expects, beside the full name. */
+  readonly regionCode: string;
+  /** ISO `YYYY-MM-DD`, so a `type="date"` input takes it without reformatting. */
+  readonly dateOfBirth: string;
+  readonly jobTitle: string;
+  /**
+   * The national identifier this locale's forms ask for, or `''` where the
+   * locale has none this project will emit.
+   *
+   * Swiss AHV numbers carry a check digit, so a generated one is visibly
+   * constructed and a form that validates the format accepts it — which is the
+   * only reason to emit one. A US Social Security number has no checksum, so a
+   * generated one is indistinguishable from a real one, and none is produced.
+   */
+  readonly nationalId: string;
+  /** An IBAN with correct check digits, or `''` where the locale has none. */
+  readonly iban: string;
 };
 
 /**
@@ -66,32 +96,6 @@ export function seededRandom(seed: number): Random {
 }
 
 /**
- * A deliberately tiny corpus, and still the placeholder one.
- *
- * The real corpus — loaded once per background lifetime and measured against the
- * cold-start budget (NFR-027..029) — is outstanding, along with the spike that
- * sizes it. What is here is enough to demonstrate the property that matters:
- * coherence belongs to the record, not to a correlation between generators.
- */
-const FIRST_NAMES = ['Ada', 'Bram', 'Chidi', 'Dagny', 'Emil', 'Farida', 'Gwen', 'Hakim'];
-const LAST_NAMES = ['Ashworth', 'Beaumont', 'Calder', 'Devereux', 'Engström', 'Fairbairn'];
-const STREETS = ['Alder Row', 'Bexley Lane', 'Cobden Street', 'Dunmore Way', 'Elmfield Road'];
-const ORGANISATIONS = ['Northwind Logistics', 'Palegate Systems', 'Quarrymill Foods'];
-
-/** Locality, region and postcode agree by construction, never by luck (BR-004-2). */
-const PLACES = [
-  { locality: 'Bristol', region: 'England', postalCode: 'BS1 4DJ' },
-  { locality: 'Aberdeen', region: 'Scotland', postalCode: 'AB10 1XG' },
-  { locality: 'Swansea', region: 'Wales', postalCode: 'SA1 3RD' },
-] as const;
-
-function pick<T>(items: readonly T[], random: Random): T {
-  // `Math.floor(random() * length)`, not `* (length - 1)`: the reference's
-  // arithmetic makes the last entry of every array unreachable (D7).
-  return items[Math.floor(random() * items.length)] as T;
-}
-
-/**
  * A password that would actually pass a registration form.
  *
  * The reference's is `scrambledWord(8,8).toLowerCase()` — eight alternating
@@ -102,25 +106,63 @@ function pick<T>(items: readonly T[], random: Random): T {
 function password(random: Random): string {
   const lower = 'abcdefghijkmnopqrstuvwxyz';
   const upper = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
-  const digits = '23456789';
+  const numerals = '23456789';
   const symbols = '!@#$%&*';
   const from = (set: string, count: number) =>
     Array.from({ length: count }, () => set[Math.floor(random() * set.length)]).join('');
 
-  return `${from(upper, 1)}${from(lower, 8)}${from(digits, 3)}${from(symbols, 1)}`;
+  return `${from(upper, 1)}${from(lower, 8)}${from(numerals, 3)}${from(symbols, 1)}`;
 }
 
-export function createPersona(random: Random): Persona {
-  const firstName = pick(FIRST_NAMES, random);
-  const lastName = pick(LAST_NAMES, random);
-  const place = pick(PLACES, random);
-  const organisation = pick(ORGANISATIONS, random);
+/**
+ * A date of birth for an adult, as ISO `YYYY-MM-DD`.
+ *
+ * Bounded to 18–80 so the value passes the age check a registration form is
+ * likely to apply — a date of birth that fails validation tells the tester
+ * nothing about their form, which is the same argument the check digits make.
+ * Days stop at 28 so no month is ever given a day it does not have.
+ */
+function dateOfBirth(random: Random): string {
+  const year = new Date().getUTCFullYear() - between(18, 80, random);
+  const month = String(between(1, 12, random)).padStart(2, '0');
+  const day = String(between(1, 28, random)).padStart(2, '0');
+  return `${String(year)}-${month}-${day}`;
+}
 
-  // Everything below derives from what was chosen above. That derivation is the
-  // whole point: the email belongs to the name because it was built from it, not
-  // because a later generator was told to look at a previous field's output.
-  const slug = `${firstName}.${lastName}`.toLowerCase().normalize('NFD').replace(/[^a-z.]/g, '');
-  const domain = `${organisation.split(' ')[0]?.toLowerCase() ?? 'example'}.test`;
+/** The corpus for a locale. A closed union, so a typo cannot select nothing. */
+export function corpusFor(locale: Locale): Corpus {
+  return locale === 'de-CH' ? DE_CH : EN_US;
+}
+
+/**
+ * One coherent person, drawn from one locale's corpus.
+ *
+ * Everything after the four picks is *derived* from them. That derivation is the
+ * whole point: the email belongs to the name because it was built from it, not
+ * because a later generator was told to look at a previous field's output — and
+ * the postcode belongs to the city because they were chosen as one thing.
+ */
+export function createPersona(random: Random, locale: Locale = 'en-US'): Persona {
+  const corpus = corpusFor(locale);
+
+  const firstName = pick(corpus.firstNames, random);
+  const lastName = pick(corpus.lastNames, random);
+  const place = pick(corpus.places, random);
+  const organisation = `${pick(corpus.organisationStems, random)} ${pick(corpus.organisationSuffixes, random)}`;
+  const street = `${pick(corpus.streetStems, random)}${corpus.locale === 'de-CH' ? '' : ' '}${pick(corpus.streetSuffixes, random)}`;
+
+  // Diacritics are folded for the machine-readable derivations only. `Müller`
+  // stays `Müller` in the name field and becomes `mueller` in the address,
+  // because that is what the person would have typed when they registered.
+  const slug = `${firstName}.${lastName}`
+    .toLowerCase()
+    .replace(/ä/g, 'ae')
+    .replace(/ö/g, 'oe')
+    .replace(/ü/g, 'ue')
+    .replace(/ß/g, 'ss')
+    .normalize('NFD')
+    .replace(/[^a-z.]/g, '');
+  const domain = `${(organisation.split(' ')[0] ?? 'example').toLowerCase().normalize('NFD').replace(/[^a-z]/g, '')}.test`;
 
   return {
     firstName,
@@ -129,14 +171,22 @@ export function createPersona(random: Random): Persona {
     fullName: `${firstName} ${lastName}`,
     username: slug.replace('.', ''),
     email: `${slug}@${domain}`,
-    // A UK persona gets a UK number, because the address is UK too.
-    phone: `+44 7${String(Math.floor(random() * 900_000_000) + 100_000_000)}`,
+    phone: corpus.phone(random),
     organisation,
-    streetAddress: `${Math.floor(random() * 120) + 1} ${pick(STREETS, random)}`,
+    streetAddress: corpus.streetLine(street, between(1, 148, random)),
+    addressLine2: `${corpus.locale === 'de-CH' ? 'Stock' : 'Apt'} ${String(between(1, 24, random))}`,
     locality: place.locality,
     region: place.region,
-    postalCode: place.postalCode,
-    country: 'United Kingdom',
+    regionCode: place.regionCode,
+    postalCode: corpus.postalCode(place, random),
+    country: corpus.country,
+    countryCode: corpus.countryCode,
     url: `https://www.${domain}`,
+    dateOfBirth: dateOfBirth(random),
+    jobTitle: pick(corpus.jobTitles, random),
+    // `''` rather than a plausible-looking value where the locale has none. A
+    // field left empty is visible; a fabricated identifier is not.
+    nationalId: corpus.nationalId?.(random) ?? '',
+    iban: corpus.iban?.(random) ?? '',
   };
 }
