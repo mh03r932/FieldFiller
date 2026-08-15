@@ -129,14 +129,34 @@ Step A first is not caution, it is a dependency: the loop's central decision —
 control need another pass?* — is a verification question, so building the loop on an
 unverified report means building it on a guess.
 
-Step C is gated on a measurement rather than scheduled, and the measurement is a **latency**
-one: widening the walk's candidate selector to find `role="combobox"` grows the candidate set
-on **every** page, not only on pages that have one, so the cost lands on NFR-001's per-fill
-budget everywhere. Measure that inflation against the reference page before committing.
+Step C was gated on a measurement rather than scheduled, and the measurement was a **latency**
+one: widening the walk's candidate selector to find `role="combobox"` was expected to grow the
+candidate set on **every** page, not only on pages that have one, so the cost would land on
+NFR-001's per-fill budget everywhere. Per `vision.md` §3, coverage yields to a budget where
+correctness does not, so C was the part of DD-009 that got cut if the number was bad.
 
-Per `vision.md` §3, coverage yields to a budget where correctness does not, so C is the part of
-DD-009 that gets cut if the measurement is bad — an honestly skipped combobox is a correct
-outcome.
+**Measured 2026-08-15 (`scripts/spike-combobox.mjs`, `pnpm run spike:combobox`). The gate is
+passed, and the premise behind it was wrong.**
+
+| Page | Candidates | Walk | Cost |
+|---|---|---|---|
+| Reference fixture, 105 elements | 32 → 32 | 0.012 → 0.014 ms | — |
+| Cascade fixture, 93 elements | 18 → 19 | 0.012 → 0.012 ms | — |
+| **Application page, 500 controls, no combobox** | **500 → 500** | 0.346 → 0.398 ms | **+0.052 ms, 0.01% of NFR-001** |
+| Design system, 500 controls, 60 comboboxes | 500 → 560 | 0.360 → 0.410 ms | +0.050 ms |
+
+Candidate-set inflation on a page with no combobox is **zero**, not small — an attribute
+selector matches only elements carrying the attribute, so classification, identification and
+generation see exactly what they saw before. What the widening actually costs is selector
+*matching*, and on a 3,591-element application page that is 0.05 ms. The worry was aimed at
+the wrong quantity.
+
+**The cost that does exist is somewhere else, and this measurement does not cover it.** Driving
+a combobox means interacting with it and waiting for the page to respond, per control. Sixty of
+them on one page is the number that could threaten NFR-001, not the selector. So C ships with a
+per-control interaction budget and a per-pass total, and reports the overflow as skipped rather
+than spending an unbounded amount of time — which is the same shape as every other bound in
+DD-009, and the reason A10 already exists.
 
 **Not** gated on NFR-003, which is where an earlier draft of this section pointed. Measured
 2026-08-14, the page agent was **10.73 KB of its 40 KB** budget, with the full walk, exclusion,
