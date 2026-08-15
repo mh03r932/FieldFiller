@@ -94,13 +94,21 @@ is claimed by at least one use case, with these intentional exceptions:
 ## Design Decisions Blocking Specification
 
 `docs/vision.md` §7.4 lists 17 reference design decisions (ND-1..ND-17) that must not be
-ported. Three of them change a use case's shape and must be settled before it is written:
+ported. Three of them changed a use case's shape and had to be settled before it was written.
+**All three are now decided** (`vision.md` §7.4 and §9), and this table is kept as the record
+of what each one bought:
 
-| | Affects | Must decide |
+| | Affects | Decided |
 |---|---|---|
-| **ND-1** Per-record vs. per-field generation | UC-004 | Whether the engine synthesises one coherent identity per fill. Retrofitting this later is a rewrite. |
-| **ND-2** Source-scoped matching vs. flattened blob | UC-004, UC-009, UC-018 | The rule data model and the rule authoring UI both depend on the answer. |
-| **ND-9** Discriminated union vs. overloaded `template` | UC-009, UC-026, UC-027 | The settings schema, and therefore the Fake Filler importer's mapping. |
+| ~~**ND-1**~~ Per-record vs. per-field generation | UC-004 | One coherent identity per fill. Retrofitting it would have been a rewrite — and it is what made DD-009's multi-pass filling tractable two phases later, since a field described in pass 3 resolves to the same person as one described in pass 0. |
+| ~~**ND-2**~~ Source-scoped matching vs. flattened blob | UC-004, UC-009, UC-018 | Sources stay separate. Descriptors carry them per source today, so the rule model has the shape it needs whenever it is written. |
+| ~~**ND-9**~~ Discriminated union vs. overloaded `template` | UC-009, UC-026, UC-027 | A discriminated union on generator type. |
+
+**What blocks specification now is DD-005, not an ND.** The settings schema is the last
+undecided input to the rule model, and it is what FR-019..FR-022, FR-031, FR-067, FR-068 and
+FR-070 are all waiting on — the whole of rule-driven generation and matching. Those
+requirements sit in Phase 2 in `implementation_plan.md` while the schema sits in Phase 4, which
+is a real ordering conflict and is recorded there rather than left to be rediscovered.
 
 ## Obligations Carried by Unwritten Specs
 

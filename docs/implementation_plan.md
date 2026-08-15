@@ -102,6 +102,43 @@ at the cost of a week rather than a quarter.
 At the end of this phase the extension does the job. Everything after it is control,
 convenience and trust.
 
+### Where Phase 2 actually stands, 2026-08-15
+
+Reconciling `requirements.md` against the test suite after DD-009 gave the first honest
+picture: **51 requirements Done, 13 Partial, 9 Blocked, 44 Open.** Almost everything Phase 2
+lists is built and verified — every control kind, native constraints, the framework-safe write,
+the full exclusion set with honeypots, confirmation mirroring, coherent personas, frames, shadow
+roots, error isolation, and all three steps of UC-034.
+
+**What is left in this phase is blocked, and blocked by a decision this plan deferred past it.**
+FR-019..FR-022 (generator types, alphanumeric templates, regex, randomized list), FR-031
+(precedence), FR-067, FR-068 and FR-070 are all rule-driven, and the rule model needs the
+settings schema — DD-005, which was moved to Phase 4 on 2026-08-14 for its own good reasons.
+Nine requirements are therefore parked in a phase whose exit criterion cannot include them.
+
+That is not a mistake to correct by moving rows around. It is a genuine constraint with two
+honest resolutions, and the choice belongs to whoever picks up the next phase:
+
+- **Bring DD-005 forward** and finish Phase 2 as written. The schema is needed by Phase 4
+  regardless, and deciding it earlier means the rule model is designed once rather than
+  approximated and revised.
+- **Redefine Phase 2's exit** as "the engine fills correctly with defaults", which is what it
+  now does, and move rule-driven generation to Phase 4 beside the UI that authors it. This is
+  the smaller change and arguably what the phase always meant — "defaults only and no settings
+  UI" is already in its goal line.
+
+The second reading is the more consistent one, but it is a scope decision rather than a
+sequencing detail, so it is recorded here rather than taken silently.
+
+**Two things remain unscheduled anywhere**, and both were surfaced by DD-009's work rather than
+by this plan:
+
+- **The data corpus.** `persona.ts` carries about fifty placeholder entries. Every Phase 0
+  latency budget was written against a corpus that does not exist: NFR-028 (250 ms to load it)
+  has never been measurable, and NFR-027's cold-start figure is a floor rather than a result,
+  with roughly 390 ms of its 400 ms budget reserved for something unwritten.
+- **FR-082**, persona-preferred options, which UC-004 owes and DD-009 deliberately split off.
+
 ### UC-034 in three steps
 
 DD-009 is the largest single change in this phase and the only one that touches both sides of
