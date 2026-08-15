@@ -339,11 +339,18 @@ users switch — but it is also the piece most damaged by a moving schema. It st
 ## Critical path
 
 ```
-Phase 0 ─► Phase 1 ─► Phase 2 engine + schema (ND-9, DD-005) ─┬─► Phase 3 scopes ─────────────────────┐
-                                                              │                                        ├─► Phase 7
-                                                              └─► Phase 4 config ─► Phase 5 profiles ─► Phase 6 portability
-                                                                                                DD-002 ─┘
+Phase 0 ─► Phase 1 ─► Phase 2 engine + schema (ND-9, DD-005) ─┬─► Phase 3 scopes ────────────────────────────────────────────┐
+                                                              │                                                              │
+                                                              └─► Phase 4 config ─► Phase 5 profiles ─► Phase 6 portability ─┴─► Phase 7
+                                                                                                            ▲
+                                                                                                   DD-002 (sync quota)
 ```
+
+Phase 7 waits on **both** upper branches, not on Phase 3 alone: it is the release phase, and a
+release ships the configuration and portability work as much as the scopes. The `┴` is where
+they meet. **DD-002** enters from below because it gates Phase 6 and nothing else — an earlier
+drawing of this graph put its connector in the Phase 7 junction's column, where it read as a
+decision blocking the release. It is not one.
 
 All the decisions that gated the engine are now closed, and **DD-005** closed with them on
 2026-08-15 — pulled forward out of Phase 4, which is why the schema arrow above now feeds the
