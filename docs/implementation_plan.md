@@ -240,7 +240,7 @@ normalisation table.
 
 - **UC-002** Fill the Current Form — true form scoping, no `document` reach-through (ND-5)
 - **UC-003** Fill the Selected Input — unblocked by DD-001; the persistent page agent records the right-clicked element, so this works identically on both browsers
-- **UC-008** Suspend Filling on an Excluded Domain — engine-side enforcement, badge, and non-injection for host-pattern entries (FR-074)
+- **UC-008** Suspend Filling on an Excluded Domain — engine-side enforcement and badge. Non-injection for host-pattern entries was this row's third item until BR-008-4 declined it on 2026-08-15; FR-074 now asks that the agent never be *asked to act*, not that it never be loaded
 - Keyboard shortcuts and context menu wiring (FR-005, FR-006)
 
 UC-008 lands here rather than with its settings screen: "inert on my banking site" is a trust
@@ -374,8 +374,8 @@ All the decisions that gated the engine are now closed, and **DD-005** closed wi
 engine rather than trailing it. **DD-002** (sync quota) is the only decision left on the path;
 it blocks nothing before Phase 6 and can be resolved as late as UC-029 without holding anything
 up. **DD-006** (the feedback surface) was decided and built on 2026-08-15: badge, tooltip and the
-options-page report. Phase 3 is therefore unblocked — UC-002 and UC-003 need only supply their
-own scope value, because the sentence already names one.
+options-page report. That unblocked Phase 3, which was built the same day — UC-002 and UC-003
+needed only to supply their own scope value, because the sentence already named one.
 
 The cold-start spike is the sole remaining unknown, and it is a tuning question rather than
 an architectural one: if the corpus loads too slowly, the corpus shrinks. It cannot invalidate

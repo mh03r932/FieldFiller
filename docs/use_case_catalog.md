@@ -54,7 +54,7 @@ Legend — **Spec:** `Not started` · `Blocked` · `Drafted` · `Approved`
 | UC-018 | Configure Field Matching Sources | Power User | Choose which attributes take part in rule matching | FR-027..030 | Medium | Not started |
 | UC-019 | Configure Password Generation | Power User | Choose a fixed password or a policy-compliant generated one | FR-025, FR-026, FR-072 | High | Not started |
 | UC-020 | Configure Field Exclusions | Power User | Set ignore patterns and hidden/pre-filled behaviour | FR-034..036 | High | Not started |
-| UC-021 | Configure Domain Exclusions | Power User | List domains where the extension stays inert, or is never injected at all | FR-037, FR-074 | High | Not started |
+| UC-021 | Configure Domain Exclusions | Power User | List domains where the extension stays inert — loaded, but never asked to act (BR-008-4) | FR-037, FR-074 | High | Not started |
 | UC-022 | Configure Fill Behaviour Defaults | Power User | Set default max length, consent and confirmation keywords, event dispatch | FR-014, FR-015, FR-024, FR-049 | Medium | Not started |
 | UC-023 | Configure Triggers | Power User | Control which ways of invoking a fill are available | FR-006, FR-050, FR-005 | Medium | **Drafted** |
 | UC-024 | Persist and Propagate Settings | *(included)* | Durably store a settings change and apply it to open tabs without reload | FR-051, NFR-021 | High | **Drafted** |
