@@ -27,7 +27,7 @@
  *
  * Usage: node scripts/check-coverage-scope.mjs
  */
-import { readFileSync, readdirSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join, dirname, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -115,6 +115,11 @@ function matches(glob, path) {
 /** Every `.ts` file under an include root, as a repo-relative POSIX path. */
 function sources(glob) {
   const root = join(ROOT, glob.replace(/\/\*+$/, ''));
+  // An include root that does not exist is a config problem and is named as
+  // one. Without this check the walk below dies with a raw ENOENT stack trace —
+  // loud, but pointing at this script rather than at `vitest.config.ts`, unlike
+  // every other malformed-config path here.
+  if (!existsSync(root)) fail(`the coverage include \`${glob}\` points at \`${relative(ROOT, root) || '.'}\`, which does not exist`);
   const found = [];
 
   const walk = (directory) => {

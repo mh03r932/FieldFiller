@@ -68,9 +68,9 @@ jobs:
       # That the floor "grows with the engine" was a convention until 2026-08-15
       # and is now a mechanism. Coverage *measures* `src/lib/**`, but only what a
       # glob names is *held to* anything, so a new area appeared in the report
-      # gated by nothing. `scripts/check-coverage-scope.mjs`, in the gate job
-      # below, fails the build on any measured file no glob matches — and found
-      # two on the day it was written.
+      # gated by nothing. `scripts/check-coverage-scope.mjs`, in the `package`
+      # job's gate step below, fails the build on any measured file no glob
+      # matches — and found two on the day it was written.
       #
       # Run instead of a bare `pnpm test` rather than beside it, so the suite is
       # not executed twice.
@@ -116,21 +116,34 @@ jobs:
         # a fresh runner.
         run: pnpm exec playwright install --with-deps chromium
 
+      - name: Pin the Chromium path
+        # `CHROME_PATH` derived once, not once per harness below: the path is an
+        # output of the install step above and an input to every step that
+        # follows. Written through `$GITHUB_ENV` so each harness reads it like
+        # any other environment variable instead of re-deriving it.
+        #
+        # Bound to a variable rather than substituted straight into `echo`, so a
+        # `node` that fails takes the step down with it. Substituted inline, its
+        # exit status is discarded, `CHROME_PATH=` is exported empty, and the
+        # step stays green — and every harness quietly falls back to deriving
+        # the path itself, which is the work this step exists to remove. Note
+        # the quoting: this is a YAML block scalar, which passes backslashes
+        # through untouched, so the inner quotes must be bare.
+        run: |
+          chromium="$(node -e 'console.log(require("playwright").chromium.executablePath())')"
+          echo "CHROME_PATH=$chromium" >> "$GITHUB_ENV"
+
       - name: Build the Chromium package
         run: pnpm run build
 
       - name: Extension loads (Chromium)
-        run: |
-          export CHROME_PATH="$(node -e 'console.log(require("playwright").chromium.executablePath())')"
-          pnpm run smoke:chrome
+        run: pnpm run smoke:chrome
 
       - name: End-to-end fill (Chromium)
         # The whole pipeline against the reference page: every control kind, the
         # exclusions, confirmation fields, both frame kinds and an open shadow
         # root — all from one persona.
-        run: |
-          export CHROME_PATH="$(node -e 'console.log(require("playwright").chromium.executablePath())')"
-          pnpm run e2e:chrome
+        run: pnpm run e2e:chrome
 
       - name: Dependent fields (Chromium)
         # UC-034's scoreboard, and since 2026-08-15 a regression gate: all three
@@ -142,9 +155,7 @@ jobs:
         # being updated in the same change. That direction matters as much as the
         # other: the table is the record of what this engine can do, and a row
         # that quietly starts passing is a claim nobody wrote down.
-        run: |
-          export CHROME_PATH="$(node -e 'console.log(require("playwright").chromium.executablePath())')"
-          pnpm run cascade:chrome
+        run: pnpm run cascade:chrome
 
       # Firefox on release candidates only, per NFR-014. Installed from Mozilla
       # directly rather than through Playwright, whose Firefox is a patched build

@@ -94,6 +94,14 @@ field's identity is what the page's own author wrote into the markup, is identic
 visitor, and is already readable by anything with the page open. Retaining the second is not a
 weaker form of retaining the first.
 
+One caveat, kept rather than footnoted away: "identical for every visitor" describes the author's
+intent, not a property anything checks. On an authenticated page a label can embed the user's own
+text — a greeting, an account number in a legend — and nothing distinguishes those identities from
+any other. They stay inside the same bound as the rest (one fill, memory only, never stored),
+which is why the tests the "what would enforce it" column names — the shape assertion over the
+protocol types, and NFR-031's map-is-empty test — stay on the list rather than being retired as
+covered by construction.
+
 Reinterpreting the old wording silently would have been the alternative in both cases, and is
 exactly the move this catalog exists to prevent — including when the wording being reinterpreted
 is the one nobody thought to check.

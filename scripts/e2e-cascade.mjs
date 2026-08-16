@@ -204,7 +204,6 @@ try {
   await cdp.send('Page.enable', {}, page);
   await cdp.send('Runtime.enable', {}, page);
   await cdp.send('Page.navigate', { url: pageUrl }, page);
-  await sleep(1500);
 
   let worker;
   for (let attempt = 0; attempt < 60 && worker === undefined; attempt++) {
@@ -214,6 +213,36 @@ try {
   }
   if (worker === undefined) throw new Error('the background service worker never started');
   const workerSession = await cdp.attach(worker.targetId);
+
+  // Readiness as a condition, not a sleep. A fixed 1500 ms here was the thinnest
+  // margin in this harness: ample on an idle machine, and on a loaded shared
+  // runner short enough that the fill below could be triggered into a page whose
+  // agent was not yet listening — which fails as "the fill did not run",
+  // correctly diagnosed, but a flake all the same. The protocol's own ping is
+  // the exact condition the sleep approximated: a `pong` means the page agent is
+  // injected and listening in the tab about to be filled (the agent registers at
+  // `document_idle`, which Chrome may place immediately *after* the load event,
+  // so `readyState` alone would not prove it). Until it is listening,
+  // `sendMessage` rejects — "receiving end does not exist" — and the poll
+  // retries. The tab is identified the same way the trigger below identifies it.
+  let agentReady = false;
+  for (let attempt = 0; attempt < 100 && !agentReady; attempt++) {
+    const pinged = await cdp.send('Runtime.evaluate', {
+      expression: `chrome.tabs.query({}).then((tabs) => {
+        const tab = tabs.length === 1 ? tabs[0] : tabs.find((candidate) => candidate.active);
+        if (tab === undefined) return 'no tab among ' + tabs.length;
+        return chrome.tabs.sendMessage(tab.id, { kind: 'ping' })
+          .then((reply) => reply !== undefined && reply.kind === 'pong'
+            ? 'pong'
+            : 'answered without a pong: ' + JSON.stringify(reply))
+          .catch(() => 'not listening yet');
+      })`,
+      awaitPromise: true, returnByValue: true,
+    }, workerSession);
+    agentReady = pinged.result.value === 'pong';
+    if (!agentReady) await sleep(100);
+  }
+  if (!agentReady) throw new Error('the page agent never answered a ping within 10 s of navigation');
 
   const triggered = await cdp.send('Runtime.evaluate', {
     expression: `chrome.tabs.query({}).then((tabs) => {
