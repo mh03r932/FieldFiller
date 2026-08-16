@@ -204,11 +204,48 @@ export function watchAnchor(document: Document): AnchorWatch {
 }
 
 /**
+ * The authority of a URL or pattern with any `:port` removed, and a `/` path
+ * guaranteed (FR-037).
+ *
+ * Extension match patterns have no port: the host is a host, and matching
+ * ignores whatever port the page is served on. Ours claimed that vocabulary and
+ * did not implement it — `localhost/*` expanded to `^.*://localhost/.*$`, which
+ * `http://localhost:3000/` does not match, so the exclusion silently did not
+ * apply. Silently is the whole problem: an exclusion that fails tells the user
+ * nothing, and it fails *open*, which for FR-074 is the one direction that is
+ * not survivable.
+ *
+ * Applied to the pattern as well as the URL, which is the lenient half of the
+ * decision. Chrome would call `localhost:3000/*` malformed; we read it as
+ * `localhost/*` instead of never matching, so a port a user typed widens the
+ * exclusion to every port on that host rather than voiding it. Widening an
+ * exclusion is safe in a way that voiding one is not, and it keeps the promise
+ * the field makes when someone types what they see in their address bar.
+ *
+ * Only a trailing `:digits` goes: `[::1]:8080` keeps its brackets, and
+ * `user:pass@host` has no port to lose.
+ */
+function withoutPort(value: string): string {
+  const schemeEnd = value.indexOf('://');
+  if (schemeEnd === -1) return value;
+
+  const authorityStart = schemeEnd + '://'.length;
+  const pathStart = value.indexOf('/', authorityStart);
+  const authority = pathStart === -1 ? value.slice(authorityStart) : value.slice(authorityStart, pathStart);
+  // A host with nothing after it is the root, and `example.com/*` should cover
+  // it. Without this, `http://localhost` (no trailing slash) matches nothing.
+  const path = pathStart === -1 ? '/' : value.slice(pathStart);
+
+  return value.slice(0, authorityStart) + authority.replace(/:\d+$/, '') + path;
+}
+
+/**
  * Whether an exclusion or profile glob matches a URL (FR-037, FR-074, DD-005).
  *
  * The vocabulary users already know from extension match patterns: `*` stands
- * for any run of characters, everything else is literal. Deliberately not a
- * regular expression — this runs on a URL before every fill, and a second
+ * for any run of characters, everything else is literal, and the port takes no
+ * part on either side (see `withoutPort`). Deliberately not a regular
+ * expression — this runs on a URL before every fill, and a second
  * catastrophic-backtracking surface there is exactly where NFR-009 is hardest
  * to guarantee.
  *
@@ -219,14 +256,14 @@ export function matchesGlob(url: string, pattern: string): boolean {
   if (pattern === '') return false;
 
   const hasScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(pattern) || pattern.startsWith('*://');
-  const expanded = hasScheme ? pattern : `*://${pattern}`;
+  const expanded = withoutPort(hasScheme ? pattern : `*://${pattern}`);
   const source = expanded
     .split('*')
     .map((part) => part.replace(/[.+?^${}()|[\]\\]/g, '\\$&'))
     .join('.*');
 
   try {
-    return new RegExp(`^${source}$`, 'i').test(url);
+    return new RegExp(`^${source}$`, 'i').test(withoutPort(url));
   } catch {
     // A pattern that cannot compile matches nothing. Failing open here would be
     // the one direction UC-008 A1 rules out — but this is about a *pattern*

@@ -335,6 +335,44 @@ describe('domain exclusion patterns (UC-008, FR-037)', () => {
     expect(matchesGlob('http://example.com/', 'example.com/*')).toBe(true);
   });
 
+  describe('the port takes no part in matching, on either side (FR-037)', () => {
+    // Extension match patterns have no port and ignore the one the page is
+    // served on. Ours claimed that vocabulary and did not implement it, so every
+    // exclusion on a ported URL silently did not apply — failing *open*, which
+    // for FR-074 is the direction that matters.
+    it.each([
+      ['http://localhost:3000/app', 'localhost/*'],
+      ['http://127.0.0.1:8080/x', '127.0.0.1/*'],
+      // Not only a dev-server concern: an exclusion on a bank served over a
+      // non-default HTTPS port was silently inert too.
+      ['https://bank.example.com:8443/login', 'bank.example.com/*'],
+      ['https://bank.example.com:8443/login', '*.example.com/*'],
+      // A host with no path at all is still the root that `/*` covers.
+      ['http://localhost:3000', 'localhost/*'],
+      // IPv6 keeps its brackets; only a trailing `:digits` is a port.
+      ['http://[::1]:8080/x', '[::1]/*'],
+    ])('%s is excluded by %s', (url, pattern) => {
+      expect(matchesGlob(url, pattern)).toBe(true);
+    });
+
+    it('reads a port the user typed as the host, rather than never matching', () => {
+      // Chrome would call this pattern malformed. Voiding it would be the silent
+      // failure again, so it widens to the host instead — safe for an exclusion
+      // in a way that matching nothing is not.
+      expect(matchesGlob('http://localhost:3000/app', 'localhost:3000/*')).toBe(true);
+      expect(matchesGlob('http://localhost:9999/app', 'localhost:3000/*')).toBe(true);
+    });
+
+    it('does not let a port make a pattern match a different host', () => {
+      expect(matchesGlob('https://evil.test/?next=localhost/', 'localhost/*')).toBe(false);
+      expect(matchesGlob('http://localhost.evil.test:3000/', 'localhost/*')).toBe(false);
+    });
+
+    it('names the pattern for a ported URL, so the report can show it', () => {
+      expect(excludedBy('http://127.0.0.1:5173/form', ['127.0.0.1/*'])).toBe('127.0.0.1/*');
+    });
+  });
+
   it('does not let a pattern character become a wildcard by accident', () => {
     // `.` is a literal here. Reading it as a regex would make `bank.example.com`
     // match `bankXexample.com`, which is an exclusion silently not applying.
