@@ -410,6 +410,14 @@ export type FillReport = {
    * narrowed is a decision, and it gets its own sentence.
    */
   readonly refused: ScopeRefusal | undefined;
+  /**
+   * Which rung of DD-008's ladder resolved the scope (BR-002-4).
+   *
+   * A ladder is only better than a heuristic if its answer is inspectable, which
+   * is ND-2's argument applied to scopes rather than rules. Absent when no
+   * ladder ran — the page scope, and a fill that refused.
+   */
+  readonly scopeRule: ScopeRule | undefined;
   readonly fields: readonly FieldReportEntry[];
 };
 
@@ -590,6 +598,20 @@ function isOutcome(value: unknown): value is FieldOutcome {
 
 const CAP_REASONS = new Set(['pass-cap', 'time-budget', 'user-input', 'values-unavailable']);
 
+const SCOPE_REFUSALS: ReadonlySet<string> = new Set<ScopeRefusal>([
+  'no-form-around-anchor',
+  'no-anchor',
+]);
+
+const SCOPE_RULES: ReadonlySet<string> = new Set<ScopeRule>([
+  'element-form',
+  'role-form',
+  'submit-container',
+  'only-unit',
+  'whole-page',
+  'anchor-control',
+]);
+
 function isFrameReport(value: unknown): value is FrameReport {
   if (typeof value !== 'object' || value === null) return false;
   const candidate = value as Record<string, unknown>;
@@ -608,7 +630,17 @@ function isFrameReport(value: unknown): value is FrameReport {
     (candidate['passes'] === undefined || typeof candidate['passes'] === 'number') &&
     (candidate['capped'] === undefined ||
       (typeof candidate['capped'] === 'string' && CAP_REASONS.has(candidate['capped']))) &&
-    (candidate['stale'] === undefined || typeof candidate['stale'] === 'number')
+    (candidate['stale'] === undefined || typeof candidate['stale'] === 'number') &&
+    // The DD-008 fields, on the same terms as the DD-009 ones above: optional
+    // because an agent from before the scopes existed sends neither, and checked
+    // against their own vocabularies because both reach a user-facing surface.
+    // `refused` picks the sentence the user reads and `scopeRule` names a rung of
+    // the ladder; an unrecognised value in either would be shown, or silently
+    // change which sentence is shown, which is what validating here prevents.
+    (candidate['refused'] === undefined ||
+      (typeof candidate['refused'] === 'string' && SCOPE_REFUSALS.has(candidate['refused']))) &&
+    (candidate['scopeRule'] === undefined ||
+      (typeof candidate['scopeRule'] === 'string' && SCOPE_RULES.has(candidate['scopeRule'])))
   );
 }
 

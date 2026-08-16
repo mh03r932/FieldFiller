@@ -8,6 +8,7 @@ import {
   identityOf,
   noteDescriptors,
   resultSentence,
+  scopeRuleSentence,
   type FieldNotes,
   type ResultMessageKey,
 } from '@/lib/report/surface';
@@ -51,6 +52,7 @@ function report(overrides: Partial<FillReport> = {}): FillReport {
     stale: 0,
     skippedRules: [],
     refused: undefined,
+    scopeRule: undefined,
     fields: [],
     ...overrides,
   };
@@ -230,5 +232,50 @@ describe('the result sentence (DD-006)', () => {
     );
     expect(withRules).toContain('resultRulesSkipped:2|');
     expect(withRules).toContain('postcode: invalid pattern; phone: bad template');
+  });
+});
+
+describe('naming the rung that resolved the scope (BR-002-4)', () => {
+  // ND-2's argument applied to scopes: a ladder is only better than a heuristic
+  // if the answer is inspectable. The rung reached the protocol long before it
+  // reached a surface — the agent sent it, the background dropped it, and
+  // UC-002's postcondition went unmet with the field sitting there unread.
+  it.each([
+    ['element-form', 'resultRuleElementForm'],
+    ['role-form', 'resultRuleRoleForm'],
+    ['submit-container', 'resultRuleSubmitContainer'],
+    ['only-unit', 'resultRuleOnlyUnit'],
+    ['whole-page', 'resultRuleWholePage'],
+    ['anchor-control', 'resultRuleAnchorControl'],
+  ] as const)('names %s', (rule, key) => {
+    expect(scopeRuleSentence(report({ scopeRule: rule }), echo)).toBe(
+      `[reportScopeChosenBy:[${key}]]`,
+    );
+  });
+
+  it('says nothing when no rung ran', () => {
+    expect(scopeRuleSentence(report({ scopeRule: undefined }), echo)).toBeUndefined();
+  });
+
+  it('says nothing about a fill that refused', () => {
+    // A refusal has no scope to explain, and its own sentence explains more.
+    expect(
+      scopeRuleSentence(report({ refused: 'no-form-around-anchor', scopeRule: 'whole-page' }), echo),
+    ).toBeUndefined();
+  });
+});
+
+describe('a refusal is not an empty fill, on every surface (DD-006)', () => {
+  // The options page kept a second copy of this sentence that never learned
+  // about refusals, so a fill that refused to guess which form was meant was
+  // reported there as a form with nothing in it. Both surfaces call this now,
+  // and the test is what keeps a third copy from being written.
+  it.each([
+    ['no-anchor', 'resultRefusedNoAnchor'],
+    ['no-form-around-anchor', 'resultRefusedNoForm'],
+  ] as const)('reports %s as a refusal rather than a count', (refusal, key) => {
+    const sentence = resultSentence(report({ refused: refusal, counts: { filled: 0, skipped: 0, failed: 0 } }), echo);
+    expect(sentence).toBe(`[${key}]`);
+    expect(sentence).not.toContain('resultSettled');
   });
 });

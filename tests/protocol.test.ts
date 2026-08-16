@@ -177,3 +177,39 @@ describe('isValuesResponse', () => {
     expect(isValuesResponse(null)).toBe(false);
   });
 });
+
+describe('validating the DD-008 fields at the boundary', () => {
+  const frame = (extra: Record<string, unknown>): unknown => ({
+    kind: 'report',
+    operationId: 'op-1',
+    report: { frame: 'top', frameUrl: 'https://x.test/', outcomes: [], ...extra },
+  });
+
+  it('accepts a report from an agent that predates the scopes', () => {
+    // Neither field is sent by a build from before DD-008, and a tab open across
+    // the update still runs one. Absent stays valid; that is what makes the
+    // protocol able to grow.
+    expect(isFromAgentMessage(frame({}))).toBe(true);
+  });
+
+  it.each([
+    ['refused', 'no-anchor'],
+    ['refused', 'no-form-around-anchor'],
+    ['scopeRule', 'element-form'],
+    ['scopeRule', 'anchor-control'],
+  ])('accepts a known %s value: %s', (field, value) => {
+    expect(isFromAgentMessage(frame({ [field]: value }))).toBe(true);
+  });
+
+  it.each([
+    ['refused', 'no-idea'],
+    ['refused', 7],
+    ['scopeRule', 'vibes'],
+    ['scopeRule', {}],
+  ])('rejects an unknown %s value: %s', (field, value) => {
+    // Both reach a user-facing surface — `refused` decides which sentence is
+    // shown and `scopeRule` names a rung out loud — so an unrecognised value
+    // would be displayed, or would silently change what is displayed.
+    expect(isFromAgentMessage(frame({ [field]: value }))).toBe(false);
+  });
+});

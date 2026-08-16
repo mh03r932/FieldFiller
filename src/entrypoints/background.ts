@@ -26,6 +26,7 @@ import {
   type OperationId,
   type ReportResponse,
   type ScopeRefusal,
+  type ScopeRule,
   type ValuesResponse,
 } from '@/lib/protocol';
 
@@ -113,6 +114,14 @@ type Operation = {
   readonly skippedRules: Set<string>;
   /** Set when the frame refused to resolve a scope (UC-002 A3, UC-003 A2). */
   refused: ScopeRefusal | undefined;
+  /**
+   * Which rung of DD-008's ladder resolved the scope (BR-002-4).
+   *
+   * First frame to report one wins, on the same terms as `refused` below it: a
+   * narrowed scope is resolved in one frame — the one the user pointed at — and
+   * the others are walking the page scope, which has no rung to name.
+   */
+  scopeRule: ScopeRule | undefined;
 };
 
 type FieldOutcomeCounts = { filled: number; skipped: number; failed: number };
@@ -254,6 +263,7 @@ async function startFill(target: Target, scope: FillScope, trigger: FillTrigger)
       notes: new Map(),
       fields: [],
       refused: undefined,
+      scopeRule: undefined,
       // Profile rules would be concatenated ahead of the global list here, and
       // first-match-wins does the rest (FR-031). Profiles are Phase 5, so today
       // this is the global list alone.
@@ -464,6 +474,7 @@ function complete(operationId: OperationId): void {
     stale: operation.stale,
     skippedRules: [...operation.skippedRules],
     refused: operation.refused,
+    scopeRule: operation.scopeRule,
     fields: operation.fields,
   };
 
@@ -701,6 +712,7 @@ export default defineBackground(() => {
     // every frame and only the narrow scopes can refuse, so at most one frame
     // ever sets this.
     operation.refused ??= raw.report.refused;
+    operation.scopeRule ??= raw.report.scopeRule;
 
     // One frame stopping at a bound caps the whole fill: the user is being told
     // whether this page was settled, and "settled except for that iframe" is not

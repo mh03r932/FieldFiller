@@ -8,6 +8,7 @@ import type {
   FrameId,
   FrameReport,
   OutcomeCounts,
+  ScopeRule,
 } from '../protocol';
 
 /**
@@ -150,7 +151,14 @@ export type ResultMessageKey =
   | 'resultCapValuesUnavailable'
   | 'resultRulesSkipped'
   | 'resultRefusedNoForm'
-  | 'resultRefusedNoAnchor';
+  | 'resultRefusedNoAnchor'
+  | 'reportScopeChosenBy'
+  | 'resultRuleElementForm'
+  | 'resultRuleRoleForm'
+  | 'resultRuleSubmitContainer'
+  | 'resultRuleOnlyUnit'
+  | 'resultRuleWholePage'
+  | 'resultRuleAnchorControl';
 
 export type Translate = (key: ResultMessageKey, substitutions?: readonly string[]) => string;
 
@@ -195,6 +203,45 @@ export function resultSentence(report: FillReport, translate: Translate): string
     String(report.skippedRules.length),
     report.skippedRules.join('; '),
   ])}`;
+}
+
+/**
+ * Which rung of DD-008's ladder resolved this scope, in the user's language
+ * (BR-002-4, UC-002 postcondition).
+ *
+ * ND-2's argument is that a rule the user cannot predict is a defect; DD-008
+ * applies it to scopes, which is the whole reason the resolution is a ladder
+ * rather than a heuristic. A ladder nobody can see the rung of gives that up
+ * silently, and the rung travelled the protocol for a while doing exactly that —
+ * collected by the agent, dropped by the background, shown nowhere.
+ *
+ * Only the options page shows it. DD-006 gave the badge and tooltip no room for
+ * a fourth fact, and this is the least urgent of them: it answers "why that
+ * form?", which is a question asked after the fill rather than during it.
+ *
+ * `undefined` when there is no rung worth naming — a fill that refused has no
+ * scope to explain, and its own sentence explains more.
+ */
+export function scopeRuleSentence(report: FillReport, translate: Translate): string | undefined {
+  if (report.refused !== undefined || report.scopeRule === undefined) return undefined;
+  return translate('reportScopeChosenBy', [translate(ruleKey(report.scopeRule))]);
+}
+
+function ruleKey(rule: ScopeRule): ResultMessageKey {
+  switch (rule) {
+    case 'element-form':
+      return 'resultRuleElementForm';
+    case 'role-form':
+      return 'resultRuleRoleForm';
+    case 'submit-container':
+      return 'resultRuleSubmitContainer';
+    case 'only-unit':
+      return 'resultRuleOnlyUnit';
+    case 'anchor-control':
+      return 'resultRuleAnchorControl';
+    default:
+      return 'resultRuleWholePage';
+  }
 }
 
 function scopeKey(scope: FillScope): ResultMessageKey {

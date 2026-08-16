@@ -170,5 +170,39 @@
   "resultRefusedNoAnchor": {
     "message": "Nothing was selected to fill",
     "description": "Shown when a narrow scope was invoked with no anchor at all (UC-003 A2)."
+  },
+  "reportScopeChosenBy": {
+    "message": "Scope chosen by: $RULE$",
+    "description": "Options-page report line naming which rung of the DD-008 ladder resolved the scope (BR-002-4).",
+    "placeholders": {
+      "rule": {
+        "content": "$1",
+        "example": "the form the page says the field belongs to"
+      }
+    }
+  },
+  "resultRuleElementForm": {
+    "message": "the form the page says the field belongs to",
+    "description": "DD-008 ladder rule 1 (element-form), named for a user."
+  },
+  "resultRuleRoleForm": {
+    "message": "a container the page marks as a form",
+    "description": "DD-008 ladder rule 2 (role-form), named for a user."
+  },
+  "resultRuleSubmitContainer": {
+    "message": "the smallest block holding that field and its submit button",
+    "description": "DD-008 ladder rule 3 (submit-container), named for a user."
+  },
+  "resultRuleOnlyUnit": {
+    "message": "the only form on the page",
+    "description": "DD-008's anchorless case with exactly one form-like unit (UC-002 A2)."
+  },
+  "resultRuleWholePage": {
+    "message": "the whole page",
+    "description": "DD-008's anchorless case with no single form-like unit (UC-002 A2)."
+  },
+  "resultRuleAnchorControl": {
+    "message": "the control you pointed at",
+    "description": "The single-control scope, which resolves to the anchor itself (UC-003)."
   }
 }
