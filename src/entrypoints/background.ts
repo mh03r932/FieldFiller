@@ -165,6 +165,31 @@ function claimBadge(tabId: number): number {
   return next;
 }
 
+/**
+ * Runs badge writes, and undoes them if the tab moved on while they were in
+ * flight (UC-008 A5, BR-008-3).
+ *
+ * `claimBadge` bumps a generation and the `onUpdated` listener bumps it again on
+ * every navigation, clearing the badge as it goes. That ordering was only half
+ * honoured: the claim was taken and then never consulted, so a navigation
+ * landing between two awaited writes cleared the badge and our next write put
+ * the previous page's mark on the newly loaded one.
+ *
+ * Sub-millisecond, and the next fill re-evaluates from scratch — but the mark
+ * claims to stand until the tab navigates, and a mark describing the page before
+ * the one on screen is exactly the claim being broken. It matters most for the
+ * exclusion mark, which is standing rather than reverted after three seconds:
+ * a wrongly-placed `off` says a page is excluded that is not.
+ */
+async function whileCurrent(tabId: number, generation: number, writes: () => Promise<void>): Promise<void> {
+  if (badgeGeneration.get(tabId) !== generation) return;
+  await writes();
+  if (badgeGeneration.get(tabId) === generation) return;
+
+  await browser.action.setBadgeText({ tabId, text: '' }).catch(() => undefined);
+  await browser.action.setTitle({ tabId, title: '' }).catch(() => undefined);
+}
+
 function trace(text: string): void {
   if (import.meta.env.COMMAND === 'serve') console.debug(`[fieldfiller] ${text}`);
 }
@@ -384,15 +409,17 @@ async function exclusionFor(tabId: number, patterns: readonly string[]): Promise
  * tab's identity and its loading state but never its address (BR-008-3).
  */
 async function showExcluded(tabId: number, exclusion: Exclusion): Promise<void> {
-  claimBadge(tabId);
+  const generation = claimBadge(tabId);
   try {
-    await browser.action.setBadgeBackgroundColor({ tabId, color: '#6c737f' });
-    await browser.action.setBadgeText({ tabId, text: 'off' });
-    const title =
-      exclusion.kind === 'pattern'
-        ? message('resultExcluded', [exclusion.pattern])
-        : message('resultExcludedUnreadable');
-    await browser.action.setTitle({ tabId, title });
+    await whileCurrent(tabId, generation, async () => {
+      await browser.action.setBadgeBackgroundColor({ tabId, color: '#6c737f' });
+      await browser.action.setBadgeText({ tabId, text: 'off' });
+      const title =
+        exclusion.kind === 'pattern'
+          ? message('resultExcluded', [exclusion.pattern])
+          : message('resultExcludedUnreadable');
+      await browser.action.setTitle({ tabId, title });
+    });
   } catch {
     // A tab that closed cannot show a badge. Not a fill failure.
   }
@@ -536,9 +563,11 @@ async function showBadge(
 ): Promise<void> {
   const generation = claimBadge(tabId);
   try {
-    await browser.action.setBadgeBackgroundColor({ tabId, color: colour });
-    await browser.action.setBadgeText({ tabId, text });
-    if (title !== undefined) await browser.action.setTitle({ tabId, title });
+    await whileCurrent(tabId, generation, async () => {
+      await browser.action.setBadgeBackgroundColor({ tabId, color: colour });
+      await browser.action.setBadgeText({ tabId, text });
+      if (title !== undefined) await browser.action.setTitle({ tabId, title });
+    });
     setTimeout(() => {
       // Only if nothing has claimed the badge since. See `badgeGeneration`.
       if (badgeGeneration.get(tabId) !== generation) return;

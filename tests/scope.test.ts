@@ -556,6 +556,28 @@ describe('domain exclusion patterns (UC-008, FR-037)', () => {
     });
   });
 
+  describe('a pattern matches parts, not the URL as a string (FR-037, BR-008-6)', () => {
+    // Matching the glob against the whole URL made every literal a substring
+    // test, so a host a pattern names counted wherever it appeared — including
+    // in somebody else's query string or fragment. Fail-closed, so the damage is
+    // a page the user never listed silently refusing to fill; and `matchesGlob`
+    // is also Phase 5's profile matcher, where over-matching changes which rules
+    // run rather than whether a fill happens.
+    it.each([
+      ['https://evil.test/?redirect=https://sub.example.com/', '*.example.com/*', 'a query string'],
+      ['https://evil.test/?next=https://localhost/', 'localhost/*', 'a query string'],
+      ['https://evil.test/#https://bank.example.com/login', 'bank.example.com/*', 'a fragment'],
+      // The host is what the browser resolved. This page is on `evil.test`.
+      ['https://example.com@evil.test/', 'example.com/*', 'the userinfo'],
+    ])('does not match %s just because %s names the host', (url, pattern) => {
+      expect(matchesGlob(url, pattern)).toBe(false);
+    });
+
+    it('still matches the host it really is, credentials and all', () => {
+      expect(matchesGlob('https://user:pw@example.com/x', 'example.com/*')).toBe(true);
+    });
+  });
+
   describe('a bare host covers any path on it (FR-037)', () => {
     // Someone typing into a field labelled "excluded domains" means the domain.
     // Reading it as "the root and nothing else" would be the silent failure the

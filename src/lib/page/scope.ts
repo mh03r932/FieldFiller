@@ -264,9 +264,25 @@ export function watchAnchor(document: Document): AnchorWatch {
 }
 
 /**
- * Splits a URL or pattern into everything up to the end of the authority, and
- * the path that follows — with any `:port` removed from the authority.
+ * A URL or pattern taken apart into the three things a match pattern names.
  *
+ * Structural, and it has to be: matching the glob against the whole URL string
+ * makes every literal a substring test, so `*.example.com/*` matched
+ * `https://evil.test/?redirect=https://sub.example.com/` — the host it names
+ * appearing in somebody else's query string. That direction is fail-*closed*, so
+ * the damage is a page the user never listed silently refusing to fill; it is
+ * also the direction that quietly stops being about exclusion at all, because
+ * `matchesGlob` is the matcher Phase 5's profile URLs use, where over-matching
+ * changes which rules run.
+ *
+ * The port goes (see below), and so does any `user:pass@`: the host is what the
+ * browser resolved, and `https://example.com@evil.test/` is a page on
+ * `evil.test`. Leaving the userinfo in would let it be read as a host by a
+ * pattern that names one, in the direction that fills a page it should not.
+ */
+type UrlParts = { readonly scheme: string; readonly host: string; readonly path: string };
+
+/**
  * Extension match patterns have no port: the host is a host, and matching
  * ignores the port the page is served on. Ours claimed that vocabulary and did
  * not implement it — `localhost/*` expanded to a matcher that
@@ -276,47 +292,28 @@ export function watchAnchor(document: Document): AnchorWatch {
  * looks exactly like a page nobody excluded.
  *
  * Only a trailing `:digits` goes: `[::1]:8080` keeps its brackets, and
- * `user:pass@host` has no port to lose.
+ * `user:pass@host` loses the credentials rather than a port.
+ *
+ * `emptyPath` is what a value with no path at all means, and the two sides
+ * differ. A URL means the root — `http://localhost` and `http://localhost/` are
+ * the same page. A pattern means any path: someone typing a domain into a field
+ * labelled "excluded domains" means the domain, and reading it as "the root and
+ * nothing else" would be the silent failure again in a different hat.
  */
-function splitAuthority(value: string): { readonly head: string; readonly path: string } {
+function parse(value: string, emptyPath: string): UrlParts {
   const schemeEnd = value.indexOf('://');
-  if (schemeEnd === -1) return { head: value, path: '' };
+  if (schemeEnd === -1) return { scheme: '', host: value, path: emptyPath };
 
   const authorityStart = schemeEnd + '://'.length;
   const pathStart = value.indexOf('/', authorityStart);
   const authority = pathStart === -1 ? value.slice(authorityStart) : value.slice(authorityStart, pathStart);
+  const at = authority.lastIndexOf('@');
 
   return {
-    head: value.slice(0, authorityStart) + authority.replace(/:\d+$/, ''),
-    path: pathStart === -1 ? '' : value.slice(pathStart),
+    scheme: value.slice(0, schemeEnd),
+    host: authority.slice(at + 1).replace(/:\d+$/, ''),
+    path: pathStart === -1 ? emptyPath : value.slice(pathStart),
   };
-}
-
-/** A URL with its port dropped and a path guaranteed, so `/…` always has something to match. */
-function normaliseUrl(url: string): string {
-  const { head, path } = splitAuthority(url);
-  // `http://localhost` and `http://localhost/` are the same page, and only the
-  // second is what `example.com/*` is written against.
-  return head + (path === '' ? '/' : path);
-}
-
-/**
- * A pattern with its port dropped, and a bare host read as covering any path.
- *
- * The port a user types is read as part of the host and then dropped, so
- * `localhost:3000/*` covers every port on `localhost`. Chrome would call that
- * pattern malformed; voiding it would restore the silent failure this
- * normalisation exists to remove, and widening an exclusion is safe in a way
- * that voiding one is not. What a user cannot express is "this host on this port
- * only" — a deliberate limit, recorded in BR-008-6.
- *
- * A bare host with no path is read the same generous way: `example.com` means
- * `example.com/*`, not "the root and nothing else". A user who types a domain
- * into a field labelled "excluded domains" means the domain.
- */
-function normalisePattern(pattern: string): string {
-  const { head, path } = splitAuthority(pattern);
-  return head + (path === '' ? '/*' : path);
 }
 
 /**
@@ -390,9 +387,16 @@ export function matchesGlob(url: string, pattern: string): boolean {
   if (pattern === '') return false;
 
   const hasScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(pattern) || pattern.startsWith('*://');
-  const expanded = normalisePattern(hasScheme ? pattern : `*://${pattern}`);
+  const wanted = parse((hasScheme ? pattern : `*://${pattern}`).toLowerCase(), '/*');
+  const actual = parse(url.toLowerCase(), '/');
 
-  return segmentsMatch(normaliseUrl(url).toLowerCase(), expanded.toLowerCase());
+  // Each part against its own part, never the glob against the whole string. A
+  // host pattern must match the host, not merely appear somewhere in the URL.
+  return (
+    segmentsMatch(actual.scheme, wanted.scheme) &&
+    segmentsMatch(actual.host, wanted.host) &&
+    segmentsMatch(actual.path, wanted.path)
+  );
 }
 
 /** Whether any pattern excludes this URL. Returns the pattern, for the report. */
