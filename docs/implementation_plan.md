@@ -379,9 +379,13 @@ up. **DD-006** (the feedback surface) was decided and built on 2026-08-15: badge
 options-page report. That unblocked Phase 3, which was built the same day — UC-002 and UC-003
 needed only to supply their own scope value, because the sentence already named one.
 
-The cold-start spike is the sole remaining unknown, and it is a tuning question rather than
-an architectural one: if the corpus loads too slowly, the corpus shrinks. It cannot invalidate
-Phase 1.
+The cold-start spike was the last unknown on this path, and it is now measured rather than
+estimated: **14.0 ms with the corpus in place**, against NFR-027's 400 ms. The contingency this
+paragraph used to carry — if the corpus loads too slowly, the corpus shrinks — was never
+exercised and can be retired. There is no separate load to shrink: the corpus is a bundled
+module, parsed inside an **11.0 ms** worker start, which is what turns NFR-028 from a floor into
+a measured bound. Nothing on the critical path is now unknown; what remains is unbuilt, which is
+a different thing.
 
 ## Shippable points
 
