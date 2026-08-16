@@ -491,6 +491,49 @@ describe('domain exclusion patterns (UC-008, FR-037)', () => {
     });
   });
 
+  describe('a bare host covers any path on it (FR-037)', () => {
+    // Someone typing into a field labelled "excluded domains" means the domain.
+    // Reading it as "the root and nothing else" would be the silent failure the
+    // port fix exists to remove, wearing a different hat.
+    it.each([
+      ['https://example.com/pay', true],
+      ['https://example.com/', true],
+      ['https://evil.test/?next=example.com', false],
+      ['https://notexample.com/', false],
+    ])('%s against a bare example.com is %s', (url, expected) => {
+      expect(matchesGlob(url, 'example.com')).toBe(expected);
+    });
+  });
+
+  describe('matching is linear, not a regular expression (NFR-009)', () => {
+    // Translating `*` to `.*` was the obvious implementation and it is the
+    // textbook catastrophic-backtracking shape. Measured against the old one,
+    // this pattern took 3 ms at 20 trailing characters, 3.2 s at 40 and 33 s at
+    // 50 — in a check that runs before every fill, on a string a page controls.
+    const evil = 'example.test/*a*a*a*a*a*a*a*a*a*z';
+
+    it('answers a pathological pattern in constant time', () => {
+      const started = Date.now();
+      expect(matchesGlob(`https://example.test/${'a'.repeat(50_000)}`, evil)).toBe(false);
+      // Three orders of magnitude of headroom against the old 33 s at 50
+      // characters, and this input is a thousand times longer.
+      expect(Date.now() - started).toBeLessThan(1_000);
+    });
+
+    it('still matches what that pattern describes', () => {
+      // The bound is worthless if it was bought by making the matcher wrong.
+      expect(matchesGlob('https://example.test/aaaaaaaaaz', evil)).toBe(true);
+      expect(matchesGlob('https://example.test/aaaaaaaaaq', evil)).toBe(false);
+    });
+
+    it('keeps every star meaningful, wherever it sits', () => {
+      expect(matchesGlob('https://example.com/a/b/c', '*://*/a/*')).toBe(true);
+      expect(matchesGlob('https://example.com/x', '*://*/a/*')).toBe(false);
+      // The anchors must not overlap: `ab*ba` cannot match `aba` by sharing one.
+      expect(matchesGlob('https://aba.test/', '*://ab*ba.test/')).toBe(false);
+    });
+  });
+
   it('does not let a pattern character become a wildcard by accident', () => {
     // `.` is a literal here. Reading it as a regex would make `bank.example.com`
     // match `bankXexample.com`, which is an exclusion silently not applying.

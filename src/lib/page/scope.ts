@@ -255,39 +255,109 @@ export function watchAnchor(document: Document): AnchorWatch {
 }
 
 /**
- * The authority of a URL or pattern with any `:port` removed, and a `/` path
- * guaranteed (FR-037).
+ * Splits a URL or pattern into everything up to the end of the authority, and
+ * the path that follows — with any `:port` removed from the authority.
  *
  * Extension match patterns have no port: the host is a host, and matching
- * ignores whatever port the page is served on. Ours claimed that vocabulary and
- * did not implement it — `localhost/*` expanded to `^.*://localhost/.*$`, which
- * `http://localhost:3000/` does not match, so the exclusion silently did not
- * apply. Silently is the whole problem: an exclusion that fails tells the user
- * nothing, and it fails *open*, which for FR-074 is the one direction that is
- * not survivable.
- *
- * Applied to the pattern as well as the URL, which is the lenient half of the
- * decision. Chrome would call `localhost:3000/*` malformed; we read it as
- * `localhost/*` instead of never matching, so a port a user typed widens the
- * exclusion to every port on that host rather than voiding it. Widening an
- * exclusion is safe in a way that voiding one is not, and it keeps the promise
- * the field makes when someone types what they see in their address bar.
+ * ignores the port the page is served on. Ours claimed that vocabulary and did
+ * not implement it — `localhost/*` expanded to a matcher that
+ * `http://localhost:3000/` failed, so an exclusion on any ported URL was
+ * accepted, listed, and silently inert. Silently is the whole problem: an
+ * exclusion that fails to match fails **open**, and a pattern matching nothing
+ * looks exactly like a page nobody excluded.
  *
  * Only a trailing `:digits` goes: `[::1]:8080` keeps its brackets, and
  * `user:pass@host` has no port to lose.
  */
-function withoutPort(value: string): string {
+function splitAuthority(value: string): { readonly head: string; readonly path: string } {
   const schemeEnd = value.indexOf('://');
-  if (schemeEnd === -1) return value;
+  if (schemeEnd === -1) return { head: value, path: '' };
 
   const authorityStart = schemeEnd + '://'.length;
   const pathStart = value.indexOf('/', authorityStart);
   const authority = pathStart === -1 ? value.slice(authorityStart) : value.slice(authorityStart, pathStart);
-  // A host with nothing after it is the root, and `example.com/*` should cover
-  // it. Without this, `http://localhost` (no trailing slash) matches nothing.
-  const path = pathStart === -1 ? '/' : value.slice(pathStart);
 
-  return value.slice(0, authorityStart) + authority.replace(/:\d+$/, '') + path;
+  return {
+    head: value.slice(0, authorityStart) + authority.replace(/:\d+$/, ''),
+    path: pathStart === -1 ? '' : value.slice(pathStart),
+  };
+}
+
+/** A URL with its port dropped and a path guaranteed, so `/…` always has something to match. */
+function normaliseUrl(url: string): string {
+  const { head, path } = splitAuthority(url);
+  // `http://localhost` and `http://localhost/` are the same page, and only the
+  // second is what `example.com/*` is written against.
+  return head + (path === '' ? '/' : path);
+}
+
+/**
+ * A pattern with its port dropped, and a bare host read as covering any path.
+ *
+ * The port a user types is read as part of the host and then dropped, so
+ * `localhost:3000/*` covers every port on `localhost`. Chrome would call that
+ * pattern malformed; voiding it would restore the silent failure this
+ * normalisation exists to remove, and widening an exclusion is safe in a way
+ * that voiding one is not. What a user cannot express is "this host on this port
+ * only" — a deliberate limit, recorded in BR-008-6.
+ *
+ * A bare host with no path is read the same generous way: `example.com` means
+ * `example.com/*`, not "the root and nothing else". A user who types a domain
+ * into a field labelled "excluded domains" means the domain.
+ */
+function normalisePattern(pattern: string): string {
+  const { head, path } = splitAuthority(pattern);
+  return head + (path === '' ? '/*' : path);
+}
+
+/**
+ * Whether a glob's literal segments appear in order, without backtracking.
+ *
+ * `*` stands for any run of characters and every other character is literal, so
+ * a pattern is a list of literals that must appear in order — anchored at each
+ * end unless the pattern starts or ends with a star. Each literal is then found
+ * with one forward `indexOf` from where the previous one ended, and taking the
+ * earliest occurrence is safe: a later one can only match a suffix of what an
+ * earlier one already covers, so nothing is lost by not going back.
+ *
+ * **Not a regular expression, and the difference is the point.** Translating
+ * `*` to `.*` was the obvious implementation and it is the textbook
+ * catastrophic-backtracking shape: `*a*a*a*a*a*a*a*a*a*z` against a URL ending
+ * in a run of `a`s made the engine try every way to divide the run between the
+ * stars. Measured before this was replaced, that pattern took 3 ms at 20
+ * trailing characters, 3.2 s at 40 and 33 s at 50 — on a string a page can make
+ * arbitrarily long, in a check that runs in the background before every fill
+ * (BR-008-1). The module comment claimed to be avoiding exactly this and was
+ * describing an intention rather than the code.
+ *
+ * Patterns can only be written into storage by hand today, so nothing reachable
+ * exploits it. Phase 4 gives them an editor and Phase 6 gives them import and
+ * sync, and a shared configuration that stops every fill in the browser is not a
+ * failure worth shipping the ingredients for.
+ */
+function segmentsMatch(text: string, pattern: string): boolean {
+  const parts = pattern.split('*');
+  // No star at all: the pattern is one literal, and must be the whole string.
+  if (parts.length === 1) return text === pattern;
+
+  const first = parts[0] as string;
+  const last = parts[parts.length - 1] as string;
+  const middle = parts.slice(1, -1);
+
+  if (!text.startsWith(first) || !text.endsWith(last)) return false;
+  // Guards the case where the anchors overlap: `ab*ba` must not match `aba` by
+  // letting the prefix and suffix share a character.
+  if (text.length < first.length + last.length) return false;
+
+  let at = first.length;
+  const limit = text.length - last.length;
+  for (const part of middle) {
+    if (part === '') continue;
+    const found = text.indexOf(part, at);
+    if (found === -1 || found + part.length > limit) return false;
+    at = found + part.length;
+  }
+  return true;
 }
 
 /**
@@ -297,8 +367,12 @@ function withoutPort(value: string): string {
  * for any run of characters, everything else is literal, and the port takes no
  * part on either side (see `withoutPort`). Deliberately not a regular
  * expression — this runs on a URL before every fill, and a second
- * catastrophic-backtracking surface there is exactly where NFR-009 is hardest
- * to guarantee.
+ * catastrophic-backtracking surface there is exactly where NFR-009 is hardest to
+ * guarantee. `segmentsMatch` is what makes that true rather than intended.
+ *
+ * Case is folded rather than delegated to a regex flag, which is the only thing
+ * the `i` flag was doing. Hosts and schemes are ASCII, and the path is compared
+ * the same way it always was.
  *
  * A pattern with no scheme matches any scheme, so `example.com/*` behaves the
  * way a user who typed a domain expects rather than silently never matching.
@@ -307,21 +381,9 @@ export function matchesGlob(url: string, pattern: string): boolean {
   if (pattern === '') return false;
 
   const hasScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(pattern) || pattern.startsWith('*://');
-  const expanded = withoutPort(hasScheme ? pattern : `*://${pattern}`);
-  const source = expanded
-    .split('*')
-    .map((part) => part.replace(/[.+?^${}()|[\]\\]/g, '\\$&'))
-    .join('.*');
+  const expanded = normalisePattern(hasScheme ? pattern : `*://${pattern}`);
 
-  try {
-    return new RegExp(`^${source}$`, 'i').test(withoutPort(url));
-  } catch {
-    // A pattern that cannot compile matches nothing. Failing open here would be
-    // the one direction UC-008 A1 rules out — but this is about a *pattern*
-    // being unreadable, not the URL, and a broken pattern must not exclude every
-    // site (UC-008 A2).
-    return false;
-  }
+  return segmentsMatch(normaliseUrl(url).toLowerCase(), expanded.toLowerCase());
 }
 
 /** Whether any pattern excludes this URL. Returns the pattern, for the report. */
