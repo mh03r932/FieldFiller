@@ -237,7 +237,7 @@ async function startFill(target: Target, scope: FillScope, trigger: FillTrigger)
     // being asked a question.
     const exclusion = await exclusionFor(tabId, settings.exclusions.domains);
     if (exclusion !== undefined) {
-      trace(`fill in tab ${tabId} refused: ${exclusion}`);
+      trace(`fill in tab ${tabId} refused: ${exclusion.kind === 'pattern' ? exclusion.pattern : 'address unreadable'}`);
       await showExcluded(tabId, exclusion);
       filling.delete(tabId);
       return;
@@ -341,7 +341,13 @@ const TOP_FRAME = 0;
  * pages must not be filled, so a fill proceeding because the check could not run
  * is the one failure this must not have.
  */
-async function exclusionFor(tabId: number, patterns: readonly string[]): Promise<string | undefined> {
+type Exclusion =
+  /** A pattern the user listed matched this page. The tooltip names it (A4). */
+  | { readonly kind: 'pattern'; readonly pattern: string }
+  /** UC-008 A1: the address could not be read, so the list could not be checked. */
+  | { readonly kind: 'unreadable' };
+
+async function exclusionFor(tabId: number, patterns: readonly string[]): Promise<Exclusion | undefined> {
   if (patterns.length === 0) {
     // An empty list is the default state of a new install and means the user has
     // excluded nothing — the opposite direction to A1, and deliberately so
@@ -357,8 +363,16 @@ async function exclusionFor(tabId: number, patterns: readonly string[]): Promise
     url = undefined;
   }
 
-  if (url === undefined || url === '') return 'this page (its address could not be read)';
-  return excludedBy(url, patterns);
+  // Kept apart from a real match rather than dressed as one. Substituting a
+  // sentence where the pattern goes produced "Filling is off here — this page
+  // (its address could not be read) is on your excluded list", which asserts a
+  // list entry that does not exist and sends the user looking for it. A1 says
+  // the system reports that it could not establish where it was being asked to
+  // act, which is a different fact and now has its own message.
+  if (url === undefined || url === '') return { kind: 'unreadable' };
+
+  const pattern = excludedBy(url, patterns);
+  return pattern === undefined ? undefined : { kind: 'pattern', pattern };
 }
 
 /**
@@ -369,12 +383,16 @@ async function exclusionFor(tabId: number, patterns: readonly string[]): Promise
  * cleared when the tab navigates (see the `onUpdated` listener), which needs the
  * tab's identity and its loading state but never its address (BR-008-3).
  */
-async function showExcluded(tabId: number, pattern: string): Promise<void> {
+async function showExcluded(tabId: number, exclusion: Exclusion): Promise<void> {
   claimBadge(tabId);
   try {
     await browser.action.setBadgeBackgroundColor({ tabId, color: '#6c737f' });
     await browser.action.setBadgeText({ tabId, text: 'off' });
-    await browser.action.setTitle({ tabId, title: message('resultExcluded', [pattern]) });
+    const title =
+      exclusion.kind === 'pattern'
+        ? message('resultExcluded', [exclusion.pattern])
+        : message('resultExcludedUnreadable');
+    await browser.action.setTitle({ tabId, title });
   } catch {
     // A tab that closed cannot show a badge. Not a fill failure.
   }

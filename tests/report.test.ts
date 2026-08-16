@@ -279,3 +279,43 @@ describe('a refusal is not an empty fill, on every surface (DD-006)', () => {
     expect(sentence).not.toContain('resultSettled');
   });
 });
+
+describe('the sentence names the scope that ran (DD-006, UC-002 A2)', () => {
+  it('says "this page" when a form scope widened to the whole document', () => {
+    // A shortcut asking for the form scope, nothing focused, two or more
+    // form-like units: the ladder widens (A2) and the fill covers everything.
+    // Saying "this form" there is the exact ambiguity putting the scope in the
+    // sentence was meant to remove, in the one case the user cannot otherwise
+    // see — the widening is silent by design.
+    const sentence = resultSentence(report({ scope: 'current-form', scopeRule: 'whole-page' }), echo);
+    expect(sentence).toContain('resultScopeAllInputs');
+    expect(sentence).not.toContain('resultScopeCurrentForm');
+  });
+
+  it('agrees with what the options page says about the same fill', () => {
+    // The two surfaces read the same field now. They did not: the options page
+    // took the rung and said "the whole page" under a sentence saying "form".
+    const widened = report({ scope: 'current-form', scopeRule: 'whole-page' });
+    expect(resultSentence(widened, echo)).toContain('resultScopeAllInputs');
+    expect(scopeRuleSentence(widened, echo)).toContain('resultRuleWholePage');
+  });
+
+  it.each([
+    ['element-form', 'resultScopeCurrentForm'],
+    ['role-form', 'resultScopeCurrentForm'],
+    ['submit-container', 'resultScopeCurrentForm'],
+    ['only-unit', 'resultScopeCurrentForm'],
+    ['anchor-control', 'resultScopeSelectedInput'],
+    ['whole-page', 'resultScopeAllInputs'],
+  ] as const)('reads %s as %s', (rule, key) => {
+    expect(resultSentence(report({ scope: 'current-form', scopeRule: rule }), echo)).toContain(key);
+  });
+
+  it('falls back to the requested scope for an agent that sends no rung', () => {
+    // Older than DD-008, and then the requested scope is both the best answer
+    // available and what that agent actually did.
+    expect(resultSentence(report({ scope: 'current-form', scopeRule: undefined }), echo)).toContain(
+      'resultScopeCurrentForm',
+    );
+  });
+});

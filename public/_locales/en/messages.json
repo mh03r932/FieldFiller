@@ -163,6 +163,10 @@
       }
     }
   },
+  "resultExcludedUnreadable": {
+    "message": "Filling is off here — this page's address could not be read, so the excluded list could not be checked",
+    "description": "Toolbar tooltip for UC-008 A1: the URL was unreadable, so the fill was refused. Distinct from resultExcluded, which names a pattern the user actually listed."
+  },
   "resultRefusedNoForm": {
     "message": "No form found around what you pointed at, so nothing was filled",
     "description": "Shown when the DD-008 ladder cannot resolve a form root from an anchor (UC-002 A3)."

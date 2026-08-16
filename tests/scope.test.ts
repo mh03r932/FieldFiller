@@ -616,3 +616,29 @@ describe('domain exclusion patterns (UC-008, FR-037)', () => {
     expect(excludedBy('https://anything.test/', [])).toBeUndefined();
   });
 });
+
+describe('an anchor the page removed is a failure (UC-003 A5)', () => {
+  it('reports the control failed, with a cause, rather than an empty fill', async () => {
+    // "0 filled in this field" is what this used to say, which is what a scope
+    // that resolved and found nothing fillable says too. A5 requires the
+    // control be reported failed with the cause, and the distinction is the same
+    // one refusals get: a decision must not read as an empty result.
+    page(`<div id="host"><input name="a"></div>`);
+    const anchor = at('[name="a"]');
+    at('#host').replaceChildren();
+
+    const result = await fill({ root: document, only: anchor });
+
+    expect(result.outcomes).toHaveLength(1);
+    expect(result.outcomes[0]).toMatchObject({ status: 'failed' });
+    expect((result.outcomes[0] as { cause: string }).cause).toContain('removed');
+  });
+
+  it('says nothing extra when the anchor is still there', async () => {
+    page(`<input name="a">`);
+    const result = await fill({ root: document, only: at('[name="a"]') });
+
+    expect(result.outcomes).toHaveLength(1);
+    expect(result.outcomes[0]).toMatchObject({ status: 'filled' });
+  });
+});

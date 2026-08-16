@@ -309,7 +309,7 @@ export async function runFill(options: FillLoopOptions): Promise<FillLoopResult>
     }
 
     return {
-      outcomes: report(),
+      outcomes: withVanishedAnchor(report()),
       passes,
       // Recorded without deciding anything, which is why `collect` is asked not
       // to write outcomes here: this is a count of the work a further pass would
@@ -590,6 +590,39 @@ function radioUnit(anchor: Element): readonly Element[] {
    * remove; the control that replaced it is reported in its own right, filled
    * with the same value it was given before (UC-034 A7, BR-034-3).
    */
+  /**
+   * UC-003 A5: an anchor the page removed is a failure, not an empty fill.
+   *
+   * `report` drops any control that is no longer connected, deliberately —
+   * claiming a field the user cannot see is the dishonesty write verification
+   * exists to remove, and for a page fill the control that replaced it is
+   * reported in its own right (UC-034 A7). The single-control scope has no such
+   * replacement to report. Dropping the only control it was given leaves an
+   * empty outcome list, which the surfaces render as "0 filled in this field" —
+   * indistinguishable from a scope that resolved and found nothing fillable.
+   *
+   * That is the same conflation this branch refused for scope refusals, and the
+   * spec is explicit about it: A5 requires the control be reported failed, with
+   * the cause. The outcome is synthesised because there may be nothing left to
+   * report on — an anchor removed before the first pass was never tracked, and
+   * one removed during the fill has just been dropped.
+   */
+  function withVanishedAnchor(outcomes: FieldOutcome[]): FieldOutcome[] {
+    const anchor = options.only;
+    if (anchor === undefined || anchor.isConnected || outcomes.length > 0) return outcomes;
+
+    return [
+      {
+        ref: tracked.find((entry) => entry.element === anchor)?.ref ?? tracked.length,
+        status: 'failed',
+        // BR-003-2: the anchor is an element, not a place. Nothing is looked for
+        // in its position, and the sentence says why rather than implying a
+        // search happened.
+        cause: 'the control was removed from the page before it could be filled',
+      },
+    ];
+  }
+
   function report(): FieldOutcome[] {
     const outcomes: FieldOutcome[] = [];
     for (const entry of tracked) {

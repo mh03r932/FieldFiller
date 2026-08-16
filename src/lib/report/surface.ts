@@ -185,7 +185,7 @@ export function resultSentence(report: FillReport, translate: Translate): string
     );
   }
 
-  const scope = translate(scopeKey(report.scope));
+  const scope = translate(scopeWordKey(report));
   const filled = String(report.counts.filled);
 
   const sentence =
@@ -241,6 +241,38 @@ function ruleKey(rule: ScopeRule): ResultMessageKey {
       return 'resultRuleAnchorControl';
     default:
       return 'resultRuleWholePage';
+  }
+}
+
+/**
+ * The word for the scope that **ran**, not the one that was asked for.
+ *
+ * These differ exactly where it matters most. A shortcut asking for the form
+ * scope with nothing focused and two or more form-like units on the page widens
+ * to the whole document (UC-002 A2) — and the sentence then read "6 filled in
+ * this form" about a fill that covered everything. DD-006's stated reason for
+ * putting the scope in the sentence at all is that "6 filled" reads identically
+ * for a form and for a page; naming the requested scope reintroduces the
+ * ambiguity in the one case where the user has no other way to notice, since the
+ * widening is silent by design.
+ *
+ * It also made the two surfaces disagree: the options page reads the rung, so it
+ * said "the whole page" under a sentence saying "this form".
+ *
+ * The rung is the authority when there is one. `scopeRule` is absent only for an
+ * agent older than DD-008, and then the requested scope is the best available
+ * answer and also what that agent actually did.
+ */
+function scopeWordKey(report: FillReport): ResultMessageKey {
+  switch (report.scopeRule) {
+    case undefined:
+      return scopeKey(report.scope);
+    case 'anchor-control':
+      return 'resultScopeSelectedInput';
+    case 'whole-page':
+      return 'resultScopeAllInputs';
+    default:
+      return 'resultScopeCurrentForm';
   }
 }
 

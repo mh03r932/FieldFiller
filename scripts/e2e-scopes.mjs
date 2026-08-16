@@ -252,6 +252,10 @@ try {
     await sleep(1800);
   }
 
+  const badgeTitle = async () =>
+    inWorker(`chrome.tabs.query({}).then((tabs) =>
+      chrome.action.getTitle({ tabId: (tabs.find((t) => t.active) ?? tabs[0]).id }))`);
+
   const badgeText = async () =>
     inWorker(`chrome.tabs.query({}).then((tabs) =>
       chrome.action.getBadgeText({ tabId: (tabs.find((t) => t.active) ?? tabs[0]).id }))`);
@@ -319,6 +323,15 @@ try {
   check('and the toolbar says so, without being erased by the previous fill',
     (await badgeText()) === 'off',
     `badge showed ${JSON.stringify(await badgeText())}`);
+  // UC-008 A1 says the system reports that it could not establish where it was
+  // being asked to act. It used to substitute a sentence where the pattern goes,
+  // so the tooltip asserted a list entry that does not exist and sent the user
+  // looking for it. The badge alone could not catch that — it reads 'off' either
+  // way, which is why this assertion is on the words.
+  const excludedTitle = await badgeTitle();
+  check('and the tooltip says the address could not be read, not that a pattern matched',
+    excludedTitle.includes('could not be read') && !excludedTitle.includes('is on your excluded list'),
+    `tooltip was ${JSON.stringify(excludedTitle)}`);
 
   await pointAndFill(undefined, 'all-inputs');
   check('the refusal applies to the page scope too',
