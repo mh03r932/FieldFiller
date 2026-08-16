@@ -30,7 +30,8 @@ separate passes, so this is the single ordering for both.
 
 **Decided 2026-08-12:** DD-001 → persistent `<all_urls>` · DD-003 → generation in the
 background, no corpus in the page agent · DD-004 → WXT · ND-1 → full persona · ND-2 →
-source-scoped matching · ND-9 → discriminated union. **One spike left.**
+source-scoped matching · ND-9 → discriminated union. **The one spike left was run on 2026-08-15**,
+against the real corpus rather than a placeholder, and is recorded in the table below.
 
 **Decided 2026-08-14:** DD-009 → event-driven fixpoint loop in the page agent for dependent
 and late-appearing fields, amending DD-003 to one round trip per pass. Lands in Phase 2 as
@@ -46,16 +47,25 @@ under "Where Phase 2 actually stands" below. Resolved by deciding DD-005 early r
 moving those rows, so the schema is designed once. The ladder itself is the one part not
 built — DD-005 accepts a tolerant parser in its place and records what that costs.
 
-| Work | Closes |
-|---|---|
-| **Spike: cold-start budget** — measure background restart + corpus load + round trip against NFR-027 (400 ms). If it fails, the corpus shrinks or gets lazily sliced | NFR-027, NFR-028, NFR-029 |
-| Scaffold WXT, TS strict, Chrome + Firefox from one source tree | C-002, C-003, C-004, NFR-017 |
-| Message protocol: field descriptors out, values plus provenance back | NFR-029, NFR-030, FR-069 |
-| CI: build, test, **uncompressed** page-agent size budget, disallowed-import check | NFR-003, **ND-4** |
-| **Reproducible build pipeline** — pinned lockfile, `SOURCE_DATE_EPOCH`, deterministic archive member order and timestamps, no build-time clock or randomness reaching the bundle, digest published per build | NFR-011, G4, UC-032 |
-| **Reference test page** — every control type, shadow root, cross-origin iframe, honeypot | the acceptance harness for every later phase |
+| Work | Closes | Built |
+|---|---|---|
+| **Spike: cold-start budget** — measure background restart + corpus load + round trip against NFR-027 (400 ms) | NFR-027, NFR-028, NFR-029 | **Yes** — `scripts/spike-coldstart.mjs`, re-run 2026-08-15 against the real corpus: 14.0 ms cold start of 400 ms, 0.2 ms per round trip of 20 ms. All three rows `Done` |
+| Scaffold WXT, TS strict, Chrome + Firefox from one source tree | C-002, C-003, C-004, NFR-017 | **Yes** — NFR-017 `Done`. C-002..C-004 are satisfied and gated, and still read `Open`: see the constraints note below |
+| Message protocol: field descriptors out, values plus provenance back | NFR-029, NFR-030, FR-069 | **Yes** — `src/lib/protocol.ts`; FR-069 `Done`, NFR-030 `Done` by construction |
+| CI: build, test, **uncompressed** page-agent size budget, disallowed-import check | NFR-003, **ND-4** | **Yes** — `check-size.mjs` and `check-imports.mjs`, joined since by the network, permissions and coverage-scope gates |
+| **Reproducible build pipeline** — pinned lockfile, `SOURCE_DATE_EPOCH`, deterministic archive member order and timestamps, no build-time clock or randomness reaching the bundle, digest published per build | NFR-011, G4, UC-032 | **Yes** — `check-reproducible.mjs` and `digest.mjs`, both in CI on every push. NFR-011 `Done`; UC-032, the auditor's *use* of it, is Phase 7 and unstarted |
+| **Reference test page** — every control type, shadow root, cross-origin iframe, honeypot | the acceptance harness for every later phase | **Yes** — `tests/fixtures/reference.html`, joined since by `cascade.html` and `scopes.html` |
 
 Nothing here ships. All of it is load-bearing.
+
+**Phase 0 is complete**, and the table says so per row rather than leaving it to be inferred from
+the phases built on top of it. Two things the "Built" column deliberately does not round off:
+UC-032 is the auditor's use of the reproducible pipeline and belongs to Phase 7, so NFR-011 being
+`Done` does not close it; and **C-002, C-003 and C-004 read `Open` in §3 of the catalog while this
+table calls the work that satisfies them built**. That is the unscored-constraints gap recorded
+under "Where Phase 2 actually stands" — the constraints were never scored at all, and this row is
+where the omission is most visible, since the scaffold closing them is the oldest work in the
+project.
 
 Reproducibility gets its own row because bundlers are not reproducible by default — they
 embed timestamps, order archive members by filesystem enumeration, and minify with passes
