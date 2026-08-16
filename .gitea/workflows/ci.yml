@@ -152,9 +152,7 @@ jobs:
         # (DD-001). It has already earned its place twice — it caught a form
         # scope that widened to the whole page through `<body>`, and a badge
         # revert timer that erased the exclusion mark set after it.
-        run: |
-          export CHROME_PATH="$(node -e 'console.log(require("playwright").chromium.executablePath())')"
-          pnpm run scopes:chrome
+        run: pnpm run scopes:chrome
 
       - name: Dependent fields (Chromium)
         # UC-034's scoreboard, and since 2026-08-15 a regression gate: all three

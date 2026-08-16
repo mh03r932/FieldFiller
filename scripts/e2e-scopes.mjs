@@ -205,12 +205,43 @@ try {
    * listens in capture on the document, and Chrome's menu callback carries no
    * element identifier for it to use instead (DD-001).
    */
+  /**
+   * A right-click the browser sends, at the element's own coordinates.
+   *
+   * Not `dispatchEvent(new MouseEvent('contextmenu'))`, which is what this used
+   * to do: an event a page script dispatches carries `isTrusted === false`, and
+   * the agent ignores those on purpose, so a page cannot plant the anchor a
+   * later fill uses. Dispatching one here meant the harness was driving the
+   * extension through an input production refuses — it passed while the guard
+   * did not exist, and every rung check failed the moment it did.
+   *
+   * `Input.dispatchMouseEvent` goes in where a real click does, so the event is
+   * trusted and the pointer path this harness exists to exercise is the path
+   * that actually runs. Focusing the element instead would also have worked and
+   * would have tested the wrong thing.
+   */
+  async function rightClick(selector) {
+    const at = await inPage(`(() => {
+      const element = document.querySelector('${selector}');
+      if (element === null) return null;
+      element.scrollIntoView({ block: 'center' });
+      const box = element.getBoundingClientRect();
+      return { x: box.left + box.width / 2, y: box.top + box.height / 2 };
+    })()`);
+    if (at === null) throw new Error(`nothing matched ${selector} to right-click`);
+
+    for (const type of ['mousePressed', 'mouseReleased']) {
+      await cdp.send(
+        'Input.dispatchMouseEvent',
+        { type, x: at.x, y: at.y, button: 'right', buttons: 2, clickCount: 1 },
+        page,
+      );
+    }
+  }
+
   async function pointAndFill(selector, menuItemId) {
     await reload();
-    if (selector !== undefined) {
-      await inPage(`document.querySelector('${selector}')
-        .dispatchEvent(new MouseEvent('contextmenu', { bubbles: true }))`);
-    }
+    if (selector !== undefined) await rightClick(selector);
     const fired = await inWorker(`chrome.tabs.query({}).then((tabs) => {
       const tab = tabs.find((candidate) => candidate.active) ?? tabs[0];
       if (tab === undefined) return 'no tab';

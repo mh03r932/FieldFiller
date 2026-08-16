@@ -41,9 +41,18 @@ export type Resolution =
  * so. `role="button"` is deliberately absent: it is worn by every dropdown
  * toggle and disclosure triangle on the page, and admitting it would make rule 3
  * match a container that submits nothing.
+ *
+ * `[role="form"] button` used to be a fourth clause and was removed 2026-08-16:
+ * it matched a button of *any* type, so a `type="button"` toggle inside a
+ * `role="form"` made its container a submit container — the over-widening
+ * BR-002-2 exists to refuse, and the exact thing the first clause is written to
+ * exclude everywhere else. It also could not have been doing useful work: an
+ * anchor inside a `[role="form"]` never reaches rule 3, because rule 2 resolves
+ * it first, so the clause only ever fired for an anchor *outside* the container
+ * whose button it was reading.
  */
 const SUBMIT_SELECTOR =
-  'button:not([type="button"]):not([type="reset"]), input[type="submit"], input[type="image"], [role="form"] button';
+  'button:not([type="button"]):not([type="reset"]), input[type="submit"], input[type="image"]';
 
 /**
  * Elements that hold another browsing context, and so can never be an anchor.
@@ -132,7 +141,7 @@ function fromAnchor(anchor: Element): Resolution {
 function withoutAnchor(document: Document): Resolution {
   const units = document.querySelectorAll(UNIT_SELECTOR);
   if (units.length === 1) {
-    return { resolved: true, within: units[0] as Element, rule: 'only-unit' };
+    return { resolved: true, within: units[0]!, rule: 'only-unit' };
   }
   return { resolved: true, within: document, rule: 'whole-page' };
 }

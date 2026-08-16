@@ -17,7 +17,7 @@
  * pass, which is exactly what an agent that predates the loop did.
  */
 
-/** The three fill scopes. Only `all-inputs` is implemented (UC-001); the rest are Phase 3. */
+/** The three fill scopes, all built: UC-001, and UC-002 and UC-003 since 2026-08-15. */
 export type FillScope = 'all-inputs' | 'current-form' | 'selected-input';
 
 /**
@@ -517,8 +517,10 @@ export type ReportResponse = {
  *
  * It is never sent the rule list, the generators or the profiles, because it
  * never uses them: less crosses the boundary, and less is exposed if a page ever
- * compromises the agent. Phase 4 grows this with the exclusion toggles, ignore
- * patterns and domain exclusions.
+ * compromises the agent. Domain exclusions stay out of it for a different
+ * reason than the rest: the agent is never told a domain is excluded, because
+ * BR-008-1 settles that in the background before any frame is contacted, and an
+ * excluded page must not be able to learn the extension exists by being asked.
  */
 export type AgentSettings = {
   /** UC-004 A8: the user may turn the interaction sequence off entirely. */

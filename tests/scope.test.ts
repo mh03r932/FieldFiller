@@ -150,6 +150,38 @@ describe('the form-scope ladder (DD-008, BR-002-1)', () => {
     });
   });
 
+  it('rule 3: does not accept one inside a role="form" either', () => {
+    // The same toggle, moved into a `[role="form"]` container the anchor is not
+    // in. A `[role="form"] button` clause used to match a button of any type,
+    // so this widened to `#outer` — the assertion above passing only because its
+    // toggle happened to sit outside such a container.
+    page(`
+      <div id="outer">
+        <input name="a">
+        <div role="form"><button type="button">Toggle</button></div>
+      </div>`);
+
+    expect(resolveScope('current-form', document, at('[name="a"]'))).toMatchObject({
+      resolved: false,
+      reason: 'no-form-around-anchor',
+    });
+  });
+
+  it('rule 3: still accepts a real submit inside a role="form"', () => {
+    // The clause was removed rather than narrowed, so this is the check that it
+    // was removing nothing: a button that does submit is matched wherever it is.
+    page(`
+      <div id="outer">
+        <input name="a">
+        <div role="form"><button>Save</button></div>
+      </div>`);
+
+    expect(resolveScope('current-form', document, at('[name="a"]'))).toMatchObject({
+      resolved: true,
+      rule: 'submit-container',
+    });
+  });
+
   it('rule 4: refuses even when the page has a submit button somewhere else', () => {
     // The version of rule 4 that actually bites. Almost every page has *a*
     // submit button, so a walk that lets `<body>` be a candidate returns the
