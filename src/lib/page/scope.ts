@@ -45,6 +45,15 @@ export type Resolution =
 const SUBMIT_SELECTOR =
   'button:not([type="button"]):not([type="reset"]), input[type="submit"], input[type="image"], [role="form"] button';
 
+/**
+ * Elements that hold another browsing context, and so can never be an anchor.
+ *
+ * Focus inside one of these reports the container in the *parent* document, and
+ * a shortcut is routed to the top frame, so without this the anchor for
+ * "fill this form" while typing in an iframe was the `<iframe>` itself.
+ */
+const FRAME_SELECTOR = 'iframe, frame, embed, object';
+
 /** Containers that count as a form-like unit when there is no anchor (A2). */
 const UNIT_SELECTOR = 'form, [role="form"]';
 
@@ -181,18 +190,42 @@ export function watchAnchor(document: Document): AnchorWatch {
   let pointed: Element | undefined;
   let lastFocused: Element | undefined;
 
+  /**
+   * Whether an element can be an anchor at all, whichever source offered it.
+   *
+   * `<body>` and `<html>` are what a right-click on blank background and an
+   * unfocused document report, and neither is something the user pointed *at*.
+   * `<body>` in particular is connected for the life of the page, so recording
+   * it once made it outrank every other source forever.
+   *
+   * A frame element is what `activeElement` reports when focus is *inside* that
+   * frame — the user is typing in the child document, and the element naming it
+   * is not the thing they are working on. Left in, "fill this input" reported an
+   * `<iframe>` as an unfillable control, and "fill this form" resolved rule 3
+   * around it and filled a form in the top document instead. Rejecting it means
+   * the form scope widens (A2) and the control scope refuses, which are both
+   * answers the user can read.
+   */
+  const usable = (element: Element): boolean =>
+    element !== document.body &&
+    element !== document.documentElement &&
+    !element.matches(FRAME_SELECTOR);
+
   const onContextMenu = (event: Event): void => {
-    // `<body>` and `<html>` are what a right-click on blank page background
-    // reports, and neither is something the user pointed *at* — the same
-    // reasoning `anchor` applies to `activeElement` below. Recording them was
-    // half of the bug this guard closes: `<body>` is connected for the life of
-    // the page, so once stored it outranked every later source forever.
-    if (event.target instanceof Element && event.target !== document.body && event.target !== document.documentElement) {
-      pointed = event.target;
-    }
+    // A page can dispatch its own `contextmenu` at any element it likes. Between
+    // a real right-click and the user choosing our menu item, that would move
+    // the anchor to the page's choice — a narrow window, but the pointer is the
+    // one source the user cannot see, so it is the one worth closing.
+    //
+    // `focusin` below is deliberately not guarded the same way: a page calling
+    // `element.focus()` produces a *trusted* event, because focus really did
+    // move. There is nothing to tell apart there, and pretending otherwise would
+    // buy a guard that stops nothing.
+    if (event.isTrusted !== true) return;
+    if (event.target instanceof Element && usable(event.target)) pointed = event.target;
   };
   const onFocus = (event: Event): void => {
-    if (event.target instanceof Element) lastFocused = event.target;
+    if (event.target instanceof Element && usable(event.target)) lastFocused = event.target;
   };
 
   // Capture, so a page that stops propagation on its own handlers cannot also
@@ -211,9 +244,7 @@ export function watchAnchor(document: Document): AnchorWatch {
       // that stays wrong for the life of the page.
       if (trigger === 'menu' && pointed !== undefined && pointed.isConnected) return pointed;
       const active = document.activeElement;
-      // `<body>` is what `activeElement` reports when nothing is focused, and it
-      // is not something the user pointed at.
-      if (active !== null && active !== document.body && active.isConnected) return active;
+      if (active !== null && active.isConnected && usable(active)) return active;
       return lastFocused !== undefined && lastFocused.isConnected ? lastFocused : undefined;
     },
     release: () => {

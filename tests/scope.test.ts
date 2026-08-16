@@ -259,13 +259,27 @@ describe('filling at a scope', () => {
   });
 });
 
+/**
+ * A right-click the browser sent, rather than one a page dispatched.
+ *
+ * The watcher ignores untrusted `contextmenu` events, so a plain
+ * `dispatchEvent` no longer stands in for a user — which is the point of the
+ * guard, and the reason this helper exists rather than the tests asserting
+ * against a weaker input than production sees.
+ */
+function rightClick(element: Element): void {
+  const event = new Event('contextmenu', { bubbles: true });
+  Object.defineProperty(event, 'isTrusted', { value: true });
+  element.dispatchEvent(event);
+}
+
 describe('finding the anchor (DD-008)', () => {
   it('prefers where the user pointed over what is focused, for a menu fill', () => {
     page(`<input name="pointed"><input name="focused">`);
     const watch = watchAnchor(document);
     try {
       (at('[name="focused"]') as HTMLElement).focus();
-      at('[name="pointed"]').dispatchEvent(new Event('contextmenu', { bubbles: true }));
+      rightClick(at('[name="pointed"]'));
 
       expect(watch.anchor('menu')).toBe(at('[name="pointed"]'));
     } finally {
@@ -302,7 +316,7 @@ describe('finding the anchor (DD-008)', () => {
     page(`<input name="a">`);
     const watch = watchAnchor(document);
     try {
-      at('[name="a"]').dispatchEvent(new Event('contextmenu', { bubbles: true }));
+      rightClick(at('[name="a"]'));
       document.body.innerHTML = '';
 
       // BR-003-2: the anchor is an element, not a place. A page that re-rendered
@@ -318,7 +332,7 @@ describe('finding the anchor (DD-008)', () => {
       page(`<input name="pointed"><input name="focused">`);
       const watch = watchAnchor(document);
       try {
-        at('[name="pointed"]').dispatchEvent(new Event('contextmenu', { bubbles: true }));
+        rightClick(at('[name="pointed"]'));
         (at('[name="focused"]') as HTMLElement).focus();
 
         // A1: a shortcut was not aimed at anything, so it takes the focused
@@ -341,7 +355,7 @@ describe('finding the anchor (DD-008)', () => {
       page(`<form id="f"><input name="a"><button>Go</button></form>`);
       const watch = watchAnchor(document);
       try {
-        document.body.dispatchEvent(new Event('contextmenu', { bubbles: true }));
+        rightClick(document.body);
         (at('[name="a"]') as HTMLElement).focus();
 
         expect(watch.anchor('shortcut')).toBe(at('[name="a"]'));
@@ -351,6 +365,66 @@ describe('finding the anchor (DD-008)', () => {
 
         const resolved = resolveScope('current-form', document, watch.anchor('shortcut'));
         expect(resolved).toEqual({ resolved: true, within: at('#f'), rule: 'element-form' });
+      } finally {
+        watch.release();
+      }
+    });
+
+    it('ignores a contextmenu event the page dispatched itself', () => {
+      // Between a real right-click and the user choosing our menu item, a page
+      // could otherwise move the anchor to a control of its own choosing. The
+      // pointer is the one anchor source with no on-screen trace, so a page
+      // steering it is not visible to the user at all.
+      page(`<input name="planted"><input name="focused">`);
+      const watch = watchAnchor(document);
+      try {
+        at('[name="planted"]').dispatchEvent(new Event('contextmenu', { bubbles: true }));
+        (at('[name="focused"]') as HTMLElement).focus();
+
+        expect(watch.anchor('menu')).toBe(at('[name="focused"]'));
+      } finally {
+        watch.release();
+      }
+    });
+  });
+
+  describe('focus inside a frame is not an anchor (UC-002 A2, UC-003 A2)', () => {
+    // A shortcut is routed to the top frame, and `activeElement` there is the
+    // `<iframe>` element whenever focus is inside the child document. It is
+    // connected and it is not `<body>`, so it used to be taken as the anchor:
+    // "fill this input" then reported an `<iframe>` as an unfillable control,
+    // and "fill this form" resolved a container around it and filled a form the
+    // user was not working in.
+    it('does not take the frame element the user is typing inside', () => {
+      page(`<form id="f"><input name="a"><button>Go</button></form><iframe id="frame"></iframe>`);
+      const watch = watchAnchor(document);
+      try {
+        // What the top document reports while focus sits in the child.
+        at('#frame').dispatchEvent(new Event('focusin', { bubbles: true }));
+
+        expect(watch.anchor('shortcut')).toBeUndefined();
+        // Widening is the right answer here, and one the user can read.
+        expect(resolveScope('current-form', document, watch.anchor('shortcut'))).toMatchObject({
+          resolved: true,
+          rule: 'only-unit',
+        });
+        // The control scope has nothing to widen to, so it refuses (UC-003 A2)
+        // rather than naming a frame as a control.
+        expect(resolveScope('selected-input', document, watch.anchor('shortcut'))).toEqual({
+          resolved: false,
+          reason: 'no-anchor',
+        });
+      } finally {
+        watch.release();
+      }
+    });
+
+    it('does not take a frame the user right-clicked either', () => {
+      page(`<iframe id="frame"></iframe>`);
+      const watch = watchAnchor(document);
+      try {
+        rightClick(at('#frame'));
+        expect(watch.anchor('menu')).toBeUndefined();
       } finally {
         watch.release();
       }
