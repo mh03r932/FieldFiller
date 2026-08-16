@@ -81,6 +81,39 @@ describe('the form-scope ladder (DD-008, BR-002-1)', () => {
     expect(at('#owner').contains(at('[name="a"]'))).toBe(false);
   });
 
+  it('rule 1: fills the control it resolved from, not just the form around it', async () => {
+    // The other half of the rule, and the half that was missing. Resolving to a
+    // form the anchor is *outside* of is the whole point — and a walk of the
+    // form's subtree then found every field except the one the user pointed at.
+    // "Fill this form" filled everything around the anchor and left it blank,
+    // which is a worse answer than refusing would have been.
+    page(`
+      <form id="owner"><input name="inside"><button type="submit">Go</button></form>
+      <div id="modal"><input name="anchor" form="owner"></div>`);
+
+    const resolution = resolveScope('current-form', document, at('[name="anchor"]'));
+    if (!resolution.resolved || !('within' in resolution)) throw new Error('expected a root');
+    await fill({ root: document, within: resolution.within });
+
+    expect(filled('[name="inside"]')).not.toBe('');
+    expect(filled('[name="anchor"]')).not.toBe('');
+  });
+
+  it('rule 1: does not reach controls the form does not own', async () => {
+    // `form.elements` is the page's own answer to what the form submits, so the
+    // widening stops exactly where the page says it does.
+    page(`
+      <form id="owner"><input name="inside"><button type="submit">Go</button></form>
+      <div id="modal"><input name="anchor" form="owner"><input name="unrelated"></div>`);
+
+    const resolution = resolveScope('current-form', document, at('[name="anchor"]'));
+    if (!resolution.resolved || !('within' in resolution)) throw new Error('expected a root');
+    await fill({ root: document, within: resolution.within });
+
+    expect(filled('[name="anchor"]')).not.toBe('');
+    expect(filled('[name="unrelated"]')).toBe('');
+  });
+
   it('rule 2: takes what the author declared without a form tag', () => {
     page(`<div id="unit" role="form"><input name="a"></div>`);
 
