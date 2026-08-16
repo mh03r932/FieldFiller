@@ -20,6 +20,7 @@ import {
   type FieldReportEntry,
   type FillReport,
   type FillScope,
+  type FillTrigger,
   type FromPageMessage,
   type FrameReport,
   type OperationId,
@@ -202,7 +203,7 @@ async function registerContextMenus(): Promise<void> {
  */
 type Target = { readonly tabId: number; readonly frameId?: number | undefined };
 
-async function startFill(target: Target, scope: FillScope): Promise<void> {
+async function startFill(target: Target, scope: FillScope, trigger: FillTrigger): Promise<void> {
   const { tabId } = target;
   if (filling.has(tabId)) {
     // UC-001 A7: a second invocation during a running fill is ignored rather
@@ -287,6 +288,7 @@ async function startFill(target: Target, scope: FillScope): Promise<void> {
         kind: 'fill',
         operationId,
         scope,
+        trigger,
         settings: agentSettings(settings),
       },
       addressed,
@@ -585,7 +587,7 @@ export default defineBackground(() => {
     // the element the user right-clicked (UC-003 A3). Chrome supplies no
     // *element* identifier, which is why the agent has to have seen the click
     // itself — DD-001's argument, restated.
-    void startFill({ tabId: tab.id, frameId: info.frameId }, scope);
+    void startFill({ tabId: tab.id, frameId: info.frameId }, scope, 'menu');
   });
 
   // FR-004: the toolbar reaches only "fill all inputs" — it has no cursor
@@ -603,7 +605,7 @@ export default defineBackground(() => {
   });
 
   browser.action.onClicked.addListener((tab) => {
-    if (tab.id !== undefined) void startFill({ tabId: tab.id }, 'all-inputs');
+    if (tab.id !== undefined) void startFill({ tabId: tab.id }, 'all-inputs', 'toolbar');
   });
 
   browser.commands.onCommand.addListener((command, tab) => {
@@ -612,7 +614,7 @@ export default defineBackground(() => {
     // No frame: a keyboard shortcut is not aimed at anything. The narrower
     // scopes go to the top frame, which resolves them from what is focused there
     // or — for the form scope with nothing focused — by widening (UC-002 A2).
-    void startFill({ tabId: tab.id }, scope);
+    void startFill({ tabId: tab.id }, scope, 'shortcut');
   });
 
   // The agent's half of the round trip: descriptors in, values out. Answered

@@ -21,6 +21,27 @@
 export type FillScope = 'all-inputs' | 'current-form' | 'selected-input';
 
 /**
+ * How the fill was invoked, which decides where the anchor comes from
+ * (UC-002 A1, UC-003 A2).
+ *
+ * The scope alone cannot answer that. "Fill this form" from the context menu
+ * means the form around the element under the pointer; the same scope from a
+ * keyboard shortcut means the form around whatever is focused, and there is no
+ * pointer involved at all. Sending only the scope left the agent guessing, and
+ * it guessed by preferring the last right-clicked element whenever one still
+ * existed — so a single right-click anywhere on a page redirected every later
+ * shortcut on that page for as long as it stayed open.
+ *
+ * `toolbar` shares `shortcut`'s answer rather than having one of its own: a
+ * click on our own toolbar button is not aimed at anything in the page either.
+ * The two are kept apart in the type because they are different channels and
+ * FR-005 and FR-050 are different requirements.
+ */
+export type FillTrigger = 'menu' | 'shortcut' | 'toolbar';
+
+const FILL_TRIGGERS: readonly FillTrigger[] = ['menu', 'shortcut', 'toolbar'];
+
+/**
  * Identifies one fill operation across every message and every frame it touches.
  *
  * A page and its frames are one fill sharing one persona (BR-001-1). Frames
@@ -398,6 +419,8 @@ export type ToAgentMessage =
       readonly kind: 'fill';
       readonly operationId: OperationId;
       readonly scope: FillScope;
+      /** Which channel invoked this fill, and so where the anchor comes from. */
+      readonly trigger: FillTrigger;
       /** Only the settings this agent's own work requires (BR-024-4). */
       readonly settings: AgentSettings;
     };
@@ -515,10 +538,21 @@ export const PING: ToAgentMessage = { kind: 'ping' };
  * agent left over from a previous extension version can — so neither side may
  * assume the other is the same build.
  */
+export function isFillTrigger(value: unknown): value is FillTrigger {
+  return typeof value === 'string' && (FILL_TRIGGERS as readonly string[]).includes(value);
+}
+
 export function isToAgentMessage(value: unknown): value is ToAgentMessage {
   if (typeof value !== 'object' || value === null) return false;
   const kind = (value as { kind?: unknown }).kind;
-  return kind === 'ping' || kind === 'fill';
+  if (kind === 'ping') return true;
+  if (kind !== 'fill') return false;
+  // A fill that does not say how it was invoked cannot be acted on: the trigger
+  // is what decides whether the anchor is the element under the pointer or the
+  // one holding focus, and guessing is the defect this field was added to fix.
+  // Refusing here costs a fill that the background's own timeout will clear;
+  // guessing costs the user a form filled somewhere they were not looking.
+  return isFillTrigger((value as { trigger?: unknown }).trigger);
 }
 
 /**

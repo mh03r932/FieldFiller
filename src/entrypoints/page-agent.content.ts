@@ -123,7 +123,7 @@ async function fill(request: Extract<ToAgentMessage, { kind: 'fill' }>): Promise
 
   // DD-008. Resolved here, in the frame that saw the pointing — the background
   // knows which frame to ask but not what is inside it.
-  const scope = resolveScope(request.scope, document, anchors.anchor());
+  const scope = resolveScope(request.scope, document, anchors.anchor(request.trigger));
 
   if (!scope.resolved) {
     // A refusal is a decision, not an empty fill (UC-002 A3, UC-003 A2), and it

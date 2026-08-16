@@ -260,14 +260,14 @@ describe('filling at a scope', () => {
 });
 
 describe('finding the anchor (DD-008)', () => {
-  it('prefers where the user pointed over what is focused', () => {
+  it('prefers where the user pointed over what is focused, for a menu fill', () => {
     page(`<input name="pointed"><input name="focused">`);
     const watch = watchAnchor(document);
     try {
       (at('[name="focused"]') as HTMLElement).focus();
       at('[name="pointed"]').dispatchEvent(new Event('contextmenu', { bubbles: true }));
 
-      expect(watch.anchor()).toBe(at('[name="pointed"]'));
+      expect(watch.anchor('menu')).toBe(at('[name="pointed"]'));
     } finally {
       watch.release();
     }
@@ -282,7 +282,7 @@ describe('finding the anchor (DD-008)', () => {
       at('[name="a"]').dispatchEvent(new Event('focusin', { bubbles: true }));
       (at('[name="a"]') as HTMLElement).blur();
 
-      expect(watch.anchor()).toBe(at('[name="a"]'));
+      expect(watch.anchor('shortcut')).toBe(at('[name="a"]'));
     } finally {
       watch.release();
     }
@@ -292,7 +292,7 @@ describe('finding the anchor (DD-008)', () => {
     page(`<input name="a">`);
     const watch = watchAnchor(document);
     try {
-      expect(watch.anchor()).toBeUndefined();
+      expect(watch.anchor('shortcut')).toBeUndefined();
     } finally {
       watch.release();
     }
@@ -307,10 +307,54 @@ describe('finding the anchor (DD-008)', () => {
 
       // BR-003-2: the anchor is an element, not a place. A page that re-rendered
       // has replaced the control, and whatever now sits there is a different one.
-      expect(watch.anchor()).toBeUndefined();
+      expect(watch.anchor('menu')).toBeUndefined();
     } finally {
       watch.release();
     }
+  });
+
+  describe('a right-click does not steer later keyboard fills (UC-002 A1)', () => {
+    it('takes what is focused for a shortcut, even after a right-click elsewhere', () => {
+      page(`<input name="pointed"><input name="focused">`);
+      const watch = watchAnchor(document);
+      try {
+        at('[name="pointed"]').dispatchEvent(new Event('contextmenu', { bubbles: true }));
+        (at('[name="focused"]') as HTMLElement).focus();
+
+        // A1: a shortcut was not aimed at anything, so it takes the focused
+        // element. The right-click belongs to the menu fill it opened, and to
+        // nothing after it.
+        expect(watch.anchor('shortcut')).toBe(at('[name="focused"]'));
+        expect(watch.anchor('toolbar')).toBe(at('[name="focused"]'));
+        // The same watcher still answers a menu fill with the pointer.
+        expect(watch.anchor('menu')).toBe(at('[name="pointed"]'));
+      } finally {
+        watch.release();
+      }
+    });
+
+    it('does not let one right-click on blank background poison the page', () => {
+      // The reported trap, and the reason this is two guards rather than one:
+      // `<body>` stays connected for as long as the page lives, so once it
+      // became the pointer it outranked every other source forever. Every later
+      // shortcut refused with "no form found" while a field sat focused.
+      page(`<form id="f"><input name="a"><button>Go</button></form>`);
+      const watch = watchAnchor(document);
+      try {
+        document.body.dispatchEvent(new Event('contextmenu', { bubbles: true }));
+        (at('[name="a"]') as HTMLElement).focus();
+
+        expect(watch.anchor('shortcut')).toBe(at('[name="a"]'));
+        // Even a menu fill never sees `<body>`: a right-click on blank page
+        // background is not pointing *at* anything (A1's second trigger).
+        expect(watch.anchor('menu')).toBe(at('[name="a"]'));
+
+        const resolved = resolveScope('current-form', document, watch.anchor('shortcut'));
+        expect(resolved).toEqual({ resolved: true, within: at('#f'), rule: 'element-form' });
+      } finally {
+        watch.release();
+      }
+    });
   });
 });
 

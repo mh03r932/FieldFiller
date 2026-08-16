@@ -1,4 +1,4 @@
-import type { FillScope, ScopeRefusal, ScopeRule } from '../protocol';
+import type { FillScope, FillTrigger, ScopeRefusal, ScopeRule } from '../protocol';
 
 /**
  * Resolving what "the current form" means (DD-008, UC-002).
@@ -154,19 +154,26 @@ function nearestContainingSubmit(anchor: Element): Element | undefined {
 }
 
 /**
- * Tracks the element the user pointed at, for the life of the page (DD-008).
+ * Tracks where a fill should be anchored, for the life of the page (DD-008).
  *
- * Three sources in order: the element right-clicked, the element focused now,
- * and the last control focused during this page's lifetime. The third exists
- * because the case is common — tab through a form, click something neutral, then
- * use the shortcut — and refusing there would mean a keypress that does nothing.
+ * Three sources, and **which of them apply depends on how the fill was
+ * invoked** (UC-002 A1): a menu fill may use the element right-clicked, then
+ * what is focused now, then the last control focused in this page's lifetime; a
+ * shortcut or toolbar fill starts at the second, because it was not aimed at
+ * anything. The third exists because the case is common — tab through a form,
+ * click something neutral, then use the shortcut — and refusing there would mean
+ * a keypress that does nothing.
+ *
+ * Letting the right-clicked element apply to every trigger is what this used to
+ * do, and it did not degrade gracefully: the element outlives the menu that
+ * selected it, so one right-click redirected every later shortcut on the page.
  *
  * **Identity only.** This holds references to elements and never reads what they
  * contain, exactly as the "written by us" set does (BR-005-7, BR-002-5), so
  * NFR-010 is untouched. Nothing here outlives the page or reaches storage.
  */
 export type AnchorWatch = {
-  readonly anchor: () => Element | undefined;
+  readonly anchor: (trigger: FillTrigger) => Element | undefined;
   readonly release: () => void;
 };
 
@@ -175,7 +182,14 @@ export function watchAnchor(document: Document): AnchorWatch {
   let lastFocused: Element | undefined;
 
   const onContextMenu = (event: Event): void => {
-    if (event.target instanceof Element) pointed = event.target;
+    // `<body>` and `<html>` are what a right-click on blank page background
+    // reports, and neither is something the user pointed *at* — the same
+    // reasoning `anchor` applies to `activeElement` below. Recording them was
+    // half of the bug this guard closes: `<body>` is connected for the life of
+    // the page, so once stored it outranked every later source forever.
+    if (event.target instanceof Element && event.target !== document.body && event.target !== document.documentElement) {
+      pointed = event.target;
+    }
   };
   const onFocus = (event: Event): void => {
     if (event.target instanceof Element) lastFocused = event.target;
@@ -188,8 +202,14 @@ export function watchAnchor(document: Document): AnchorWatch {
   document.addEventListener('focusin', onFocus, true);
 
   return {
-    anchor: () => {
-      if (pointed !== undefined && pointed.isConnected) return pointed;
+    anchor: (trigger) => {
+      // Only a menu fill may use the pointer, and only because the menu it came
+      // from was opened over that element moments earlier. A shortcut is not
+      // aimed at anything (UC-002 A1), so consulting the last right-click there
+      // is not a fallback but a wrong answer that happens to be available —
+      // and, since the pointer survives as long as its element does, an answer
+      // that stays wrong for the life of the page.
+      if (trigger === 'menu' && pointed !== undefined && pointed.isConnected) return pointed;
       const active = document.activeElement;
       // `<body>` is what `activeElement` reports when nothing is focused, and it
       // is not something the user pointed at.

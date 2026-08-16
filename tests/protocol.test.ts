@@ -12,15 +12,37 @@ describe('isToAgentMessage', () => {
     expect(isToAgentMessage(PING)).toBe(true);
   });
 
-  it('accepts a fill instruction', () => {
+  it.each(['menu', 'shortcut', 'toolbar'])('accepts a fill instruction from %s', (trigger) => {
     expect(
       isToAgentMessage({
         kind: 'fill',
         operationId: 'op-1',
         scope: 'all-inputs',
+        trigger,
         settings: { dispatchEvents: true },
       }),
     ).toBe(true);
+  });
+
+  it.each([
+    ['no trigger at all', undefined],
+    ['a trigger this version does not know', 'telepathy'],
+    ['a trigger of the wrong type', 3],
+  ])('rejects a fill instruction with %s', (_label, trigger) => {
+    // The trigger decides whether the anchor is the element under the pointer or
+    // the one holding focus. Guessing is the defect the field was added to fix,
+    // so an instruction that does not name one is not actionable — the
+    // background's timeout clears it, which is cheaper than a form filled
+    // somewhere the user was not looking.
+    expect(
+      isToAgentMessage({
+        kind: 'fill',
+        operationId: 'op-1',
+        scope: 'all-inputs',
+        trigger,
+        settings: { dispatchEvents: true },
+      }),
+    ).toBe(false);
   });
 
   it.each([
