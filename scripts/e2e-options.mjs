@@ -1,109 +1,42 @@
 #!/usr/bin/env node
 /**
- * UC-002, UC-003 and UC-008 against a real Chromium with the extension loaded.
+ * UC-009 to UC-013: a rule authored through the options page, end to end.
  *
- * The unit tests in `tests/scope.test.ts` decide whether the DD-008 ladder is
- * *correct*; this decides whether it is *reachable*. Everything between the two
- * lives outside happy-dom: the context menu's `frameId`, `chrome.tabs.get`
- * returning a URL under `activeTab`, the badge, and the fact that the agent has
- * to have seen the right-click itself because Chrome will not tell us which
- * element it was (DD-001).
+ * `tests/editing.test.ts` decides whether the rule-list functions are *correct*.
+ * This decides whether a person can *reach* them: the assertions here are driven
+ * by clicking Add, typing into fields and pressing the move buttons, so what is
+ * under test is the wiring between the page and those functions rather than the
+ * functions themselves. It has already earned that: it caught handlers that
+ * closed over stale state, so editing two fields in a row discarded the first,
+ * and a generator-type change that never re-rendered its own fields.
  *
- * Each case reloads the fixture first. Scope is the thing under test, so a run
- * that inherited another case's writes would be scoring the wrong page — and the
- * failure would read as a scope leak, which is exactly the defect this exists to
- * catch.
+ * The last third is the part that makes the rest matter. Having written a rule
+ * through the UI, it navigates to the reference fixture and fills it, so the
+ * claim being checked is not "the editor stored something" but "the rule the
+ * user wrote is what the page receives" — through storage, the tolerant parser,
+ * the compiled rule list and the fill.
  *
- * Usage: pnpm run build && pnpm run scopes:chrome
+ * Usage: pnpm run build && pnpm run options:chrome
+ *   CHROME_PATH=…  override the browser binary
+ *   HEADFUL=1      show the window
  */
-import { spawn } from 'node:child_process';
-import { createRequire } from 'node:module';
-import { createHash } from 'node:crypto';
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import {
+  attachToWorker,
+  closeChromium,
+  derivedExtensionId,
+  launchChromium,
+  sleep,
+  waitForAgent,
+} from './lib/chromium.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const EXTENSION_DIR = join(ROOT, '.output', 'chrome-mv3');
 const FIXTURE = join(ROOT, 'tests', 'fixtures', 'reference.html');
-
-const CHROME_CANDIDATES = [
-  '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
-  '/Applications/Chromium.app/Contents/MacOS/Chromium',
-  '/usr/bin/google-chrome',
-  '/usr/bin/chromium',
-  '/usr/bin/chromium-browser',
-];
-
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
-function playwrightChromium() {
-  try {
-    const require = createRequire(import.meta.url);
-    const path = require('playwright').chromium.executablePath();
-    return existsSync(path) ? path : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-function findChrome() {
-  const fromEnv = process.env['CHROME_PATH'];
-  if (fromEnv !== undefined && existsSync(fromEnv)) return fromEnv;
-  const pinned = playwrightChromium();
-  if (pinned !== undefined) return pinned;
-  const found = CHROME_CANDIDATES.find((candidate) => existsSync(candidate));
-  if (found === undefined) {
-    throw new Error(
-      'No Chrome or Chromium found. Run `pnpm exec playwright install chromium`, or set CHROME_PATH.',
-    );
-  }
-  return found;
-}
-
-function derivedExtensionId(absolutePath) {
-  const hash = createHash('sha256').update(absolutePath).digest('hex').slice(0, 32);
-  return [...hash].map((digit) => String.fromCharCode(97 + parseInt(digit, 16))).join('');
-}
-
-async function freePort() {
-  const probe = createServer();
-  await new Promise((resolve) => probe.listen(0, '127.0.0.1', resolve));
-  const { port } = probe.address();
-  await new Promise((resolve) => probe.close(resolve));
-  return port;
-}
-
-async function connect(url) {
-  const socket = new WebSocket(url);
-  const pending = new Map();
-  let nextId = 1;
-  await new Promise((resolve, reject) => {
-    socket.addEventListener('open', () => resolve());
-    socket.addEventListener('error', () => reject(new Error(`CDP connection failed: ${url}`)));
-  });
-  socket.addEventListener('message', (event) => {
-    const frame = JSON.parse(event.data);
-    if (frame.id !== undefined) { pending.get(frame.id)?.(frame); pending.delete(frame.id); }
-  });
-  return {
-    send(method, params = {}, sessionId) {
-      const id = nextId++;
-      return new Promise((resolve, reject) => {
-        pending.set(id, (frame) =>
-          frame.error ? reject(new Error(`${method}: ${frame.error.message}`)) : resolve(frame.result));
-        socket.send(JSON.stringify({ id, method, params, ...(sessionId ? { sessionId } : {}) }));
-      });
-    },
-    async attach(targetId) {
-      const { sessionId } = await this.send('Target.attachToTarget', { targetId, flatten: true });
-      return sessionId;
-    },
-    close() { socket.close(); },
-  };
-}
 
 if (!existsSync(join(EXTENSION_DIR, 'manifest.json'))) {
   console.error('✖ no Chromium build found. Run `pnpm run build` first.');
@@ -132,24 +65,7 @@ function check(name, condition, detail) {
 }
 
 try {
-  const debugPort = await freePort();
-  chrome = spawn(findChrome(), [
-    `--user-data-dir=${profileDir}`,
-    `--remote-debugging-port=${debugPort}`,
-    `--load-extension=${EXTENSION_DIR}`,
-    `--disable-extensions-except=${EXTENSION_DIR}`,
-    ...(process.env['HEADFUL'] === '1' ? [] : ['--headless=new']),
-    ...(process.env['CI'] === undefined ? [] : ['--no-sandbox', '--disable-dev-shm-usage']),
-    '--no-first-run', '--no-default-browser-check', 'about:blank',
-  ], { stdio: 'ignore' });
-
-  let wsUrl;
-  for (let attempt = 0; attempt < 100 && wsUrl === undefined; attempt++) {
-    try {
-      wsUrl = (await (await fetch(`http://127.0.0.1:${debugPort}/json/version`)).json()).webSocketDebuggerUrl;
-    } catch { await sleep(150); }
-  }
-  cdp = await connect(wsUrl);
+  ({ chrome, cdp } = await launchChromium(EXTENSION_DIR, profileDir));
 
   const initial = (await cdp.send('Target.getTargets')).targetInfos.find((t) => t.type === 'page');
   const targetId =
@@ -158,25 +74,26 @@ try {
   await cdp.send('Page.enable', {}, page);
   await cdp.send('Runtime.enable', {}, page);
 
-  let worker;
-  for (let attempt = 0; attempt < 60 && worker === undefined; attempt++) {
-    const { targetInfos } = await cdp.send('Target.getTargets');
-    worker = targetInfos.find((t) => t.type === 'service_worker' && t.url.includes(extensionId));
-    if (worker === undefined) await sleep(100);
-  }
-  if (worker === undefined) throw new Error('the background service worker never started');
-  const workerSession = await cdp.attach(worker.targetId);
+  const workerSession = await attachToWorker(cdp, extensionId);
 
+  /**
+   * How this harness picks the tab: the active one, or the only one.
+   *
+   * Shared by the readiness ping and the trigger, so the tab waited for is the
+   * tab filled.
+   */
+  const TAB = 'tabs.find((candidate) => candidate.active) ?? tabs[0]';
+
+  // No `exceptionDetails` check of its own any more: `send` rejects on one,
+  // naming the command, for every session and every harness. This kept its own
+  // because it was written before that existed — and `inWorker` below never had
+  // one, which is the asymmetry that argues for the check living in one place.
   const inPage = async (expression) => {
-    const { result, exceptionDetails } = await cdp.send(
+    const { result } = await cdp.send(
       'Runtime.evaluate',
       { expression, returnByValue: true, awaitPromise: true },
       page,
     );
-    if (exceptionDetails !== undefined) {
-      const detail = exceptionDetails.exception?.description ?? exceptionDetails.text;
-      throw new Error(`page threw: ${String(detail).split('\n')[0]}`);
-    }
     return result.value;
   };
 
@@ -189,6 +106,15 @@ try {
     return result.value;
   };
 
+  /** Polls a predicate in the page until it holds, or fails saying which one did not. */
+  const waitFor = async (expression, whatFailed) => {
+    for (let attempt = 0; attempt < 100; attempt++) {
+      if ((await inPage(expression)) === true) return;
+      await sleep(100);
+    }
+    throw new Error(`${whatFailed} (waited 10 s for \`${expression}\`)`);
+  };
+
   const storedRules = async () =>
     JSON.parse(String(await inWorker(
       `chrome.storage.local.get('settings').then((s) => JSON.stringify(s.settings?.rules ?? []))`,
@@ -196,7 +122,21 @@ try {
 
   // ── Open the options page and add a rule the way a person does ──────────────
   await cdp.send('Page.navigate', { url: `chrome-extension://${extensionId}/options.html` }, page);
-  await sleep(1200);
+  // A condition, not a sleep. `waitForAgent` is the wrong tool here — this is
+  // one of the extension's own pages and has no content script to ping — so the
+  // condition has to be something the editor itself produces.
+  //
+  // Specifically *not* `#rules` existing: that div is static markup in
+  // `index.html`, so it is there the instant the document parses and the wait
+  // returns before the script that fills it has run. Written that way first, and
+  // it turned the empty-state assertion below red — the condition was satisfied,
+  // the paragraph was not yet rendered, and the failure named the options page
+  // rather than the harness. Waiting on the child that the render creates is the
+  // condition the sleep was standing in for.
+  await waitFor(
+    `(document.querySelector('#rules')?.children.length ?? 0) > 0`,
+    'the rule editor never rendered into #rules',
+  );
 
   check('the options page renders the rule section',
     (await inPage(`document.querySelector('#rules') !== null`)) === true,
@@ -308,9 +248,14 @@ try {
 
   // ── The point of all of it: the rule changes what a fill writes ─────────────
   await cdp.send('Page.navigate', { url: pageUrl }, page);
-  await sleep(1200);
+  // Now it *is* a content-script page, so the agent's own ping is the condition.
+  await waitForAgent(cdp, workerSession, TAB);
   const fired = await inWorker(`chrome.tabs.query({}).then((tabs) => {
-    const tab = tabs.find((candidate) => candidate.active) ?? tabs[0];
+    const tab = ${TAB};
+    if (tab === undefined) return 'no tab';
+    if (typeof chrome.action.onClicked.dispatch !== 'function') {
+      return 'chrome.action.onClicked.dispatch is not available in this Chrome';
+    }
     chrome.action.onClicked.dispatch(tab);
     return 'ok';
   }).catch((error) => 'threw: ' + error.message)`);
@@ -339,15 +284,8 @@ try {
 } catch (error) {
   failures.push(error instanceof Error ? error.message : String(error));
 } finally {
-  cdp?.close();
   server.close();
-  chrome?.kill();
-  await sleep(200);
-  try {
-    rmSync(profileDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
-  } catch {
-    console.warn(`  (left a temp profile behind: ${profileDir})`);
-  }
+  await closeChromium({ chrome, cdp, profileDir });
 }
 
 console.log('\n  UC-009..UC-013 — a rule authored through the options page\n');

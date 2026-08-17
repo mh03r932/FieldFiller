@@ -172,13 +172,16 @@ jobs:
         # through untouched, so the inner quotes must be bare.
         #
         # Every step below therefore reads `CHROME_PATH` and derives nothing.
-        # The locale step broke that from the day it was added until
-        # 2026-08-17, with an inline `export CHROME_PATH="$(node …)"` — which is
-        # the discarded-exit-status shape described above, wearing `export` in
-        # place of `echo`: a `node` that fails exports an empty path and the
-        # harness silently falls back to finding a browser itself. A step that
-        # needs the binary adds no derivation of its own; if this pin ever has
-        # to change, it changes here.
+        # Two steps have broken that, both with an inline
+        # `export CHROME_PATH="$(node …)"` — the locale step, from the day it was
+        # added until 2026-08-17, and the options step, which was written on a
+        # branch before that fix and brought it back through a rebase. It is the
+        # discarded-exit-status shape described above wearing `export` in place
+        # of `echo`: a `node` that fails exports an empty path and the harness
+        # silently falls back to finding a browser itself.
+        #
+        # Twice is the pattern worth naming. A step that needs the binary adds no
+        # derivation of its own; if this pin ever has to change, it changes here.
         run: |
           chromium="$(node -e 'console.log(require("playwright").chromium.executablePath())')"
           echo "CHROME_PATH=$chromium" >> "$GITHUB_ENV"
@@ -211,9 +214,7 @@ jobs:
         # whose handlers closed over stale state, so editing two fields in a row
         # discarded the first, and a change of generator type that never
         # re-rendered its own fields.
-        run: |
-          export CHROME_PATH="$(node -e 'console.log(require("playwright").chromium.executablePath())')"
-          pnpm run options:chrome
+        run: pnpm run options:chrome
 
       - name: Corpus per locale (Chromium)
         # The path a unit test cannot reach: a locale written to storage, parsed
