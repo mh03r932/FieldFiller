@@ -693,6 +693,18 @@ export default defineBackground(() => {
     if (tab.id !== undefined) void startFill({ tabId: tab.id }, 'all-inputs', 'toolbar');
   });
 
+  // The `tab` here is the browser's own argument, not a polyfill's courtesy:
+  // Chromium has passed it for years — `@wxt-dev/browser` is generated from
+  // `@types/chrome`, which declares `(command, tab?)` — and Firefox added it in
+  // 126, under NFR-016's floor of 128. Reading it costs no `tabs` permission,
+  // which is the whole reason the shortcut path needs none (NFR-008).
+  //
+  // It is optional in the signature because a command *can* fire with no tab:
+  // a `global` command fires with the browser unfocused. None of ours is
+  // declared global (`wxt.config.ts`), so a shortcut only ever arrives with a
+  // window focused and an active tab beneath it. The guard below stands anyway
+  // — an absent tab leaves nothing to fill and nothing to put a badge on, so
+  // returning is the only outcome available rather than a choice.
   browser.commands.onCommand.addListener((command, tab) => {
     const scope = COMMAND_SCOPES[command];
     if (scope === undefined || tab?.id === undefined) return;

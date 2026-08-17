@@ -129,6 +129,15 @@ jobs:
         # the path itself, which is the work this step exists to remove. Note
         # the quoting: this is a YAML block scalar, which passes backslashes
         # through untouched, so the inner quotes must be bare.
+        #
+        # Every step below therefore reads `CHROME_PATH` and derives nothing.
+        # The locale step broke that from the day it was added until
+        # 2026-08-17, with an inline `export CHROME_PATH="$(node …)"` — which is
+        # the discarded-exit-status shape described above, wearing `export` in
+        # place of `echo`: a `node` that fails exports an empty path and the
+        # harness silently falls back to finding a browser itself. A step that
+        # needs the binary adds no derivation of its own; if this pin ever has
+        # to change, it changes here.
         run: |
           chromium="$(node -e 'console.log(require("playwright").chromium.executablePath())')"
           echo "CHROME_PATH=$chromium" >> "$GITHUB_ENV"
@@ -159,9 +168,7 @@ jobs:
         # back, resolved, and turned into a record on a real page. Until this
         # existed de-CH had never run in a browser at all — every other run uses
         # the default, which resolves to en-US on a headless Chrome.
-        run: |
-          export CHROME_PATH="$(node -e 'console.log(require("playwright").chromium.executablePath())')"
-          pnpm run locale:chrome
+        run: pnpm run locale:chrome
 
       - name: Dependent fields (Chromium)
         # UC-034's scoreboard, and since 2026-08-15 a regression gate: all three
