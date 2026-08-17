@@ -50,12 +50,12 @@ Legend — **Spec:** `Not started` · `Blocked` · `Drafted` · `Approved`
 
 | ID | Use Case | Primary Actor | Goal | Traces to | Priority | Spec |
 |---|---|---|---|---|---|---|
-| UC-018 | Configure Field Matching Sources | Power User | Choose which attributes take part in rule matching | FR-027..030 | Medium | Not started |
-| UC-019 | Configure Password Generation | Power User | Choose a fixed password or a policy-compliant generated one | FR-025, FR-026, FR-072 | High | Not started |
-| UC-020 | Configure Field Exclusions | Power User | Set ignore patterns and hidden/pre-filled behaviour | FR-034..036 | High | Not started |
-| UC-021 | Configure Domain Exclusions | Power User | List domains where the extension stays inert — loaded, but never asked to act (BR-008-4) | FR-037, FR-074 | High | Not started |
-| UC-022 | Configure Fill Behaviour Defaults | Power User | Set default max length, consent and confirmation keywords, event dispatch | FR-014, FR-015, FR-024, FR-049 | Medium | Not started |
-| UC-023 | Configure Triggers | Power User | Control which ways of invoking a fill are available | FR-006, FR-050, FR-005 | Medium | **Drafted** |
+| UC-018 | Configure Field Matching Sources | Power User | Choose which attributes take part in rule matching | FR-027..030 | Medium | **Drafted** *(built 2026-08-17)* |
+| UC-019 | Configure Password Generation | Power User | Choose the complexity policy a generated password starts from | FR-025, FR-026, FR-072 | High | **Drafted** *(built 2026-08-17; the policy was stored and read by nothing until then)* |
+| UC-020 | Configure Field Exclusions | Power User | Set ignore patterns and hidden/pre-filled behaviour | FR-034..036 | High | **Drafted** *(built 2026-08-17)* |
+| UC-021 | Configure Domain Exclusions | Power User | List domains where the extension stays inert — loaded, but never asked to act (BR-008-4) | FR-037, FR-074 | High | **Drafted** *(built 2026-08-17)* |
+| UC-022 | Configure Fill Behaviour Defaults | Power User | Set default max length, consent and confirmation keywords, event dispatch | FR-014, FR-015, FR-024, FR-049, FR-065 | Medium | **Drafted** *(built 2026-08-17; the keyword lists were added to the schema by it)* |
+| UC-023 | Configure Triggers | Power User | Control which ways of invoking a fill are available | FR-006, FR-050, FR-005 | Medium | **Drafted** *(built 2026-08-17; A2b and BR-023-5 added by what building it showed)* |
 | UC-024 | Persist and Propagate Settings | *(included)* | Durably store a settings change and apply it to open tabs without reload | FR-051, NFR-021 | High | **Drafted** |
 
 ## Portability
@@ -155,8 +155,8 @@ constraints rather than choices:
 |---|---|
 | **UC-009..UC-012** *(not started)* | A rule carries a match mode (`contains` / `exact` / `regex`), an optional source subset, a generator from a thirteen-member union, and the persona flag. The flag **defaults to on** and the spec must say what it means in the user's language — "use this fill's person" — because "coherence" is not a word a user brings to a settings screen. Reordering is precedence (FR-031), and must be keyboard-operable (NFR-019). |
 | **UC-013** *(not started)* | The preview must run `validateRule` and show its message beside the field, not on save — FR-070's whole point is that the rejection reaches the user while they are still typing. It must also preview a *bounded* sample: a regex generator draws from a subset of its language, not from the pattern verbatim. |
-| **UC-018** *(not started)* | The six source toggles bound every rule's effective sources. The spec must say that a rule naming a globally-disabled source matches nothing through it — the intersection is a bound, not a suggestion — and that `className` ships off. |
-| **UC-020** *(not started)* | Field exclusions now carry the same three match modes as rules. A stored pre-DD-005 pattern was a regex and is lifted as one; the spec must not describe them as literal substrings. |
+| ~~**UC-018**~~ | ~~The six source toggles bound every rule's effective sources. The spec must say that a rule naming a globally-disabled source matches nothing through it — the intersection is a bound, not a suggestion — and that `className` ships off.~~ **Discharged 2026-08-17** into `use_cases/UC-018.md` — BR-018-1 states the bound and says it must be on the screen in those words; BR-018-2 states the `className` default and why the source is offered at all. |
+| ~~**UC-020**~~ | ~~Field exclusions now carry the same three match modes as rules. A stored pre-DD-005 pattern was a regex and is lifted as one; the spec must not describe them as literal substrings.~~ **Discharged 2026-08-17** into `use_cases/UC-020.md` BR-020-1. |
 | **UC-026, UC-027** *(not started)* | The importer translates the reference's template and moment-style date grammars into ours, and must report what it could not map (PD-002). Anything it cannot translate is a rule the user loses silently otherwise. |
 | **UC-024** *(drafted)* | Settings are one storage item with sections as top-level keys. A future shard per section is mechanical and must stay so; the spec should not describe the item as opaque. |
 | **UC-029** *(not started)* | DD-002 is still open and inherits this layout rather than choosing it. |
@@ -167,6 +167,14 @@ silently discards what it cannot recognise — the user's hand-written rules, wi
 moment any spec proposes restructuring a section is the moment FR-073's ladder has to be built.
 Nothing currently enforces that, which is exactly the class of residual risk
 `requirements.md` records under "Guarantees held by construction".
+
+**Tested against on 2026-08-17, and the answer was no.** Phase 4 added three keys — a `triggers`
+section, and `consentKeywords` and `confirmationKeywords` inside `behaviour` — and none of them
+is a restructuring. An absent key defaults, which is what the tolerant parser is *for*; what it
+cannot survive is a key whose meaning or shape changed underneath it. The distinction is worth
+recording because it is the one a future change will have to make about itself, and "we added
+to the schema and did not build the ladder" is otherwise indistinguishable from having ignored
+this paragraph.
 
 **DD-009** (dependent and late-appearing fields, resolved 2026-08-14) is parked here. It
 lands before UC-034 exists and it reopens two specs that are already drafted, so its

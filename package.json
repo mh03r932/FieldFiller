@@ -41,6 +41,7 @@
     "scopes:chrome": "node scripts/e2e-scopes.mjs",
     "locale:chrome": "node scripts/e2e-locale.mjs",
     "options:chrome": "node scripts/e2e-options.mjs",
+    "settings:chrome": "node scripts/e2e-settings.mjs",
     "spike:combobox": "node scripts/spike-combobox.mjs",
     "spike:coldstart": "node scripts/spike-coldstart.mjs",
     "spike:rulescale": "node scripts/spike-rule-scale.mjs",

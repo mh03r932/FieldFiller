@@ -24,6 +24,7 @@
 import { between, pick, type Corpus, type Locale } from './corpus/corpus';
 import { EN_US } from './corpus/en-US';
 import { DE_CH } from './corpus/de-CH';
+import { DEFAULT_PASSWORD_POLICY, type PasswordPolicy } from '../settings';
 
 export type { Locale } from './corpus/corpus';
 export { LOCALES } from './corpus/corpus';
@@ -96,22 +97,58 @@ export function seededRandom(seed: number): Random {
 }
 
 /**
- * A password that would actually pass a registration form.
+ * The character sets each policy class draws from.
+ *
+ * Visually ambiguous characters are absent throughout — no `l`, `I`, `1`, `O`,
+ * `0` — because a tester reads these values off the screen and retypes them, and
+ * a password that fails only because an `l` was read as a `1` costs exactly the
+ * time the extension exists to save.
+ */
+const CLASS_CHARACTERS = {
+  lower: 'abcdefghijkmnopqrstuvwxyz',
+  upper: 'ABCDEFGHJKLMNPQRSTUVWXYZ',
+  digits: '23456789',
+  symbols: '!@#$%&*',
+} as const;
+
+/**
+ * A password that would actually pass a registration form (FR-025).
  *
  * The reference's is `scrambledWord(8,8).toLowerCase()` — eight alternating
  * lowercase letters, no digit, no uppercase, no symbol — which fails the very
- * forms the feature exists to fill (ND-11). Per-field policy from `pattern` and
- * `minlength` is applied by the generator on top of this.
+ * forms the feature exists to fill (ND-11). Per-field policy from `pattern`,
+ * `minlength` and `maxlength` is applied by the generator on top of this, and
+ * the page always wins (FR-072).
+ *
+ * One character of each enabled class comes first, so the policy is satisfied by
+ * construction rather than by generating until it happens to be — a retry loop
+ * against a policy the user can make unsatisfiable is a hang, not a password.
+ * The remainder is drawn from the union of the enabled classes.
+ *
+ * Two policies cannot be honoured and both are the user's to write:
+ *
+ *   · **no class enabled at all.** A password drawn from nothing is the empty
+ *     string, which fills the field with nothing and reports success. Lowercase
+ *     is used instead — the screen says so rather than refusing to save, because
+ *     unticking the fourth box is a state you pass *through* while ticking a
+ *     different one (UC-019 A1).
+ *   · **a length below the number of enabled classes.** The classes are laid
+ *     down in order and the value is cut to length, so the last ones are lost.
+ *     Length is what the page checks, so length is what wins (BR-019-2).
  */
-function password(random: Random): string {
-  const lower = 'abcdefghijkmnopqrstuvwxyz';
-  const upper = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
-  const numerals = '23456789';
-  const symbols = '!@#$%&*';
-  const from = (set: string, count: number) =>
-    Array.from({ length: count }, () => set[Math.floor(random() * set.length)]).join('');
+function password(random: Random, policy: PasswordPolicy): string {
+  const enabled = (['upper', 'lower', 'digits', 'symbols'] as const).filter(
+    (name) => policy[name],
+  );
+  const sets = enabled.length === 0 ? (['lower'] as const) : enabled;
+  const pool = sets.map((name) => CLASS_CHARACTERS[name]).join('');
+  const from = (set: string) => set[Math.floor(random() * set.length)] as string;
 
-  return `${from(upper, 1)}${from(lower, 8)}${from(numerals, 3)}${from(symbols, 1)}`;
+  const required = sets.map((name) => from(CLASS_CHARACTERS[name]));
+  const filler = Array.from({ length: Math.max(0, policy.length - required.length) }, () =>
+    from(pool),
+  );
+  return [...required, ...filler].join('').slice(0, policy.length);
 }
 
 /**
@@ -142,7 +179,11 @@ export function corpusFor(locale: Locale): Corpus {
  * because a later generator was told to look at a previous field's output — and
  * the postcode belongs to the city because they were chosen as one thing.
  */
-export function createPersona(random: Random, locale: Locale = 'en-US'): Persona {
+export function createPersona(
+  random: Random,
+  locale: Locale = 'en-US',
+  policy: PasswordPolicy = DEFAULT_PASSWORD_POLICY,
+): Persona {
   const corpus = corpusFor(locale);
 
   const firstName = pick(corpus.firstNames, random);
@@ -167,7 +208,7 @@ export function createPersona(random: Random, locale: Locale = 'en-US'): Persona
   return {
     firstName,
     lastName,
-    password: password(random),
+    password: password(random, policy),
     fullName: `${firstName} ${lastName}`,
     username: slug.replace('.', ''),
     email: `${slug}@${domain}`,

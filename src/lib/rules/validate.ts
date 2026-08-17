@@ -142,6 +142,41 @@ export function validateMatcher(matcher: Matcher): readonly RuleProblem[] {
   return problems;
 }
 
+/**
+ * Every fault a domain exclusion pattern can have (UC-021, FR-037).
+ *
+ * Two, and the shortness is the point. A glob is not a language with syntax to
+ * get wrong — `*` stands for any run of characters and everything else is
+ * literal — so there is nothing here corresponding to `ruleProblemPatternInvalid`
+ * and nothing corresponding to `ruleProblemPatternBacktracks`: `matchesGlob`
+ * does not backtrack by construction, which is why the vocabulary was chosen
+ * over regular expressions in the first place (DD-005, `lib/page/scope.ts`).
+ */
+export type DomainProblemCode = 'domainProblemEmpty' | 'domainProblemWhitespace';
+
+/**
+ * Whether a domain pattern can be stored (UC-021).
+ *
+ * Deliberately not refused: a bare `*`, which matches every URL and makes the
+ * extension inert everywhere. It is a configuration a user may genuinely want —
+ * there is no other global off switch — and refusing it would be this screen
+ * deciding what the exclusion list is for. UC-021 A3 states the cost instead:
+ * because entries are stored as they are typed, a pattern passes *through* `*`
+ * on its way to `*.example.com`, and a fill invoked during that keystroke is
+ * refused. That failure is closed rather than open, and it corrects itself with
+ * the next character.
+ *
+ * Whitespace is refused because a URL contains none, so a pattern carrying any
+ * matches nothing at all — and an exclusion that matches nothing fails *open*,
+ * which is the direction that fills a page the user listed. It is also the most
+ * likely thing to arrive by paste.
+ */
+export function validateDomainPattern(pattern: string): DomainProblemCode | undefined {
+  if (pattern === '') return 'domainProblemEmpty';
+  if (/\s/.test(pattern)) return 'domainProblemWhitespace';
+  return undefined;
+}
+
 function validateGenerator(generator: Generator): readonly RuleProblem[] {
   switch (generator.type) {
     case 'alphanumeric': {

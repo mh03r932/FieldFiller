@@ -10,6 +10,8 @@ import {
   sampleRule,
 } from '@/lib/rules/editing';
 import { validateRule, type RuleProblem } from '@/lib/rules/validate';
+import { checkbox, field, focusIn, numberInput, select, textArea, textInput } from './controls';
+import type { OptionsHost } from './host';
 import type { Locale } from '@/lib/persona/persona';
 
 /**
@@ -31,13 +33,14 @@ import type { Locale } from '@/lib/persona/persona';
  * literally true when every keystroke is a save.
  */
 
-export type RuleEditorHost = {
-  readonly settings: () => Settings;
-  /** Persists a whole settings state. Rejects are surfaced by the caller. */
-  readonly save: (settings: Settings) => void;
-  /** Announced politely, for changes a sighted user sees and nobody else would. */
-  readonly announce: (text: string) => void;
-};
+/**
+ * The rule editor takes the same host every other section does.
+ *
+ * Kept as a name of its own because this module's exports read as an editor's
+ * API and `OptionsHost` is the page's; they have never differed and there is no
+ * reason for them to.
+ */
+export type RuleEditorHost = OptionsHost;
 
 /** Which rule is expanded. One at a time: the list is the context (UC-009). */
 let openRuleId: string | undefined;
@@ -757,83 +760,6 @@ function problemText(problem: RuleProblem): string {
 
 /* ------------------------------------------------------------ small builders */
 
-function field(label: string, control: HTMLElement, hint?: string): HTMLElement {
-  const wrapper = document.createElement('label');
-  wrapper.className = 'field';
-  const text = document.createElement('span');
-  text.textContent = label;
-  wrapper.append(text, control);
-  if (hint !== undefined) {
-    const help = document.createElement('span');
-    help.className = 'hint';
-    help.textContent = hint;
-    wrapper.append(help);
-  }
-  return wrapper;
-}
-
-function textInput(value: string, onChange: (value: string) => void): HTMLInputElement {
-  const input = document.createElement('input');
-  input.type = 'text';
-  input.value = value;
-  input.addEventListener('input', () => onChange(input.value));
-  return input;
-}
-
-function numberInput(value: number, onChange: (value: number) => void): HTMLInputElement {
-  const input = document.createElement('input');
-  input.type = 'number';
-  input.value = String(value);
-  input.addEventListener('input', () => {
-    const parsed = Number(input.value);
-    if (Number.isFinite(parsed)) onChange(parsed);
-  });
-  return input;
-}
-
-function textArea(value: string, onChange: (value: string) => void): HTMLTextAreaElement {
-  const area = document.createElement('textarea');
-  area.rows = 4;
-  area.value = value;
-  area.addEventListener('input', () => onChange(area.value));
-  return area;
-}
-
-function checkbox(label: string, checked: boolean, onChange: (value: boolean) => void, hint?: string): HTMLElement {
-  const wrapper = document.createElement('label');
-  wrapper.className = 'field check';
-  const box = document.createElement('input');
-  box.type = 'checkbox';
-  box.checked = checked;
-  box.addEventListener('change', () => onChange(box.checked));
-  wrapper.append(box, document.createTextNode(` ${label}`));
-  if (hint !== undefined) {
-    const help = document.createElement('span');
-    help.className = 'hint';
-    help.textContent = hint;
-    wrapper.append(help);
-  }
-  return wrapper;
-}
-
-function select(
-  label: string,
-  options: ReadonlyArray<readonly [string, string]>,
-  chosen: string,
-  onChange: (value: string) => void,
-): HTMLElement {
-  const control = document.createElement('select');
-  for (const [value, text] of options) {
-    const option = document.createElement('option');
-    option.value = value;
-    option.textContent = text;
-    option.selected = value === chosen;
-    control.append(option);
-  }
-  control.addEventListener('change', () => onChange(control.value));
-  return field(label, control);
-}
-
 /**
  * Which corpus the preview draws from.
  *
@@ -846,19 +772,6 @@ function select(
 function previewLocale(host: RuleEditorHost): Locale {
   const { locale } = host.settings();
   return locale === 'auto' ? 'en-US' : locale;
-}
-
-/**
- * Puts the focus somewhere deliberate after a rebuild.
- *
- * `renderRules` uses `replaceChildren`, so every rebuild destroys the control
- * that triggered it and the focus lands on `<body>` unless something says
- * otherwise. For a keyboard or screen-reader user that means starting again from
- * the top of the page after every expand, delete and undo — the same defect the
- * move buttons were fixed for, in the three places that had not been.
- */
-function focusIn(list: HTMLElement, selector: string): void {
-  list.querySelector<HTMLElement>(selector)?.focus();
 }
 
 function nameOf(rule: Rule): string {

@@ -1,6 +1,11 @@
 import type { FieldDescriptor, FieldValue } from '../protocol';
 import { seededRandom, type Persona, type Random } from '../persona/persona';
-import { constrain, generateValue, mirrorsAnotherField } from './default-generator';
+import {
+  constrain,
+  generateValue,
+  mirrorsAnotherField,
+  type BehaviourDefaults,
+} from './default-generator';
 import { selectRule, type CompiledRule } from '../rules/match';
 import { applyToControl, generateRuleText } from '../rules/generate';
 
@@ -44,6 +49,13 @@ export type BatchSource = {
    * engine behaves exactly as it did before rules existed.
    */
   readonly rules?: readonly CompiledRule[] | undefined;
+  /**
+   * The configurable behaviour defaults (UC-022).
+   *
+   * Optional, so a test that cares about rules or grouping says nothing about
+   * keywords or length caps and gets what the extension ships.
+   */
+  readonly defaults?: BehaviourDefaults | undefined;
 };
 
 export type BatchResult = {
@@ -104,18 +116,21 @@ function valueFor(
   random: Random,
   skipped: Map<string, string>,
 ): FieldValue {
+  const defaults = source.defaults;
+  const fallback = (): FieldValue => generateValue(descriptor, source.persona, random, defaults);
+
   const rules = source.rules ?? [];
-  if (rules.length === 0) return generateValue(descriptor, source.persona, random);
+  if (rules.length === 0) return fallback();
 
   const { selection, skipped: unusable } = selectRule(descriptor, rules);
   for (const entry of unusable) {
     if (entry.problem !== undefined) skipped.set(entry.rule.label, entry.problem);
   }
 
-  if (selection === undefined) return generateValue(descriptor, source.persona, random);
+  if (selection === undefined) return fallback();
 
-  if (mirrorsAnotherField(descriptor)) {
-    const mirrored = generateValue(descriptor, source.persona, random);
+  if (mirrorsAnotherField(descriptor, defaults)) {
+    const mirrored = fallback();
     return {
       ...mirrored,
       provenance: `${mirrored.provenance} (rule "${selection.rule.label}" overridden: confirmation fields must match)`,
@@ -125,12 +140,15 @@ function valueFor(
   const text = generateRuleText(selection.rule, source.persona, random);
   if (text === undefined) {
     skipped.set(selection.rule.label, 'its generator could not produce a value');
-    return generateValue(descriptor, source.persona, random);
+    return fallback();
   }
 
+  // A rule's output goes through the same fitter as a generated one, carrying
+  // the same per-kind caps: the rule supplies policy, the page supplies the
+  // ceiling, and the page wins (DD-005, BR-004-7).
   return (
-    applyToControl(selection, text, descriptor, constrain) ??
-    generateValue(descriptor, source.persona, random)
+    applyToControl(selection, text, descriptor, (value, control) =>
+      constrain(value, control, defaults?.maxLengths)) ?? fallback()
   );
 }
 

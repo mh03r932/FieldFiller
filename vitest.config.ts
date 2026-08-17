@@ -62,6 +62,12 @@ export default defineConfig({
         // allowed to believe about a page agent that may be a previous build.
         'src/lib/settings.ts': { lines: 90, functions: 90 },
         'src/lib/protocol.ts': { lines: 90, functions: 90 },
+        // The exclusion list operations (UC-020, UC-021), added 2026-08-17 with
+        // the screens that author them. Same floor and the same argument as the
+        // rule list operations next door: an off-by-one in a removal takes out
+        // the wrong exclusion, and an exclusion silently gone is a page that
+        // silently gets filled.
+        'src/lib/exclusions.ts': { lines: 90, functions: 90 },
       },
     },
   },

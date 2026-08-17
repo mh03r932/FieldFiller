@@ -230,6 +230,15 @@ jobs:
         # re-rendered its own fields.
         run: pnpm run options:chrome
 
+      - name: Settings screens (Chromium)
+        # UC-018..UC-023, and the half that matters is the second half of every
+        # check: three of these settings sat in the schema being read by nothing
+        # at all, so "the checkbox stored false" proves nothing worth knowing.
+        # Each section is driven through the UI and then observed on a filled
+        # page. Writing it caught a harness that could pass by the fill never
+        # running, which is the failure mode a green build is least able to see.
+        run: pnpm run settings:chrome
+
       - name: Corpus per locale (Chromium)
         # The path a unit test cannot reach: a locale written to storage, parsed
         # back, resolved, and turned into a record on a real page. Until this

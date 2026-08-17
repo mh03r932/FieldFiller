@@ -1,5 +1,5 @@
-import type { AgentSettings, ControlKind } from './protocol';
-import { LOCALES, type Locale } from './persona/corpus/corpus';
+import {type Locale, LOCALES} from './persona/corpus/corpus';
+import type {AgentSettings, ControlKind} from './protocol';
 
 /**
  * The settings state, its defaults, and the coercion that reads it back.
@@ -194,8 +194,58 @@ export type Behaviour = {
    * phrase for a text input — is what runs unless the user asks otherwise. The
    * reference's single global `defaultMaxLength: 20` is the defect this replaces:
    * it gives an unconstrained textarea twenty characters.
+   *
+   * The page still wins. A control declaring its own `maxlength` is constrained
+   * by that and never by this, because a value the page's own validation rejects
+   * is useless whatever the user configured (ND-11, FR-072's argument restated
+   * for lengths).
    */
   readonly maxLengths: Partial<Record<ControlKind, number>>;
+  /**
+   * Words that mark a checkbox as a consent gate, so it is always ticked
+   * (FR-015, UC-022).
+   *
+   * Configurable because the vocabulary is per-market and per-product: a German
+   * form says `einwilligung`, and a user testing one should not have to write a
+   * rule per form to get past its terms gate. Matched case-insensitively against
+   * every identity source, as a literal substring — the strings are escaped
+   * before they are compiled, so a keyword cannot become a regex by accident and
+   * this list adds no backtracking surface (NFR-009).
+   *
+   * An empty list means no checkbox is ever ticked *for being consent*. Required
+   * ones still are, which is a separate rule and is not configurable: an unticked
+   * required box blocks the submission the fill exists to reach.
+   */
+  readonly consentKeywords: readonly string[];
+  /**
+   * Words that mark a field as confirming an earlier one (FR-024, UC-006).
+   *
+   * Same matching as the consent list, and the same reason to be configurable.
+   *
+   * It is only the *words*. A trailing ordinal — `password2` beside `password` —
+   * also marks a confirmation, and that rule stays in the generator rather than
+   * appearing here as a keyword the user could delete: it is a convention about
+   * shape, not a word, and expressing it as one would need the anchors this list
+   * deliberately escapes away. `docs/use_cases/UC-022.md` states the split so the
+   * screen is not read as offering more control than it has.
+   */
+  readonly confirmationKeywords: readonly string[];
+};
+
+/* ------------------------------------------------------------------ triggers */
+
+/**
+ * Which ways of invoking a fill are available (FR-050, UC-023).
+ *
+ * One field, and the two absent ones are the decision. The toolbar button
+ * carries no setting because it is the zero-configuration path (BR-023-2):
+ * removing it would let a user delete the only route that needs no setup, from a
+ * screen they may not find their way back to. Keyboard bindings carry none
+ * because no extension can set them — only the browser can, and UC-023's surface
+ * routes there rather than pretending otherwise (BR-023-1).
+ */
+export type Triggers = {
+  readonly contextMenu: boolean;
 };
 
 /* ------------------------------------------------------------------ passwords */
@@ -252,6 +302,8 @@ export type Settings = {
   readonly passwords: PasswordPolicy;
   /** FR-028. Which identity sources any rule may match against at all. */
   readonly sources: SourceToggles;
+  /** FR-050. Which invocation methods are offered. */
+  readonly triggers: Triggers;
 };
 
 export const DEFAULT_SOURCES: SourceToggles = {
@@ -271,6 +323,40 @@ export const DEFAULT_PASSWORD_POLICY: PasswordPolicy = {
   symbols: true,
 };
 
+/**
+ * The shipped consent vocabulary (FR-015).
+ *
+ * English only, because it is what the reference page and the great majority of
+ * forms use, and because a list nobody edits is better short than speculative.
+ * UC-022's screen is how a user testing German or French forms adds theirs.
+ */
+export const DEFAULT_CONSENT_KEYWORDS: readonly string[] = [
+  'terms',
+  'conditions',
+  'privacy',
+  'policy',
+  'agree',
+  'accept',
+  'consent',
+  'gdpr',
+];
+
+/** The shipped confirmation vocabulary (FR-024). The ordinal rule is not here. */
+export const DEFAULT_CONFIRMATION_KEYWORDS: readonly string[] = [
+  'confirm',
+  'verify',
+  'repeat',
+  'retype',
+  'again',
+];
+
+export const DEFAULT_TRIGGERS: Triggers = {
+  // On, because the context menu is the only channel that can reach the narrower
+  // scopes with a cursor to derive them from (BR-001-6). Shipping it off would
+  // make two of the three scopes unreachable until the user found this screen.
+  contextMenu: true,
+};
+
 export const DEFAULT_SETTINGS: Settings = {
   version: 1,
   locale: 'auto',
@@ -285,9 +371,12 @@ export const DEFAULT_SETTINGS: Settings = {
     skipHidden: true,
     skipPreFilled: false,
     maxLengths: {},
+    consentKeywords: DEFAULT_CONSENT_KEYWORDS,
+    confirmationKeywords: DEFAULT_CONFIRMATION_KEYWORDS,
   },
   passwords: DEFAULT_PASSWORD_POLICY,
   sources: DEFAULT_SOURCES,
+  triggers: DEFAULT_TRIGGERS,
 };
 
 /**
@@ -387,6 +476,16 @@ export function parseSettings(stored: unknown): Settings {
         DEFAULT_SETTINGS.behaviour.skipPreFilled,
       ),
       maxLengths: parseMaxLengths(behaviour['maxLengths']),
+      // An *empty* stored list stays empty rather than falling back to the
+      // shipped words: "tick nothing for consent" is a configuration a user can
+      // choose, and `strings` returns the default only when the key is absent or
+      // is not a list at all. Defaulting an emptied list would make the screen's
+      // last removal silently undo itself on the next load.
+      consentKeywords: keywords(behaviour['consentKeywords'], DEFAULT_CONSENT_KEYWORDS),
+      confirmationKeywords: keywords(
+        behaviour['confirmationKeywords'],
+        DEFAULT_CONFIRMATION_KEYWORDS,
+      ),
     },
     passwords: {
       length: integer(passwords['length'], DEFAULT_PASSWORD_POLICY.length, 1, 256),
@@ -396,7 +495,27 @@ export function parseSettings(stored: unknown): Settings {
       symbols: boolean(passwords['symbols'], DEFAULT_PASSWORD_POLICY.symbols),
     },
     sources: parseSources(sources),
+    triggers: {
+      contextMenu: boolean(record(candidate['triggers'])['contextMenu'], DEFAULT_TRIGGERS.contextMenu),
+    },
   };
+}
+
+/**
+ * A keyword list, trimmed and emptied of blanks.
+ *
+ * Blank entries are dropped rather than kept, because a keyword of `''` is a
+ * substring of every identity: one stray blank line in the textarea that edits
+ * this list would tick every checkbox on every page, and it would look like
+ * nothing at all on screen. Trimming is the same argument one step earlier — a
+ * keyword with a trailing space matches nothing and reads as though it should.
+ */
+function keywords(stored: unknown, fallback: readonly string[]): readonly string[] {
+  if (!Array.isArray(stored)) return fallback;
+  return stored
+    .filter((entry): entry is string => typeof entry === 'string')
+    .map((entry) => entry.trim())
+    .filter((entry) => entry !== '');
 }
 
 function parseLocale(stored: unknown): Locale | 'auto' {
@@ -495,14 +614,13 @@ function parseRule(stored: unknown): Rule | undefined {
 function parseSourceList(stored: unknown): readonly MatchSource[] | undefined {
   if (!Array.isArray(stored)) return undefined;
 
-  const sources = stored.filter((entry): entry is MatchSource =>
-    typeof entry === 'string' && (MATCH_SOURCES as readonly string[]).includes(entry),
-  );
   // An empty list after filtering means the rule named only sources we do not
   // have. That is not the same as naming none, so it is not collapsed to
   // `undefined` — the rule matches nothing, visibly, rather than silently
   // widening to every source.
-  return sources;
+  return stored.filter((entry): entry is MatchSource =>
+          typeof entry === 'string' && (MATCH_SOURCES as readonly string[]).includes(entry),
+  );
 }
 
 function parseProfiles(stored: unknown): readonly Profile[] {

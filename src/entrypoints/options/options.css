@@ -214,6 +214,7 @@ h2 {
 
 .rule-order button,
 .rule-delete,
+.exclusion-delete,
 button.primary {
   font: inherit;
   border: 1px solid var(--ff-rule);
@@ -297,12 +298,69 @@ button.primary {
   }
 }
 
-.sources {
+.sources,
+.group {
   border: 1px solid var(--ff-rule);
   border-radius: 4px;
   padding: 0.5rem 0.75rem;
   /* A fieldset's default `min-inline-size: min-content` ignores its container. */
   min-inline-size: 0;
+}
+
+/*
+ * The two exclusion lists (UC-020, UC-021).
+ *
+ * Numbered like the rule list, and that is the one thing the numbering must not
+ * be read as meaning here: order is precedence for rules and carries nothing at
+ * all for an exclusion, which either matches or does not. The number is a
+ * position so that "remove the third one" is a thing a person can say.
+ */
+.exclusion-list {
+  list-style: decimal;
+  padding-inline-start: clamp(1.25rem, 5vw, 2rem);
+  margin: 0 0 1rem;
+}
+
+.exclusion {
+  border: 1px solid var(--ff-rule);
+  border-radius: 6px;
+  margin-block: 0.5rem;
+  padding: 0.5rem 0.75rem;
+}
+
+/*
+ * Three controls, not the two `.row` assumes: a mode, a pattern and a remove
+ * button.
+ *
+ * Flex rather than the grid above, and not for variety. A fixed three-column
+ * track list has to be told at what width to collapse, and the width that
+ * matters is not the viewport's — it is the *text's*: at 200% text in a wide
+ * window the three tracks overflowed by 4px while every media query still said
+ * there was room. Caught by `resize · 200% text` in this project's own audit,
+ * which is the check that asks the question a breakpoint cannot (WCAG 1.4.4,
+ * 1.4.10). Wrapping needs no width to be named, so it is right at every text
+ * size rather than at the ones somebody thought of.
+ */
+.exclusion .row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 0.75rem;
+}
+
+.exclusion .row > .field {
+  /* A flex item will not shrink past its content without this. */
+  min-inline-size: 0;
+  flex: 1 1 10rem;
+}
+
+.source-count {
+  margin-block: 0.5rem 0;
+}
+
+/* A single sample rather than a list, so there is no bullet to indent past. */
+p.samples {
+  padding-inline-start: 0;
 }
 
 .preview {
