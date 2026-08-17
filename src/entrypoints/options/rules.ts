@@ -371,50 +371,79 @@ function generatorFields(live: () => Rule, update: (rule: Rule, structural?: boo
     ),
   );
 
-  // Spreads from the live rule, so editing two fields of one generator in
-  // sequence does not discard the first.
-  const set = (generator: Generator): void => update({ ...live(), generator });
+  /**
+   * Applies one field of the generator, against the generator as it stands now.
+   *
+   * `live()` at both levels, and that is the whole point. Spreading the *rule*
+   * from `live()` while spreading the *generator* from the object captured when
+   * these fields were built is the shape that looks correct and is not: the
+   * second edit to a multi-field generator is computed from the generator as it
+   * was before the first, so setting `min` and then `max` writes `max` onto the
+   * original and drops `min`.
+   *
+   * Nothing on screen says so, which is what makes it worth this much comment. A
+   * non-structural edit does not re-render the fields, so the inputs keep showing
+   * what was typed while storage holds something else — and the preview, which
+   * does re-read `live()`, starts contradicting the values visible above it.
+   * Only a reload reveals which of the two was real.
+   *
+   * The `type` argument is what keeps the patch checkable. It narrows the union
+   * to the branch that asked, so naming a field belonging to a different
+   * generator is a compile error rather than a property silently ignored.
+   */
+  const set =
+    <T extends Generator['type']>(type: T) =>
+    (patch: Partial<Extract<Generator, { type: T }>>): void => {
+      const current = live().generator;
+      // The type changed under us. Changing it is structural and re-renders
+      // these fields, so this patch describes a generator no longer on screen.
+      if (current.type !== type) return;
+      // No cast: the guard above narrows `current` to the branch `patch` belongs
+      // to, so the spread is already a `Generator` and the compiler knows it.
+      update({ ...live(), generator: { ...current, ...patch } });
+    };
+
   const generator = rule.generator;
 
   switch (generator.type) {
     case 'name':
       wrapper.append(select(message('genNamePart'), [
         ['full', message('genNameFull')], ['first', message('genNameFirst')], ['last', message('genNameLast')],
-      ], generator.part, (value) => set({ ...generator, part: value as 'full' | 'first' | 'last' })));
+      ], generator.part, (value) => set('name')({ part: value as 'full' | 'first' | 'last' })));
       break;
     case 'number':
       wrapper.append(
-        field(message('genMin'), numberInput(generator.min, (value) => set({ ...generator, min: value }))),
-        field(message('genMax'), numberInput(generator.max, (value) => set({ ...generator, max: value }))),
-        field(message('genDecimals'), numberInput(generator.decimals, (value) => set({ ...generator, decimals: value }))),
+        field(message('genMin'), numberInput(generator.min, (value) => set('number')({ min: value }))),
+        field(message('genMax'), numberInput(generator.max, (value) => set('number')({ max: value }))),
+        field(message('genDecimals'), numberInput(generator.decimals, (value) => set('number')({ decimals: value }))),
       );
       break;
     case 'date':
       wrapper.append(
-        field(message('genFormat'), textInput(generator.format, (value) => set({ ...generator, format: value })), message('genFormatHint')),
-        field(message('genFrom'), textInput(generator.from, (value) => set({ ...generator, from: value }))),
-        field(message('genTo'), textInput(generator.to, (value) => set({ ...generator, to: value }))),
+        field(message('genFormat'), textInput(generator.format, (value) => set('date')({ format: value })), message('genFormatHint')),
+        field(message('genFrom'), textInput(generator.from, (value) => set('date')({ from: value }))),
+        field(message('genTo'), textInput(generator.to, (value) => set('date')({ to: value }))),
       );
       break;
     case 'text':
       wrapper.append(
-        field(message('genMinWords'), numberInput(generator.minWords, (value) => set({ ...generator, minWords: value }))),
-        field(message('genMaxWords'), numberInput(generator.maxWords, (value) => set({ ...generator, maxWords: value }))),
+        field(message('genMinWords'), numberInput(generator.minWords, (value) => set('text')({ minWords: value }))),
+        field(message('genMaxWords'), numberInput(generator.maxWords, (value) => set('text')({ maxWords: value }))),
       );
       break;
     case 'alphanumeric':
-      wrapper.append(field(message('genTemplate'), textInput(generator.template, (value) => set({ ...generator, template: value })), message('genTemplateHint')));
+      wrapper.append(field(message('genTemplate'), textInput(generator.template, (value) => set('alphanumeric')({ template: value })), message('genTemplateHint')));
       break;
     case 'regex':
-      wrapper.append(field(message('genPattern'), textInput(generator.pattern, (value) => set({ ...generator, pattern: value })), message('genPatternHint')));
+      wrapper.append(field(message('genPattern'), textInput(generator.pattern, (value) => set('regex')({ pattern: value })), message('genPatternHint')));
       break;
     case 'list':
       wrapper.append(field(message('genItems'), textArea(generator.items.join('\n'), (value) =>
-        set({ ...generator, items: value.split('\n').map((item) => item.trim()).filter((item) => item !== '') })),
+        set('list')({ items: value.split('\n').map((item) => item.trim()).filter((item) => item !== '') })),
         message('genItemsHint')));
       break;
     case 'constant':
-      wrapper.append(field(message('genValue'), textInput(generator.value, (value) => set({ ...generator, value }))));
+      wrapper.append(field(message('genValue'), textInput(generator.value, (value) => set('constant')({ value }))));
       break;
     default:
       // The persona-backed types carry no options of their own.

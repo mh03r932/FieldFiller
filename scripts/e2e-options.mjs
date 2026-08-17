@@ -220,6 +220,48 @@ try {
     (await storedRules())[0]?.generator?.template === 'REF-{digit:3}',
     `stored ${JSON.stringify((await storedRules())[0]?.generator)}`);
 
+  // ── Two fields of one generator, in sequence ────────────────────────────────
+  // Every generator exercised above carries exactly one field, and that is why
+  // this harness passed while `min` then `max` silently discarded `min`: each
+  // field handler spread from the generator captured when the fields were built
+  // rather than from the live rule, so the second edit was computed against the
+  // state before the first. Nothing visible said so — a non-structural edit does
+  // not re-render, so the inputs kept showing both values while storage held one.
+  //
+  // A multi-field generator is therefore not an extra case here, it is the case
+  // that makes the others' passing mean something.
+  await choose('Generates', 'number');
+  await type('Lowest', '10');
+  await sleep(200);
+  await type('Highest', '99');
+  await sleep(300);
+
+  const both = (await storedRules())[0]?.generator;
+  check('editing two fields of one generator keeps both',
+    both?.min === 10 && both?.max === 99,
+    `stored ${JSON.stringify(both)} — expected min 10 and max 99, both of them`);
+
+  // Compared against what storage *holds*, never against the literals typed
+  // above. That distinction is the whole check: with the defect present the
+  // fields still show 10 and 99 — a non-structural edit does not re-render them
+  // — so asserting they show what was typed passes while the two sides
+  // disagree. Written that way first, and it did pass against the bug.
+  const shown = await inPage(`(() => {
+    const value = (labelText) => [...document.querySelectorAll('#rules .rule-body label.field')]
+      .find((label) => label.querySelector('span')?.textContent === labelText)
+      ?.querySelector('input')?.value ?? '';
+    return JSON.stringify({ min: value('Lowest'), max: value('Highest') });
+  })()`);
+  const held = JSON.stringify({ min: String(both?.min ?? ''), max: String(both?.max ?? '') });
+  check('and the fields agree with storage, rather than only with what was typed',
+    shown === held,
+    `fields ${shown} vs stored ${held} — the page and storage disagree until reload`);
+
+  // Back to a shape the ordering checks below expect.
+  await choose('Generates', 'alphanumeric');
+  await type('Template', 'REF-{digit:3}');
+  await sleep(300);
+
   // ── Ordering is precedence, and the controls say so ─────────────────────────
   await inPage(`document.querySelector('#rules button.primary').click()`);
   await sleep(300);
