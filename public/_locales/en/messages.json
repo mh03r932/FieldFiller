@@ -364,8 +364,8 @@
     }
   },
   "settingsChangedElsewhere": {
-    "message": "Your settings were changed somewhere else. This page is showing an older copy — finish or close the rule you are editing, then reload before making more changes.",
-    "description": "UC-024: another options page wrote settings while a rule was open here. Adopting the change would discard the rule being edited, so the page says it is stale instead."
+    "message": "Your settings were changed somewhere else. The rule you are editing is safe and your next change will not overwrite theirs; the rest of the list is out of date on screen and refreshes when you close this rule.",
+    "description": "UC-024: another options page wrote settings while a rule was open here. Memory adopts their state with the draft carried across, so the next write cannot revert them; only the rendered list is left stale, because replacing it would take the caret out of the open editor."
   },
   "settingsAdoptedFromElsewhere": {
     "message": "Your settings were changed somewhere else, and this page has been updated to match.",

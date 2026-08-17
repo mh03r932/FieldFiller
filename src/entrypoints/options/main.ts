@@ -1,9 +1,15 @@
 import { browser } from 'wxt/browser';
 import { localise, message } from '@/lib/platform/i18n';
 import { getSettings, saveSettings } from '@/lib/platform/settings-store';
-import { DEFAULT_SETTINGS, type Settings } from '@/lib/settings';
+import { DEFAULT_SETTINGS, parseSettings, type Settings } from '@/lib/settings';
 import { resultSentence, scopeRuleSentence } from '@/lib/report/surface';
-import { forgetUndo, isEditingRule, renderRules, type RuleEditorHost } from './rules';
+import {
+  adoptKeepingEdit,
+  forgetUndo,
+  isEditingRule,
+  renderRules,
+  type RuleEditorHost,
+} from './rules';
 import type { FieldReportEntry, FillReport, ReportResponse } from '@/lib/protocol';
 
 /**
@@ -89,25 +95,43 @@ async function mountRules(): Promise<void> {
    * Adopting keeps memory level with storage, which is what makes the next write
    * from this page correct rather than a rollback.
    *
-   * Not while a rule is open, though. Replacing the list under someone mid-edit
-   * discards the rule they are still writing — a new rule lives only in this
-   * page's memory until it validates — and losing the edit in front of you is
-   * worse than the staleness it would fix. That case is told instead, because a
-   * page that knows it is out of date and says nothing is the version of this
-   * bug that was already here.
+   * Not by re-rendering while a rule is open, though. Replacing the list under
+   * someone mid-edit discards the rule they are still writing — a new rule lives
+   * only in this page's memory until it validates — and losing the edit in front
+   * of you is worse than the staleness it would fix. Memory is still brought
+   * level, with the draft carried across; only the DOM is left alone, and it
+   * catches up when the rule closes.
+   *
+   * Adopting *only* into memory is what makes the advice safe to follow. Telling
+   * the user to finish their rule while this page still held the pre-change
+   * snapshot walked them into the loss it was warning about: the next valid
+   * keystroke wrote the whole stale state back and reverted the other tab.
    */
   browser.storage.onChanged.addListener((changes, areaName) => {
     if (areaName !== 'local' || !('settings' in changes)) return;
     void getSettings().then((stored) => {
-      // Our own write comes back through here too. It is not necessarily
-      // identical to what we asked for — `saveSettings` normalises on the way in
-      // — so the comparison is against what storage now holds, and an unchanged
-      // result means there is nothing to adopt whoever wrote it.
-      if (JSON.stringify(stored) === JSON.stringify(settings)) return;
+      // Our own write comes back through here too, and it is *not* what we asked
+      // for: `saveSettings` normalises the candidate and stores the result, so
+      // the echo differs from memory whenever the parser reshaped anything — a
+      // half-written rule it drops, a clamped bound, even a key it emits in a
+      // different order. Comparing raw memory against it called every one of
+      // those somebody else's write. Adding a rule did it every time, because a
+      // new rule has an empty pattern and the parser drops it.
+      //
+      // Both sides through the parser, so the comparison is between two states
+      // in the same normal form and answers the question actually being asked:
+      // does storage hold something this page did not put there?
+      if (JSON.stringify(stored) === JSON.stringify(parseSettings(settings))) return;
+
       if (isEditingRule()) {
+        // Foreign, and a rule is open. Take their state, carry our draft across,
+        // and do not touch the DOM.
+        settings = adoptKeepingEdit(stored, settings);
+        forgetUndo();
         announce(message('settingsChangedElsewhere'));
         return;
       }
+
       settings = stored;
       // The undo offer belongs to the list it was deleted from, and this is a
       // different list — its stored position would land the rule somewhere

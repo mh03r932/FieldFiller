@@ -71,6 +71,48 @@ export function forgetUndo(): void {
 }
 
 /**
+ * Another writer's settings, with the rule being edited here carried across.
+ *
+ * The page cannot simply take `stored` while a rule is open. A rule that has
+ * never validated exists only in this page's memory — a new one starts with an
+ * empty pattern, which the parser drops — so adopting wholesale deletes the
+ * thing the user is in the middle of typing. It cannot keep its own snapshot
+ * either: the next valid keystroke writes the whole of it back and reverts
+ * whatever the other writer did.
+ *
+ * So it takes theirs and puts the draft back. Position comes from *our* list,
+ * because that is where the user last saw it, and `restoreRule` clamps it into
+ * range if their list is shorter. Order is precedence (BR-009-2), so this is a
+ * guess about meaning rather than a cosmetic choice — but the alternatives are
+ * dropping the rule or dropping their changes, and this is the only one that
+ * keeps both.
+ *
+ * The caller does not re-render. What is on screen stays as it was until the
+ * rule closes, which is the point: the DOM is the thing that cannot be replaced
+ * under an open editor without taking the caret with it.
+ */
+export function adoptKeepingEdit(stored: Settings, mine: Settings): Settings {
+  if (openRuleId === undefined) return stored;
+
+  const draft = mine.rules.find((rule) => rule.id === openRuleId);
+  if (draft === undefined) return stored;
+
+  // They have it too: ours is the newer text, theirs is the position.
+  if (stored.rules.some((rule) => rule.id === openRuleId)) {
+    return {
+      ...stored,
+      rules: stored.rules.map((rule) => (rule.id === openRuleId ? draft : rule)),
+    };
+  }
+
+  // They do not: it is new here, or they deleted it. Either way it is what the
+  // user is looking at, and dropping it would lose an edit in progress — where
+  // keeping it costs them a rule reappearing, which they can delete again.
+  const at = mine.rules.findIndex((rule) => rule.id === openRuleId);
+  return { ...stored, rules: restoreRule(stored.rules, draft, at) };
+}
+
+/**
  * Builds the list into `into`, which is also what every handler re-renders.
  *
  * `into` is threaded down rather than re-found: the handlers used to reach back
@@ -136,6 +178,9 @@ function undoOffer(host: RuleEditorHost, into: HTMLElement): HTMLElement {
     commit(host, restoreRule(host.settings().rules, removed.rule, removed.at));
     undoable = undefined;
     renderRules(host, into);
+    // Onto the rule that came back, which is both where the user was looking and
+    // the only way to confirm by keyboard that it returned to the right place.
+    focusIn(into, `[data-rule="${removed.rule.id}"] .rule-name`);
   });
 
   bar.append(text, undo);
@@ -164,6 +209,11 @@ function ruleRow(
   disclose.addEventListener('click', () => {
     openRuleId = openRuleId === rule.id ? undefined : rule.id;
     renderRules(host, list);
+    // Back onto this same button, which the rebuild destroyed. Expanding a rule
+    // by keyboard otherwise left the focus on `<body>`, so the next Tab started
+    // again from the top of the page — and the editor that just opened was below
+    // the point focus had been (WCAG 2.4.3, NFR-019).
+    focusIn(list, `[data-rule="${rule.id}"] .rule-name`);
   });
 
   const problems = validateRule(rule);
@@ -265,6 +315,13 @@ function remove(host: RuleEditorHost, rule: Rule, index: number, list: HTMLEleme
     commit(host, removeRule(host.settings().rules, rule.id));
     if (openRuleId === rule.id) openRuleId = undefined;
     renderRules(host, list);
+    // Onto Undo, not nowhere. The button that was pressed no longer exists, and
+    // the offer that replaces it is the thing a person who has just deleted the
+    // wrong rule wants — but it renders at the end of the list, so a keyboard
+    // user with focus dropped on `<body>` would have to tab past every remaining
+    // rule to reach it, which for the reversal BR-011-1 is built on is too late
+    // to be useful.
+    focusIn(list, '.undo button');
   });
   return button;
 }
@@ -727,6 +784,19 @@ function select(
 function previewLocale(host: RuleEditorHost): Locale {
   const { locale } = host.settings();
   return locale === 'auto' ? 'en-US' : locale;
+}
+
+/**
+ * Puts the focus somewhere deliberate after a rebuild.
+ *
+ * `renderRules` uses `replaceChildren`, so every rebuild destroys the control
+ * that triggered it and the focus lands on `<body>` unless something says
+ * otherwise. For a keyboard or screen-reader user that means starting again from
+ * the top of the page after every expand, delete and undo — the same defect the
+ * move buttons were fixed for, in the three places that had not been.
+ */
+function focusIn(list: HTMLElement, selector: string): void {
+  list.querySelector<HTMLElement>(selector)?.focus();
 }
 
 function nameOf(rule: Rule): string {

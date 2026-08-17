@@ -158,6 +158,19 @@ try {
     (await storedRules()).length === 0,
     `stored ${JSON.stringify(await storedRules())} — an incomplete rule reached storage (BR-009-1)`);
 
+  // The write this page just made comes back through its own `storage.onChanged`
+  // listener, and it does not match what the page holds in memory: the new rule
+  // has an empty pattern, so the parser drops it on the way in. Compared naively
+  // that reads as somebody else's write — on the primary happy path, telling a
+  // screen-reader user their page is stale and to reload, which would discard the
+  // rule they are being invited to type. Nobody sighted would ever have seen it.
+  const announced = async () =>
+    String(await inPage(`document.querySelector('#announcements')?.textContent ?? ''`));
+
+  check('adding a rule does not claim the settings changed somewhere else',
+    !(await announced()).includes('changed somewhere else'),
+    `announced "${await announced()}"`);
+
   /** Types into a labelled field the way a user would, and fires what a browser fires. */
   const type = async (labelText, value) => {
     await inPage(`(() => {
@@ -463,6 +476,68 @@ try {
     (await storedRules()).map((rule) => rule.label).join('|') === 'Second|Order reference|Spare',
     `order=${JSON.stringify((await storedRules()).map((rule) => rule.label))}`);
 
+  // ── Focus survives every rebuild, not only the one that was fixed ───────────
+  // `renderRules` replaces the container's children, so whatever was clicked no
+  // longer exists and the focus falls to `<body>` unless something says where it
+  // belongs. The move buttons were given that treatment; expand, delete and undo
+  // were not, and each dropped a keyboard user back at the top of the page
+  // (WCAG 2.4.3, NFR-019).
+  const focused = async () =>
+    String(await inPage(`(() => {
+      const active = document.activeElement;
+      if (!active || active === document.body) return 'body';
+      const row = active.closest('[data-rule]');
+      const label = row?.querySelector('.rule-name')?.textContent?.trim() ?? '';
+      return [active.className.split(' ')[0] || active.tagName.toLowerCase(), label].join(':');
+    })()`));
+
+  const clickDisclosure = async (label) => {
+    await inPage(`(() => {
+      const button = [...document.querySelectorAll('#rules .rule-name')]
+        .find((candidate) => candidate.textContent.trim().startsWith(${JSON.stringify(label)}));
+      button.click();
+      return true;
+    })()`);
+    await sleep(250);
+  };
+
+  await clickDisclosure('Order reference');
+  check('expanding a rule keeps the focus on the rule it expanded',
+    (await focused()) === 'rule-name:Order reference', `focus=${await focused()}`);
+
+  await clickDisclosure('Order reference');
+  check('and collapsing it does the same',
+    (await focused()) === 'rule-name:Order reference', `focus=${await focused()}`);
+
+  // Delete offers an undo, and the offer renders after every remaining rule. A
+  // keyboard user with the focus dropped would have to tab the length of the
+  // list to reach the reversal BR-011-1 is built on.
+  await inPage(`(() => {
+    const row = [...document.querySelectorAll('#rules li.rule')]
+      .find((candidate) => candidate.querySelector('.rule-name').textContent.trim().startsWith('Spare'));
+    row.querySelector('.rule-delete').click();
+    return true;
+  })()`);
+  await sleep(250);
+
+  // Identity, not a name: the undo button carries no class of its own, so
+  // describing it by appearance is how the first version of this check passed
+  // for the wrong reason.
+  check('deleting a rule moves the focus to the undo it just offered',
+    (await inPage(
+      `document.activeElement === document.querySelector('#rules .undo button')`,
+    )) === true,
+    `focus=${await focused()}`);
+
+  await inPage(`document.querySelector('#rules .undo button').click()`);
+  await sleep(250);
+
+  check('undoing puts the focus on the rule that came back',
+    (await focused()) === 'rule-name:Spare', `focus=${await focused()}`);
+  check('and the rule came back where it was',
+    (await storedRules()).map((rule) => rule.label).join('|') === 'Second|Order reference|Spare',
+    `order=${JSON.stringify((await storedRules()).map((rule) => rule.label))}`);
+
   // ── The point of all of it: the rule changes what a fill writes ─────────────
   await cdp.send('Page.navigate', { url: pageUrl }, page);
   // Now it *is* a content-script page, so the agent's own ping is the condition.
@@ -498,6 +573,71 @@ try {
   check('the field’s own constraints still bound what a rule produces',
     landed === 'SECON',
     `short_code=${JSON.stringify(landed)} — expected it cut to the field's maxlength of 5`);
+
+  // ── A second writer, while a rule is open here (UC-024, BR-024-3) ───────────
+  // The page holds the whole settings state and writes all of it on every
+  // change, so a stale snapshot is not a display problem — it is the next write
+  // reverting somebody else's work. While a rule is open the list on screen is
+  // deliberately not replaced (that would take the caret with it), so the page
+  // used to keep its pre-change snapshot and the advice it announced — finish
+  // the rule, then reload — walked the user into exactly the loss it warned
+  // about: the next valid keystroke wrote the old state back.
+  //
+  // Last in the file because it navigates back to the options page, so nothing
+  // after it depends on the state this leaves behind.
+  await cdp.send('Page.navigate', { url: `chrome-extension://${extensionId}/options.html` }, page);
+  await waitFor(
+    `(document.querySelector('#rules')?.children.length ?? 0) > 0`,
+    'the rule editor never rendered after navigating back',
+  );
+
+  await clickDisclosure('Second');
+  check('a rule is open for the concurrent-writer check',
+    (await inPage(`document.querySelector('#rules .rule-body') !== null`)) === true,
+    'no editor open');
+
+  // Somebody else's write: the stored list plus a rule this page has never seen.
+  await inWorker(`chrome.storage.local.get('settings').then((state) => {
+    const next = state.settings;
+    next.rules = [...next.rules, {
+      id: 'from-another-tab',
+      label: 'From another tab',
+      enabled: true,
+      match: { mode: 'contains', pattern: 'nothing_matches_this' },
+      generator: { type: 'constant', value: 'ELSEWHERE' },
+      fromPersona: true,
+    }];
+    return chrome.storage.local.set({ settings: next });
+  })`);
+  await sleep(400);
+
+  check('a foreign write while editing is announced rather than applied to the open rule',
+    (await announced()).includes('changed somewhere else'),
+    `announced "${await announced()}"`);
+  check('and the rule being edited is still on screen',
+    (await inPage(`document.querySelector('#rules .rule-body') !== null`)) === true,
+    'the open editor was replaced, which would have discarded the draft');
+
+  // The keystroke the announcement invites. It commits the whole state, so this
+  // is the moment the other tab's rule either survives or vanishes.
+  await type('Name', 'Second');
+  await sleep(300);
+
+  const afterEdit = (await storedRules()).map((rule) => rule.label);
+  check('a later edit here does not revert the other writer',
+    afterEdit.includes('From another tab'),
+    `rules=${JSON.stringify(afterEdit)} — the foreign rule was written over`);
+  check('and the rule being edited is still the one the user typed',
+    afterEdit.includes('Second'), `rules=${JSON.stringify(afterEdit)}`);
+
+  // Closing the rule is what the list on screen was waiting for.
+  await clickDisclosure('Second');
+  check('closing the rule brings the list up to date',
+    (await inPage(
+      `[...document.querySelectorAll('#rules .rule-name')].some((button) =>
+         button.textContent.trim().startsWith('From another tab'))`,
+    )) === true,
+    'the foreign rule never appeared after the editor closed');
 } catch (error) {
   failures.push(error instanceof Error ? error.message : String(error));
 } finally {
