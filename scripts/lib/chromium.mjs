@@ -299,10 +299,50 @@ export async function attachToWorker(cdp, extensionId) {
     const worker = targetInfos.find(
       (target) => target.type === 'service_worker' && target.url.includes(extensionId),
     );
-    if (worker !== undefined) return cdp.attach(worker.targetId);
+    if (worker !== undefined) {
+      const session = await cdp.attach(worker.targetId);
+      await waitForBindings(cdp, session);
+      return session;
+    }
     await sleep(100);
   }
   throw new Error('the background service worker never started');
+}
+
+/**
+ * Waits for the extension APIs to appear in a worker we have just attached to.
+ *
+ * A worker target becomes attachable *before* its `chrome.*` bindings are
+ * installed, and the gap is about 20 ms. Measured on Chrome for Testing 151,
+ * polling a freshly attached session every 10 ms:
+ *
+ *   +22 ms  { chrome: 'object', id: null, storage: 'undefined', tabs: 'undefined' }
+ *   +40 ms  { chrome: 'object', id: 'inkceiio…', storage: 'object', tabs: 'object' }
+ *
+ * So `chrome` is already an object while everything on it is still missing —
+ * which is why the symptom is a `TypeError` reading a property of `undefined`
+ * rather than an obvious "no API here".
+ *
+ * The gate is `runtime.id` rather than any one API, because the bindings arrive
+ * together and `runtime` is the only one every caller has regardless of which
+ * permissions the manifest asked for.
+ *
+ * Whether the gap is *hit* depends on how soon the first evaluation follows the
+ * attach: a harness that sleeps before attaching finds a warm worker and never
+ * sees it. `e2e-locale.mjs` attaches immediately after launch and did see it —
+ * on CI, where startup is slower, and never on a developer's machine.
+ */
+async function waitForBindings(cdp, session) {
+  for (let attempt = 0; attempt < 100; attempt++) {
+    const { result } = await cdp.send(
+      'Runtime.evaluate',
+      { expression: 'chrome?.runtime?.id ?? null', returnByValue: true },
+      session,
+    );
+    if (result.value !== null && result.value !== undefined) return;
+    await sleep(20);
+  }
+  throw new Error('the service worker attached but its extension APIs never appeared');
 }
 
 /**
