@@ -493,7 +493,7 @@ export function parseSettings(stored: unknown): Settings {
     profiles: parseProfiles(candidate['profiles']),
     exclusions: {
       fields: parseMatchers(exclusions['fields'] ?? candidate['ignorePatterns']),
-      domains: strings(exclusions['domains'], DEFAULT_SETTINGS.exclusions.domains),
+      domains: globs(exclusions['domains'], DEFAULT_SETTINGS.exclusions.domains),
     },
     behaviour: {
       // `?? candidate[...]` reads the pre-DD-005 flat shape, where these three
@@ -679,7 +679,7 @@ function parseProfiles(stored: unknown): readonly Profile[] {
       id,
       label: typeof candidate['label'] === 'string' ? candidate['label'] : id,
       enabled: boolean(candidate['enabled'], true),
-      urls: strings(candidate['urls'], []),
+      urls: globs(candidate['urls'], []),
       rules: parseRules(candidate['rules']),
     });
   }
@@ -785,6 +785,36 @@ function strings(value: unknown, fallback: readonly string[]): readonly string[]
   return Array.isArray(value)
     ? value.filter((entry): entry is string => typeof entry === 'string')
     : fallback;
+}
+
+/**
+ * A list of glob patterns, with blank entries dropped.
+ *
+ * `parseMatcher` has always refused a blank field pattern. The two glob lists —
+ * the excluded domains and a profile's addresses — went through `strings`
+ * instead and kept theirs, so "Add a site" and then thinking better of it left a
+ * blank entry in storage that survived every reload.
+ *
+ * UC-020 A1 did not say which of the two was right: it listed "the pattern is
+ * empty" beside a malformed regex and said both were stored anyway, which was
+ * never true of the empty one. It now separates them, because the argument it
+ * gives — that refusing to store would discard a pattern half-way through being
+ * typed — is about a pattern being written, and a blank one is not being
+ * written. It is not there.
+ *
+ * That is not only untidy. `exclusionFor` treats an empty list as "the user
+ * excluded nothing" and skips the check, which is what keeps a tab whose address
+ * cannot be read fillable on a fresh install; one abandoned blank row makes the
+ * list non-empty, and every unreadable tab is refused from then on. The user
+ * sees a fill stop working and has an empty-looking row to explain it.
+ *
+ * Blank only. An *invalid* pattern is stored and flagged, exactly as an invalid
+ * field pattern is (see `matcherProblems`): refusing to store it would discard a
+ * half-typed pattern on every keystroke that made it briefly wrong. The rule is
+ * that a blank is an absent entry, while a bad one is an entry with a problem.
+ */
+function globs(value: unknown, fallback: readonly string[]): readonly string[] {
+  return strings(value, fallback).filter((pattern) => pattern !== '');
 }
 
 function record(value: unknown): Record<string, unknown> {

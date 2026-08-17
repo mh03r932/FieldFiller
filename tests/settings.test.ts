@@ -271,6 +271,32 @@ describe('parseSettings', () => {
       expect(parseSettings({ exclusions: { domains: 'bank.test' } }).exclusions.domains).toEqual([]);
     });
 
+    /**
+     * A blank glob is an absent entry, the way a blank field pattern already was.
+     *
+     * Not tidiness. `exclusionFor` skips the check entirely for an empty list —
+     * which is what keeps a tab whose address cannot be read fillable on a fresh
+     * install — so one abandoned "Add a site" row made the list non-empty and
+     * refused every unreadable tab from then on, with an empty-looking row as the
+     * only explanation on offer.
+     */
+    it('drops blank domain patterns, as it already dropped blank field patterns', () => {
+      expect(
+        parseSettings({ exclusions: { domains: ['', 'bank.test', ''] } }).exclusions.domains,
+      ).toEqual(['bank.test']);
+      expect(parseSettings({ exclusions: { domains: [''] } }).exclusions.domains).toEqual([]);
+    });
+
+    it('drops blank profile addresses too, and keeps invalid ones', () => {
+      const [profile] = parseSettings({
+        profiles: [{ id: 'p1', urls: ['', 'a b.test', '*.staging.test/*'], rules: [] }],
+      }).profiles;
+      // The bad pattern stays: it is an entry with a problem, which the editor
+      // flags, and discarding it would lose a pattern half-way through being
+      // typed. Only the blank — an entry that is not there — goes.
+      expect(profile?.urls).toEqual(['a b.test', '*.staging.test/*']);
+    });
+
     it('reads profiles and drops the ones with no id', () => {
       const parsed = parseSettings({
         profiles: [

@@ -285,6 +285,35 @@ try {
        document.querySelector('#passwords .samples')?.textContent ?? '')`)) === true,
     `sample=${JSON.stringify(await inPage(`document.querySelector('#passwords .samples')?.textContent ?? ''`))}`);
 
+  /**
+   * The length box cannot put a value in memory that storage would clamp.
+   *
+   * BR-019-5 says the sample is drawn from the real generator and cannot drift
+   * from it, and this is the one way it could: the page holds settings in memory
+   * un-normalised, storage normalises on the way in, and the page decides whose
+   * write an echo was by comparing both sides *through the parser* — so a value
+   * the parser clamps comes back looking like this page's own work and is never
+   * adopted. A length of 0 then rendered an empty sample beside fills that used
+   * the stored length, until a reload. Clearing the box is the ordinary way to
+   * reach it: `Number('')` is 0.
+   */
+  await type('passwords', 'Length', '');
+  check('clearing the length box does not store a length no fill would use',
+    (await stored()).passwords.length === 20,
+    `stored ${(await stored()).passwords.length} after the box was cleared`);
+  check('and the sample still shows what a fill would produce',
+    (await inPage(`/^[a-z0-9]{20}$/.test(
+       document.querySelector('#passwords .samples')?.textContent ?? '')`)) === true,
+    `sample=${JSON.stringify(await inPage(`document.querySelector('#passwords .samples')?.textContent ?? ''`))}`);
+
+  await type('passwords', 'Length', '9999');
+  check('and a length past what storage accepts is refused rather than clamped behind the user',
+    (await stored()).passwords.length === 20,
+    `stored ${(await stored()).passwords.length} for a length of 9999`);
+
+  // Back to the policy the checks below describe.
+  await type('passwords', 'Length', '20');
+
   await type('behaviour', 'Text area', '25');
 
   // ── ND-1: the locale, and what it must not take with it ────────────────────
