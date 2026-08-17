@@ -29,7 +29,7 @@ import { closeChromium, derivedExtensionId, launchChromium, sleep } from './lib/
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const EXTENSION_DIR = join(ROOT, '.output', 'chrome-mv3');
 
-/** One of the ids `registerContextMenus` creates — see the menu probe below. */
+/** One of the ids `syncContextMenus` creates — see the menu probe below. */
 const MENU_PROBE_ID = 'all-inputs';
 
 if (!existsSync(join(EXTENSION_DIR, 'manifest.json'))) {
@@ -176,33 +176,50 @@ try {
     else console.log(`✔ permissions within NFR-008: ${state.permissions.join(', ')}`);
 
     // The context menus actually registered (FR-006). There is no API that lists
-    // menu items, so this probes by trying to create one that should already
-    // exist: a duplicate id is refused, and that refusal is the evidence. A
-    // clean creation means `onInstalled` never got as far as registering.
+    // menu items, so this asks the browser about one by name: `update` succeeds
+    // only for an entry that exists and fails with "Cannot find menu item" for
+    // one that does not, so the answer is the evidence.
     //
     // Worth asserting rather than assuming, because the failure it catches is
-    // silent — a throw inside an `onInstalled` listener leaves the menus absent
-    // and logs nothing, so the only symptom is an empty right-click menu.
-    const probe = await cdp.send(
-      'Runtime.evaluate',
-      {
-        expression: `new Promise((resolve) => {
-          chrome.contextMenus.create(
-            { id: ${JSON.stringify(MENU_PROBE_ID)}, title: 'probe', contexts: ['page'] },
-            () => resolve(chrome.runtime.lastError?.message ?? 'created'),
-          );
-        })`,
-        awaitPromise: true,
-        returnByValue: true,
-      },
-      session,
-    );
-    if (/duplicate/i.test(probe.result.value)) {
-      console.log(`✔ context menus registered (id "${MENU_PROBE_ID}" already taken)`);
-    } else {
-      failures.push(
-        `context menu "${MENU_PROBE_ID}" was not registered — creating it succeeded (${probe.result.value})`,
+    // silent — a throw inside `syncContextMenus` leaves the menus absent and
+    // logs nothing, so the only symptom is an empty right-click menu.
+    //
+    // Polled rather than sampled once, for the same reason the worker target
+    // itself is. Registration is an async chain in the background — read the
+    // settings, `removeAll`, then create the three — and nothing about the
+    // worker being attachable means that chain has finished. Measured here: the
+    // menus exist within about 2 ms of the extension APIs appearing, which is
+    // why a single sample passed on every developer machine it was tried on; on
+    // CI the settings read is the slow step (a cold profile's storage, opened
+    // for the first time) and the single sample failed a build whose menus were
+    // registered a moment later.
+    //
+    // `update` rather than the `create` this used to attempt, and the empty
+    // change set is the point: it answers the question without altering the
+    // answer. A create-probe *fails* by leaving a real entry behind under the id
+    // the extension is about to claim — so it cannot be retried without
+    // reporting its own leftovers as the extension's work, and even one attempt
+    // left the background's own `create` to be refused as a duplicate.
+    let menuError = 'no probe ran';
+    for (let attempt = 0; attempt < 50 && menuError !== ''; attempt++) {
+      if (attempt > 0) await sleep(100);
+      const probe = await cdp.send(
+        'Runtime.evaluate',
+        {
+          expression: `chrome.contextMenus.update(${JSON.stringify(MENU_PROBE_ID)}, {})
+            .then(() => '')
+            .catch((error) => String(error?.message ?? error))`,
+          awaitPromise: true,
+          returnByValue: true,
+        },
+        session,
       );
+      menuError = probe.result.value;
+    }
+    if (menuError === '') {
+      console.log(`✔ context menus registered (id "${MENU_PROBE_ID}" is on the browser's menu)`);
+    } else {
+      failures.push(`context menu "${MENU_PROBE_ID}" was never registered — ${menuError}`);
     }
   }
 
