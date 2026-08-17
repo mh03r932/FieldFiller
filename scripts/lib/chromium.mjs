@@ -20,7 +20,7 @@
 import { spawn } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { createHash } from 'node:crypto';
-import { existsSync } from 'node:fs';
+import { existsSync, rmSync } from 'node:fs';
 import { createServer } from 'node:http';
 
 export const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -303,4 +303,89 @@ export async function attachToWorker(cdp, extensionId) {
     await sleep(100);
   }
   throw new Error('the background service worker never started');
+}
+
+/**
+ * Waits until the page agent is listening in the tab about to be filled.
+ *
+ * Readiness as a condition, not a sleep. A fixed wait before the trigger is the
+ * thinnest margin any of these harnesses has: ample on an idle machine, and on a
+ * loaded shared runner short enough that the fill is triggered into a page whose
+ * agent has not registered yet. That fails as "the fill did not run" — correctly
+ * diagnosed by the engine, and a flake all the same, whose stated reason is a
+ * clock rather than the code under test.
+ *
+ * The protocol's own ping is the exact condition a sleep approximates. A `pong`
+ * means the agent is injected and listening; until it is, `sendMessage` rejects
+ * with "receiving end does not exist" and the poll retries. `readyState` would
+ * not do: the agent registers at `document_idle`, which Chrome may place
+ * *after* the load event.
+ *
+ * The tab is left to the caller to identify, because the harnesses legitimately
+ * differ on that — one navigates the only tab and relies on it, another looks
+ * for the active one — and pinging a tab the fill will not target proves
+ * nothing.
+ */
+export async function waitForAgent(cdp, workerSession, tabExpression) {
+  for (let attempt = 0; attempt < 100; attempt++) {
+    const pinged = await cdp.send(
+      'Runtime.evaluate',
+      {
+        expression: `chrome.tabs.query({}).then((tabs) => {
+          const tab = ${tabExpression};
+          if (tab === undefined) return 'no tab among ' + tabs.length;
+          return chrome.tabs.sendMessage(tab.id, { kind: 'ping' })
+            .then((reply) => reply !== undefined && reply.kind === 'pong'
+              ? 'pong'
+              : 'answered without a pong: ' + JSON.stringify(reply))
+            .catch(() => 'not listening yet');
+        })`,
+        awaitPromise: true,
+        returnByValue: true,
+      },
+      workerSession,
+    );
+    if (pinged.result.value === 'pong') return;
+    await sleep(100);
+  }
+  throw new Error('the page agent never answered a ping within 10 s of navigation');
+}
+
+/**
+ * Ends a run: close the connection, stop the browser, remove the profile.
+ *
+ * Owned here because the alternative was six copies that had already diverged
+ * into two variants — four waiting for the process to exit before touching the
+ * directory, and two that killed and slept 200 ms. Chrome is still flushing its
+ * profile when `kill` returns, so the short variant races the flush on a slow
+ * disk and leaves a temp directory behind. The `rmSync` retries usually cover
+ * it; "usually" is the reason to have one version rather than the reason not to.
+ *
+ * Everything here is best effort. A harness has produced its result by the time
+ * this runs, and a failure to tidy up is not one of that result's outcomes.
+ */
+export async function closeChromium({ chrome, cdp, profileDir }) {
+  try {
+    cdp?.close();
+  } catch {
+    // Already gone with the browser.
+  }
+
+  if (chrome !== undefined) {
+    chrome.kill();
+    const exited = await Promise.race([
+      new Promise((resolve) => chrome.once('exit', () => resolve(true))),
+      sleep(5000).then(() => false),
+    ]);
+    // A browser that ignored SIGTERM would otherwise outlive the run holding the
+    // profile open, which is the same orphan `launchChromium` guards against.
+    if (!exited) chrome.kill('SIGKILL');
+  }
+
+  if (profileDir === undefined) return;
+  try {
+    rmSync(profileDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+  } catch {
+    console.warn(`  (left a temp profile behind: ${profileDir})`);
+  }
 }

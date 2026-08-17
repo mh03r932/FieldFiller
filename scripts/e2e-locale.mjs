@@ -22,12 +22,12 @@
  *   CHROME_PATH=…  override the browser binary
  *   HEADFUL=1      show the window
  */
-import { mkdtempSync, readFileSync, rmSync, existsSync } from 'node:fs';
+import { mkdtempSync, readFileSync, existsSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { attachToWorker, derivedExtensionId, launchChromium, sleep } from './lib/chromium.mjs';
+import { attachToWorker, closeChromium, derivedExtensionId, launchChromium, sleep, waitForAgent } from './lib/chromium.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const EXTENSION_DIR = join(ROOT, '.output', 'chrome-mv3');
@@ -115,6 +115,15 @@ try {
   };
 
   /**
+   * How this harness picks the tab to act on: the active one, or the only one.
+   *
+   * One expression, used by the readiness ping, the trigger and the badge read.
+   * Pinging one tab and filling another would prove nothing, and that is exactly
+   * the mistake three separately written copies invite.
+   */
+  const TAB = 'tabs.find((candidate) => candidate.active) ?? tabs[0]';
+
+  /**
    * Fills the reference page with one locale selected, and reads back what
    * landed on it.
    *
@@ -125,11 +134,21 @@ try {
   async function fillWith(locale) {
     await inWorker(`chrome.storage.local.set({ settings: { version: 1, locale: '${locale}' } }).then(() => 'ok')`);
     await cdp.send('Page.navigate', { url: pageUrl }, page);
-    await sleep(1200);
+    // Waited for as a condition rather than slept through — see `waitForAgent`.
+    // The reference page is the heaviest fixture the harnesses use, with two
+    // cross-origin frames and a shadow root, so it is the one whose agent is
+    // most likely to register late on a loaded runner.
+    await waitForAgent(cdp, workerSession, TAB);
 
     const fired = await inWorker(`chrome.tabs.query({}).then((tabs) => {
-      const tab = tabs.find((candidate) => candidate.active) ?? tabs[0];
+      const tab = ${TAB};
       if (tab === undefined) return 'no tab';
+      // Its own diagnosis, because \`dispatch\` is undocumented and may simply
+      // stop existing. Without this the run looks like an engine that filled
+      // nothing, which is a different fault with a different fix.
+      if (typeof chrome.action.onClicked.dispatch !== 'function') {
+        return 'chrome.action.onClicked.dispatch is not available in this Chrome';
+      }
       chrome.action.onClicked.dispatch(tab);
       return 'ok';
     }).catch((error) => 'threw: ' + error.message)`);
@@ -172,8 +191,13 @@ try {
     // learn, which is why it is written down here.
     let settled = false;
     for (let elapsed = 0; elapsed < 8000 && !settled; elapsed += 200) {
-      const badge = await inWorker(`chrome.tabs.query({}).then((t) =>
-        chrome.action.getBadgeText({ tabId: (t.find((x) => x.active) ?? t[0]).id }))`);
+      // The same tab the fill was dispatched to, and guarded rather than
+      // indexed blind: with no tab at all the old form threw inside the worker
+      // and reported it as a badge that never appeared.
+      const badge = await inWorker(`chrome.tabs.query({}).then((tabs) => {
+        const tab = ${TAB};
+        return tab === undefined ? '' : chrome.action.getBadgeText({ tabId: tab.id });
+      })`);
       settled = String(badge ?? '') !== '';
       if (!settled) await sleep(200);
     }
@@ -214,15 +238,8 @@ try {
 } catch (error) {
   failures.push(error instanceof Error ? error.message : String(error));
 } finally {
-  cdp?.close();
   server.close();
-  chrome?.kill();
-  await sleep(200);
-  try {
-    rmSync(profileDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
-  } catch {
-    console.warn(`  (left a temp profile behind: ${profileDir})`);
-  }
+  await closeChromium({ chrome, cdp, profileDir });
 }
 
 console.log('\n  The corpus, per locale, through storage\n');

@@ -19,12 +19,12 @@
  *   CHROME_PATH=…  override the browser binary
  *   HEADFUL=1      show the window, for debugging this script
  */
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { derivedExtensionId, launchChromium, sleep } from './lib/chromium.mjs';
+import { closeChromium, derivedExtensionId, launchChromium, sleep } from './lib/chromium.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const EXTENSION_DIR = join(ROOT, '.output', 'chrome-mv3');
@@ -234,26 +234,13 @@ try {
 } catch (error) {
   failures.push(error instanceof Error ? error.message : String(error));
 } finally {
-  cdp?.close();
   server.close();
-
-  if (chrome !== undefined) {
-    chrome.kill();
-    // Chrome is still flushing its profile when `kill` returns, so removing the
-    // directory immediately fails with ENOTEMPTY — and failing *there* would
-    // report a passing smoke test as broken. Wait for the exit, then clean up on
-    // a best-effort basis: a leftover temp directory is not a test result.
-    await Promise.race([
-      new Promise((resolve) => chrome.once('exit', resolve)),
-      sleep(5000),
-    ]);
-  }
-
-  try {
-    rmSync(profileDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
-  } catch {
-    console.warn(`  (left a temp profile behind: ${profileDir})`);
-  }
+  // Chrome is still flushing its profile when `kill` returns, so removing the
+  // directory immediately fails with ENOTEMPTY — and failing *there* would
+  // report a passing smoke test as broken. `closeChromium` waits for the exit
+  // first and treats the cleanup as best effort: a leftover temp directory is
+  // not a test result.
+  await closeChromium({ chrome, cdp, profileDir });
 }
 
 if (failures.length > 0) {

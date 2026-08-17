@@ -31,12 +31,12 @@
  *   CHROME_PATH=…  override the browser binary
  *   HEADFUL=1      show the window
  */
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { attachToWorker, derivedExtensionId, launchChromium, sleep } from './lib/chromium.mjs';
+import { attachToWorker, closeChromium, derivedExtensionId, launchChromium, sleep } from './lib/chromium.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const EXTENSION_DIR = join(ROOT, '.output', 'chrome-mv3');
@@ -387,19 +387,9 @@ try {
   // Closed explicitly, matching both smoke harnesses. Relying on process exit to
   // tidy up works right until something wants to run two of these in one
   // process.
-  try { cdp?.close(); } catch { /* already gone with the browser */ }
   server.close();
   crossOriginServer.close();
-  if (chrome !== undefined) {
-    chrome.kill();
-    const exited = await Promise.race([
-      new Promise((resolve) => chrome.once('exit', () => resolve(true))),
-      sleep(5000).then(() => false),
-    ]);
-    if (!exited) chrome.kill('SIGKILL');
-  }
-  try { rmSync(profileDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }); }
-  catch { console.warn(`  (left a temp profile behind: ${profileDir})`); }
+  await closeChromium({ chrome, cdp, profileDir });
 }
 
 if (failures.length > 0) {

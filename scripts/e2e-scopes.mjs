@@ -16,12 +16,12 @@
  *
  * Usage: pnpm run build && pnpm run scopes:chrome
  */
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { attachToWorker, derivedExtensionId, launchChromium, sleep } from './lib/chromium.mjs';
+import { attachToWorker, closeChromium, derivedExtensionId, launchChromium, sleep } from './lib/chromium.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const EXTENSION_DIR = join(ROOT, '.output', 'chrome-mv3');
@@ -282,15 +282,8 @@ try {
 } catch (error) {
   failures.push(error instanceof Error ? error.message : String(error));
 } finally {
-  cdp?.close();
   server.close();
-  chrome?.kill();
-  await sleep(200);
-  try {
-    rmSync(profileDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
-  } catch {
-    console.warn(`  (left a temp profile behind: ${profileDir})`);
-  }
+  await closeChromium({ chrome, cdp, profileDir });
 }
 
 console.log('\n  UC-002, UC-003 and UC-008 — scopes and exclusion\n');
