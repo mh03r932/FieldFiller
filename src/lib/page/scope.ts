@@ -96,6 +96,35 @@ export function resolveScope(
 }
 
 /**
+ * The element a shadow root hangs from, or `null` in the document tree.
+ *
+ * The ladder has to cross this boundary in one direction only. A control inside
+ * an open shadow root is a real control — `walk.ts` collects it and FR-008 is
+ * built on that — but the form it belongs to is almost always in the light DOM
+ * outside the component. `closest` and `parentElement` both stop dead at the
+ * root, so a walk that does not hop out finds no form at all and refuses.
+ *
+ * A closed root returns `null` here, because `getRootNode()` on an element we
+ * could not have reached anyway never runs. C-006 puts closed roots permanently
+ * out of scope and this changes nothing about that.
+ */
+function hostOf(element: Element): Element | null {
+  const root = element.getRootNode();
+  return root instanceof ShadowRoot ? root.host : null;
+}
+
+/** `closest`, continued into the light DOM each time it runs out of tree. */
+function closestAcrossShadow(element: Element, selector: string): Element | null {
+  let current: Element | null = element;
+  while (current !== null) {
+    const found = current.closest(selector);
+    if (found !== null) return found;
+    current = hostOf(current);
+  }
+  return null;
+}
+
+/**
  * Rules 1–3, then rule 4's refusal (BR-002-1).
  */
 function fromAnchor(anchor: Element): Resolution {
@@ -109,7 +138,7 @@ function fromAnchor(anchor: Element): Resolution {
   }
 
   // The anchor may be the form itself — right-clicking a fieldset's legend, say.
-  const declared = anchor.closest('form, [role="form"], fieldset');
+  const declared = closestAcrossShadow(anchor, 'form, [role="form"], fieldset');
   if (declared instanceof HTMLFormElement) {
     return { resolved: true, within: declared, rule: 'element-form' };
   }
@@ -155,7 +184,7 @@ function withoutAnchor(document: Document): Resolution {
  * scope's name, and BR-002-2 has a specific outcome for finding nothing.
  */
 function nearestContainingSubmit(anchor: Element): Element | undefined {
-  let candidate = anchor.parentElement;
+  let candidate = anchor.parentElement ?? hostOf(anchor);
   while (candidate !== null) {
     const owner = candidate.ownerDocument;
     // `<body>` and `<html>` are stopping points, not candidates. Almost every
@@ -166,7 +195,9 @@ function nearestContainingSubmit(anchor: Element): Element | undefined {
     // container with no submit filled all four blocks of the fixture.
     if (candidate === owner.body || candidate === owner.documentElement) return undefined;
     if (candidate.querySelector(SUBMIT_SELECTOR) !== null) return candidate;
-    candidate = candidate.parentElement;
+    // Out of the component and on up the page, for the same reason `closest`
+    // does above: the submit button belongs to the form, not to the widget.
+    candidate = candidate.parentElement ?? hostOf(candidate);
   }
   return undefined;
 }
@@ -194,6 +225,43 @@ export type AnchorWatch = {
   readonly anchor: (trigger: FillTrigger) => Element | undefined;
   readonly release: () => void;
 };
+
+/**
+ * The element an event really came from, reaching into open shadow roots.
+ *
+ * A listener on the document sees `event.target` **retargeted** to the shadow
+ * host whenever the real target is inside one. That is the platform working as
+ * designed, and it silently defeated this whole file: right-clicking the
+ * `<input>` inside an `<sl-input>` recorded the `<sl-input>`, which is not a
+ * fillable kind, so "fill this input" refused on exactly the design systems
+ * `walk.ts` goes out of its way to support (FR-008).
+ *
+ * `composedPath()[0]` is the un-retargeted target. It stops at a *closed* root
+ * and reports the host there — which is right, and is C-006 holding: a control
+ * we cannot reach is not one we should be naming.
+ */
+function realTarget(event: Event): Element | undefined {
+  const first = event.composedPath()[0];
+  if (first instanceof Element) return first;
+  return event.target instanceof Element ? event.target : undefined;
+}
+
+/**
+ * `document.activeElement`, followed down through open shadow roots.
+ *
+ * Retargeting again, in its other form: the document reports the host while
+ * focus is inside the component. Every nested root is followed, because a
+ * component built out of components nests them.
+ */
+function deepActiveElement(document: Document): Element | null {
+  let active = document.activeElement;
+  while (active !== null) {
+    const inner = active.shadowRoot?.activeElement ?? null;
+    if (inner === null) return active;
+    active = inner;
+  }
+  return active;
+}
 
 export function watchAnchor(document: Document): AnchorWatch {
   let pointed: Element | undefined;
@@ -231,10 +299,12 @@ export function watchAnchor(document: Document): AnchorWatch {
     // move. There is nothing to tell apart there, and pretending otherwise would
     // buy a guard that stops nothing.
     if (event.isTrusted !== true) return;
-    if (event.target instanceof Element && usable(event.target)) pointed = event.target;
+    const target = realTarget(event);
+    if (target !== undefined && usable(target)) pointed = target;
   };
   const onFocus = (event: Event): void => {
-    if (event.target instanceof Element && usable(event.target)) lastFocused = event.target;
+    const target = realTarget(event);
+    if (target !== undefined && usable(target)) lastFocused = target;
   };
 
   // Capture, so a page that stops propagation on its own handlers cannot also
@@ -252,7 +322,7 @@ export function watchAnchor(document: Document): AnchorWatch {
       // and, since the pointer survives as long as its element does, an answer
       // that stays wrong for the life of the page.
       if (trigger === 'menu' && pointed !== undefined && pointed.isConnected) return pointed;
-      const active = document.activeElement;
+      const active = deepActiveElement(document);
       if (active !== null && active.isConnected && usable(active)) return active;
       return lastFocused !== undefined && lastFocused.isConnected ? lastFocused : undefined;
     },

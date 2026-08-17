@@ -42,6 +42,28 @@
       <button type="button">Toggle</button>
     </div>
 
+    <!--
+      A design-system control: the real input lives in an open shadow root and
+      the form it belongs to is in the light DOM outside the component. This is
+      the shape Lit, Stencil and Ionic produce, and the one retargeting hides —
+      a listener on the document sees `<sl-input>`, never the `<input>` in it.
+
+      Only a real browser can prove this: happy-dom does not retarget
+      `event.target`, so no unit test can fail on it.
+    -->
+    <form id="epsilon">
+      <sl-input id="shadow-host"></sl-input>
+      <button type="submit">Save epsilon</button>
+    </form>
+
     <label>Loose <input name="loose" /></label>
+
+    <script>
+      // Open, not closed: closed roots are unreachable by any extension API and
+      // are permanently out of scope (C-006).
+      const host = document.querySelector('#shadow-host');
+      host.attachShadow({ mode: 'open' }).innerHTML =
+        '<label>Epsilon one <input name="e_one" /></label>';
+    </script>
   </body>
 </html>

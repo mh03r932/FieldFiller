@@ -664,3 +664,70 @@ describe('an anchor the page removed is a failure (UC-003 A5)', () => {
     expect(result.outcomes[0]).toMatchObject({ status: 'filled' });
   });
 });
+
+describe('a control inside an open shadow root is the anchor (FR-008, C-006)', () => {
+  // Retargeting is the platform working as designed: a listener on the document
+  // sees the shadow *host*, not the control inside it. It silently defeated both
+  // scopes on exactly the design systems `walk.ts` goes out of its way to
+  // support — a host is not a fillable kind, so "fill this input" refused.
+  //
+  // happy-dom does not emulate retargeting for `event.target`, so the focus half
+  // is what these can prove; the pointer half is covered by `e2e-scopes.mjs`,
+  // which drives a real browser. That split is the reason the defect survived:
+  // no unit test could have caught it.
+  function component(): { host: Element; inner: HTMLInputElement } {
+    page(`<form id="f"><div id="host"></div><button type="submit">Go</button></form>`);
+    const host = at('#host');
+    const root = host.attachShadow({ mode: 'open' });
+    root.innerHTML = `<input id="inner">`;
+    return { host, inner: root.querySelector('#inner') as HTMLInputElement };
+  }
+
+  it('follows focus into the component rather than stopping at the host', () => {
+    const { host, inner } = component();
+    inner.focus();
+    // What the document reports, and what used to become the anchor.
+    expect(document.activeElement).toBe(host);
+
+    const watch = watchAnchor(document);
+    try {
+      expect(watch.anchor('shortcut')).toBe(inner);
+    } finally {
+      watch.release();
+    }
+  });
+
+  it('resolves the single-control scope to the control, not the component', () => {
+    const { inner } = component();
+    expect(resolveScope('selected-input', document, inner)).toEqual({
+      resolved: true,
+      only: inner,
+      rule: 'anchor-control',
+    });
+  });
+
+  it('finds the form outside the component the control lives in', () => {
+    // `closest` and `parentElement` both stop at the shadow root, so a ladder
+    // that does not hop out to the host refuses — on a control whose form is
+    // sitting right there in the light DOM.
+    const { inner } = component();
+    expect(resolveScope('current-form', document, inner)).toMatchObject({
+      resolved: true,
+      rule: 'element-form',
+      within: at('#f'),
+    });
+  });
+
+  it('reaches a submit container outside the component too', () => {
+    page(`<div id="block"><div id="host"></div><button>Save</button></div>`);
+    const root = at('#host').attachShadow({ mode: 'open' });
+    root.innerHTML = `<input id="inner">`;
+    const inner = root.querySelector('#inner') as HTMLInputElement;
+
+    expect(resolveScope('current-form', document, inner)).toMatchObject({
+      resolved: true,
+      rule: 'submit-container',
+      within: at('#block'),
+    });
+  });
+});

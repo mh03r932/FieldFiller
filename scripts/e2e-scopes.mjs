@@ -186,8 +186,33 @@ try {
   };
 
   /** Every filled control, by name — the shape every assertion below reads. */
+  /**
+   * Finds a control anywhere in the page, including inside open shadow roots.
+   *
+   * The fixture's `<sl-input>` keeps its real `<input>` in one, so a plain
+   * `document.querySelector` cannot see it — which is the same blindness the
+   * agent had until the anchor learned to reach through retargeting.
+   */
+  const DEEP_QUERY = `(selector) => {
+    const direct = document.querySelector(selector);
+    if (direct !== null) return direct;
+    for (const element of document.querySelectorAll('*')) {
+      const found = element.shadowRoot?.querySelector(selector) ?? null;
+      if (found !== null) return found;
+    }
+    return null;
+  }`;
+
+  const DEEP_INPUTS = `(() => {
+    const found = [...document.querySelectorAll('input[name]')];
+    for (const element of document.querySelectorAll('*')) {
+      if (element.shadowRoot) found.push(...element.shadowRoot.querySelectorAll('input[name]'));
+    }
+    return found;
+  })()`;
+
   const filledNames = async () =>
-    inPage(`[...document.querySelectorAll('input[name]')]
+    inPage(`${DEEP_INPUTS}
       .filter((input) => input.value !== '')
       .map((input) => input.name)
       .sort()`);
@@ -222,7 +247,7 @@ try {
    */
   async function rightClick(selector) {
     const at = await inPage(`(() => {
-      const element = document.querySelector('${selector}');
+      const element = (${DEEP_QUERY})('${selector}');
       if (element === null) return null;
       element.scrollIntoView({ block: 'center' });
       const box = element.getBoundingClientRect();
@@ -291,12 +316,31 @@ try {
     JSON.stringify(await filledNames()) === JSON.stringify(['b_one']),
     `filled ${JSON.stringify(await filledNames())}`);
 
+  // ── UC-002 and UC-003 through an open shadow root (FR-008, C-006) ───────────
+  //
+  // The one case only a browser can judge. A listener on the document sees
+  // `event.target` retargeted to the shadow host, so the agent recorded
+  // `<sl-input>` — not a fillable kind — and the single-control scope refused on
+  // exactly the design systems the walk goes out of its way to support. happy-dom
+  // does not retarget, so no unit test can fail on it; this is the check that can.
+  await pointAndFill('[name="e_one"]', 'selected-input');
+  check('single-control scope reaches a control inside an open shadow root',
+    JSON.stringify(await filledNames()) === JSON.stringify(['e_one']),
+    `filled ${JSON.stringify(await filledNames())}`);
+
+  // And the form around it is in the light DOM outside the component, which the
+  // ladder only finds by hopping out of the root it started in.
+  await pointAndFill('[name="e_one"]', 'current-form');
+  check('form scope crosses the shadow boundary to the form outside it',
+    JSON.stringify(await filledNames()) === JSON.stringify(['e_one']),
+    `filled ${JSON.stringify(await filledNames())}`);
+
   // ── UC-001 still works, from the same fixture ───────────────────────────────
   await pointAndFill(undefined, 'all-inputs');
   const wholePage = await filledNames();
-  check('page scope still fills everything',
-    wholePage.length === 8,
-    `filled ${wholePage.length} of 8: ${JSON.stringify(wholePage)}`);
+  check('page scope still fills everything, shadow content included',
+    wholePage.length === 9 && wholePage.includes('e_one'),
+    `filled ${wholePage.length} of 9: ${JSON.stringify(wholePage)}`);
 
   // ── UC-008 ─────────────────────────────────────────────────────────────────
   //
