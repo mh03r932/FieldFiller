@@ -280,10 +280,34 @@ export async function launchChromium(extensionDir, profileDir) {
     return { chrome, cdp: await connect(wsUrl) };
   } catch (error) {
     // Covers both failure points: an endpoint that never opened, and a socket
-    // that refused the connection after it did.
-    chrome.kill();
+    // that refused the connection after it did. Waited out rather than fired and
+    // forgotten — `kill` returns while Chrome is still flushing its profile, and
+    // the caller's own cleanup cannot cover the gap here because its `chrome` is
+    // the variable this failed destructuring never assigned.
+    await stopBrowser(chrome);
     throw error;
   }
+}
+
+/**
+ * Stops a browser and waits for it to actually be gone.
+ *
+ * `kill` returns immediately; the process is still flushing its profile
+ * directory afterwards, so removing that directory straight away races the
+ * flush. Everything that ends a browser goes through here so the wait cannot be
+ * forgotten in one path and remembered in another — which is exactly what had
+ * happened between the launch failure path and the teardown.
+ */
+async function stopBrowser(chrome) {
+  if (chrome === undefined) return;
+  chrome.kill();
+  const exited = await Promise.race([
+    new Promise((resolve) => chrome.once('exit', () => resolve(true))),
+    sleep(5000).then(() => false),
+  ]);
+  // A browser that ignored SIGTERM would otherwise outlive the run holding the
+  // profile open, which is the orphan this whole path exists to prevent.
+  if (!exited) chrome.kill('SIGKILL');
 }
 
 /**
@@ -411,16 +435,7 @@ export async function closeChromium({ chrome, cdp, profileDir }) {
     // Already gone with the browser.
   }
 
-  if (chrome !== undefined) {
-    chrome.kill();
-    const exited = await Promise.race([
-      new Promise((resolve) => chrome.once('exit', () => resolve(true))),
-      sleep(5000).then(() => false),
-    ]);
-    // A browser that ignored SIGTERM would otherwise outlive the run holding the
-    // profile open, which is the same orphan `launchChromium` guards against.
-    if (!exited) chrome.kill('SIGKILL');
-  }
+  await stopBrowser(chrome);
 
   if (profileDir === undefined) return;
   try {

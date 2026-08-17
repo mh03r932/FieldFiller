@@ -240,10 +240,22 @@ try {
       JSON.stringify(filled));
   }
 
-  // The check that makes the other eight mean something: a setting nobody reads
-  // would let both runs produce identical output and every shape assertion above
-  // would still pass for one of the two.
-  check('the setting is what selects the corpus, not the seed',
+  // Not the check that proves the setting was read — the *shape* assertions
+  // above are. This one claimed to be, and was wrong in both directions: a run
+  // that ignored the setting would draw both records from en-US under two
+  // different seeds (one per fill, `Math.random()`), so the towns and phones
+  // would differ anyway and this would pass; while `+1 …` against de-CH's
+  // `/^\+41 …/` fails, which is where the discrimination actually lives. That is
+  // not hypothetical — on 2026-08-17 a lost storage write made the first fill
+  // fall back to the default locale, and the shape assertions are what stood
+  // between that and a green run.
+  //
+  // What is left for this to say is narrow and worth one line: the two fills
+  // returned two records rather than one repeated. An identical pair would in
+  // fact already fail one of the shape assertions, so this is belt and braces —
+  // but it names that failure directly instead of leaving it to be inferred from
+  // a regex mismatch.
+  check('the two fills produced different records, not one repeated',
     filledPerLocale['en-US'].town !== filledPerLocale['de-CH'].town &&
       filledPerLocale['en-US'].phone !== filledPerLocale['de-CH'].phone,
     `en-US=${filledPerLocale['en-US'].town} de-CH=${filledPerLocale['de-CH'].town}`);
