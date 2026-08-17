@@ -1,4 +1,5 @@
 import type { AgentSettings, ControlKind } from './protocol';
+import { LOCALES, type Locale } from './persona/corpus/corpus';
 
 /**
  * The settings state, its defaults, and the coercion that reads it back.
@@ -231,6 +232,19 @@ export type Settings = {
    * parser below will silently drop what it cannot recognise.
    */
   readonly version: 1;
+  /**
+   * Which corpus a fill draws from (ND-1).
+   *
+   * `auto` follows the browser's own UI language, which is the closest thing to
+   * an answer the extension can have without asking: a tester's browser is
+   * usually configured for the market they build for. An explicit locale
+   * overrides it, because the two do diverge — a Swiss developer whose browser
+   * is in English is testing Swiss forms.
+   *
+   * Resolved in the background, never here: this module knows what settings
+   * *are*, and the browser's language is a platform fact (NFR-015).
+   */
+  readonly locale: Locale | 'auto';
   readonly rules: readonly Rule[];
   readonly profiles: readonly Profile[];
   readonly exclusions: Exclusions;
@@ -259,6 +273,7 @@ export const DEFAULT_PASSWORD_POLICY: PasswordPolicy = {
 
 export const DEFAULT_SETTINGS: Settings = {
   version: 1,
+  locale: 'auto',
   // Empty on purpose. An unmatched field falls through to the persona-driven
   // generator, so a user who writes no rules gets exactly the engine that
   // shipped before rules existed (DD-005).
@@ -347,6 +362,7 @@ export function parseSettings(stored: unknown): Settings {
 
   return {
     version: 1,
+    locale: parseLocale(candidate['locale']),
     rules: parseRules(candidate['rules']),
     profiles: parseProfiles(candidate['profiles']),
     exclusions: {
@@ -381,6 +397,11 @@ export function parseSettings(stored: unknown): Settings {
     },
     sources: parseSources(sources),
   };
+}
+
+function parseLocale(stored: unknown): Locale | 'auto' {
+  if (stored === 'auto') return 'auto';
+  return (LOCALES as readonly string[]).includes(stored as string) ? (stored as Locale) : 'auto';
 }
 
 function parseSources(stored: Record<string, unknown>): SourceToggles {

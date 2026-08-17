@@ -36,12 +36,15 @@ const AUTOCOMPLETE_ATTRIBUTES: Record<string, keyof Persona> = {
   organization: 'organisation',
   'street-address': 'streetAddress',
   'address-line1': 'streetAddress',
+  'address-line2': 'addressLine2',
   'address-level2': 'locality',
   'address-level1': 'region',
   'postal-code': 'postalCode',
-  country: 'country',
+  country: 'countryCode',
   'country-name': 'country',
   url: 'url',
+  bday: 'dateOfBirth',
+  'organization-title': 'jobTitle',
   'new-password': 'password',
   'current-password': 'password',
 };
@@ -77,12 +80,32 @@ const IDENTITY_HINTS: ReadonlyArray<readonly [RegExp, keyof Persona]> = [
   [/user[\s_-]*name|login|handle/i, 'username'],
   [/phone|mobile|telephone/i, 'phone'],
   [/post(al)?[\s_-]*code|zip/i, 'postalCode'],
+  // Above the street, not below it: `address2` matches both patterns and the
+  // first match wins, so a second line placed after the first never resolved by
+  // identity at all — it took the street's slot, and `2$` then made it a
+  // confirmation of the street, so both lines came out identical. Plain
+  // `address` carries no ordinal and is unaffected.
+  //
+  // The short words are fenced against letters rather than left bare, which
+  // matters now that this entry outranks the address, city and region hints:
+  // `identityOf` joins every source, so an unfenced `apt` matches `adaptive` in
+  // a class name and an unfenced `stock` matches a city field suggesting
+  // `Stockholm`. Fenced against letters and not `\b`, so `apt_2` and `stock-3`
+  // still match — an underscore is a word character and `\b` would refuse them.
+  [/address[\s_-]*(line)?[\s_-]*2|apartment|(?<![a-z])(apt|suite|stock(werk)?)(?![a-z])/i, 'addressLine2'],
   [/address|street/i, 'streetAddress'],
   [/city|town|locality/i, 'locality'],
   [/state|province|region|county/i, 'region'],
   [/country/i, 'country'],
   [/company|organisation|organization|employer/i, 'organisation'],
   [/web[\s_-]*site|homepage|url/i, 'url'],
+  [/birth|geburt|dob\b/i, 'dateOfBirth'],
+  [/job[\s_-]*title|position|beruf|funktion/i, 'jobTitle'],
+  // The identifiers this locale emits. A locale without one leaves the slot
+  // empty, and an empty slot falls through to A2's neutral value rather than
+  // writing nothing and calling the field filled.
+  [/ahv|avs|social[\s_-]*security|versicherten/i, 'nationalId'],
+  [/iban|bank[\s_-]*account|kontonummer/i, 'iban'],
 ];
 
 const LOREM = [
@@ -231,7 +254,12 @@ function select(
 
   const attribute = personaAttribute(descriptor);
   if (attribute !== undefined) {
-    return { value: persona[attribute.key], provenance: attribute.provenance };
+    const value = persona[attribute.key];
+    // An empty slot means this locale has no such thing — a US persona has no
+    // AHV number. Writing `''` would report the control as filled while leaving
+    // it blank, so it falls through to A2's neutral value instead, and the
+    // provenance says which slot was empty rather than pretending none matched.
+    if (value !== '') return { value, provenance: attribute.provenance };
   }
 
   // UC-004 A2: no meaningful default for this kind, so a short neutral value
@@ -257,7 +285,22 @@ function select(
  * slot, so it is not mirroring anything and a rule applies to it normally.
  */
 export function mirrorsAnotherField(descriptor: FieldDescriptor): boolean {
-  return CONFIRMATION_MARKERS.test(identityOf(descriptor)) && personaAttribute(descriptor) !== undefined;
+  const attribute = personaAttribute(descriptor);
+  return attribute !== undefined && confirms(identityOf(descriptor), attribute.key);
+}
+
+/**
+ * Whether a trailing ordinal means "again" or "the next one".
+ *
+ * `2$` earns its place in the markers because `password2` beside `password` is
+ * a confirmation, and that is much the commonest shape. The second address line
+ * is the exception, and the only one: `address2` is the *next* line, not the
+ * same line said twice. Treated as a confirmation it drags the street address
+ * onto both lines — and, through `mirrorsAnotherField`, silently overrides a
+ * user rule aimed at a field that confirms nothing (DD-005).
+ */
+function confirms(identity: string, key: keyof Persona): boolean {
+  return key !== 'addressLine2' && CONFIRMATION_MARKERS.test(identity);
 }
 
 /**
@@ -282,13 +325,12 @@ function personaAttribute(
   }
 
   const identity = identityOf(descriptor);
-  const confirming = CONFIRMATION_MARKERS.test(identity);
 
   for (const [pattern, key] of IDENTITY_HINTS) {
     if (pattern.test(identity)) {
       return {
         key,
-        provenance: confirming
+        provenance: confirms(identity, key)
           ? `confirms persona.${key} → same value`
           : `identity /${pattern.source}/ → persona.${key}`,
       };

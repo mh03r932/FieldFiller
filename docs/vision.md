@@ -976,6 +976,26 @@ with city, state and postcode mutually consistent, email derived from the name, 
 matching the country. This is the largest quality gap over every competitor found in §2, and
 DD-003 is what makes it affordable.
 
+**The corpus behind it was built on 2026-08-15**, in two locales — **en-US and de-CH** — chosen
+by a `locale` setting that follows the browser's own UI language by default. What building it
+settled:
+
+- **Real places, invented people.** Cities, regions and postal districts are real, because that
+  is the only way `Winterthur / 8400` is coherent rather than decorative, and the only way a
+  generated address survives a validator. People, streets and organisations are invented, so no
+  real person's details can come out of it — §4's non-goal holding at scale rather than by
+  being small.
+- **Parts, not people.** About 2,300 entries, combined rather than enumerated: a few hundred
+  given names against a few hundred surnames is tens of thousands of people, from data small
+  enough that a mistake in it is visible in a diff.
+- **Two identifiers, and the rule that decides which.** A Swiss AHV number and a Swiss IBAN are
+  emitted with correct check digits, because a number that fails the page's own validation is
+  worthless as test data — an AHV field that rejects every value tells the tester nothing about
+  their form. A US Social Security number is **not** emitted: it carries no checksum, so a
+  generated one is indistinguishable from a real one. The check digit is what marks a number as
+  constructed; where there is none, the slot stays empty and the field falls through to a
+  neutral value rather than receiving something invented.
+
 **DD-005 — Settings schema. RESOLVED 2026-08-15.**
 Brought forward from Phase 4 to unblock the eight rule-driven requirements parked in Phase 2
 (FR-019..FR-022, FR-031, FR-067, FR-068, FR-070). The whole shape is fixed now rather than

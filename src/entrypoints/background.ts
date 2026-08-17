@@ -3,7 +3,14 @@ import { browser } from 'wxt/browser';
 import { message, type MessageKey } from '@/lib/platform/i18n';
 import { getSettings } from '@/lib/platform/settings-store';
 import { agentSettings } from '@/lib/settings';
-import { createPersona, seededRandom, type Persona, type Random } from '@/lib/persona/persona';
+import {
+  createPersona,
+  seededRandom,
+  LOCALES,
+  type Locale,
+  type Persona,
+  type Random,
+} from '@/lib/persona/persona';
 import { generateBatch, tokenRandom } from '@/lib/generators/batch';
 import { compileRules, type CompiledRule } from '@/lib/rules/match';
 import { excludedBy } from '@/lib/page/scope';
@@ -272,7 +279,7 @@ async function startFill(target: Target, scope: FillScope, trigger: FillTrigger)
     const random = seededRandom(seed);
 
     operations.set(operationId, {
-      persona: createPersona(random),
+      persona: createPersona(random, resolveLocale(settings.locale)),
       random,
       seed,
       tabId,
@@ -348,6 +355,26 @@ async function startFill(target: Target, scope: FillScope, trigger: FillTrigger)
     await showBadge(tabId, '—', '#8a8f98');
     finish(operationId, tabId);
   }
+}
+
+/**
+ * Which corpus this fill draws from.
+ *
+ * `auto` follows the browser's own UI language, matched on the language part
+ * rather than the whole tag: a browser set to `de` or `de-AT` is closer to the
+ * Swiss corpus than to the American one, and matching exactly would send every
+ * German-speaking user to en-US for want of a hyphen.
+ *
+ * Anything unrecognised falls back to the first locale rather than throwing.
+ * A person whose browser is in Japanese gets American data, which is wrong but
+ * usable; an exception here would mean no fill at all.
+ */
+function resolveLocale(setting: Locale | 'auto'): Locale {
+  if (setting !== 'auto') return setting;
+
+  const language = browser.i18n.getUILanguage().toLowerCase();
+  const matched = LOCALES.find((locale) => locale.toLowerCase().startsWith(language.split('-')[0] ?? ''));
+  return matched ?? (LOCALES[0] as Locale);
 }
 
 /** The top-level frame. A shortcut has no frame of its own to name (see `Target`). */
@@ -666,6 +693,18 @@ export default defineBackground(() => {
     if (tab.id !== undefined) void startFill({ tabId: tab.id }, 'all-inputs', 'toolbar');
   });
 
+  // The `tab` here is the browser's own argument, not a polyfill's courtesy:
+  // Chromium has passed it for years — `@wxt-dev/browser` is generated from
+  // `@types/chrome`, which declares `(command, tab?)` — and Firefox added it in
+  // 126, under NFR-016's floor of 128. Reading it costs no `tabs` permission,
+  // which is the whole reason the shortcut path needs none (NFR-008).
+  //
+  // It is optional in the signature because a command *can* fire with no tab:
+  // a `global` command fires with the browser unfocused. None of ours is
+  // declared global (`wxt.config.ts`), so a shortcut only ever arrives with a
+  // window focused and an active tab beneath it. The guard below stands anyway
+  // — an absent tab leaves nothing to fill and nothing to put a badge on, so
+  // returning is the only outcome available rather than a choice.
   browser.commands.onCommand.addListener((command, tab) => {
     const scope = COMMAND_SCOPES[command];
     if (scope === undefined || tab?.id === undefined) return;

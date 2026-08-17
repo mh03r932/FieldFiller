@@ -29,14 +29,12 @@
  *   CHROME_PATH=…  override the browser binary
  *   HEADFUL=1      show the window
  */
-import { spawn } from 'node:child_process';
-import { createRequire } from 'node:module';
-import { createHash } from 'node:crypto';
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { attachToWorker, closeChromium, derivedExtensionId, launchChromium, sleep, waitForAgent } from './lib/chromium.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const EXTENSION_DIR = join(ROOT, '.output', 'chrome-mv3');
@@ -76,82 +74,6 @@ const EXPECTED = {
   'report · the fixture settles rather than stopping at a bound': { now: 'pass', fixedBy: undefined },
 };
 
-const CHROME_CANDIDATES = [
-  '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
-  '/Applications/Chromium.app/Contents/MacOS/Chromium',
-  '/usr/bin/google-chrome',
-  '/usr/bin/chromium',
-  '/usr/bin/chromium-browser',
-];
-
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
-function playwrightChromium() {
-  try {
-    const require = createRequire(import.meta.url);
-    const path = require('playwright').chromium.executablePath();
-    return existsSync(path) ? path : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-function findChrome() {
-  const fromEnv = process.env['CHROME_PATH'];
-  if (fromEnv !== undefined && existsSync(fromEnv)) return fromEnv;
-  const pinned = playwrightChromium();
-  if (pinned !== undefined) return pinned;
-  const found = CHROME_CANDIDATES.find((candidate) => existsSync(candidate));
-  if (found === undefined) {
-    throw new Error(
-      'No Chrome or Chromium found. Run `pnpm exec playwright install chromium`, or set CHROME_PATH.',
-    );
-  }
-  return found;
-}
-
-function derivedExtensionId(absolutePath) {
-  const hash = createHash('sha256').update(absolutePath).digest('hex').slice(0, 32);
-  return [...hash].map((digit) => String.fromCharCode(97 + parseInt(digit, 16))).join('');
-}
-
-async function freePort() {
-  const probe = createServer();
-  await new Promise((resolve) => probe.listen(0, '127.0.0.1', resolve));
-  const { port } = probe.address();
-  await new Promise((resolve) => probe.close(resolve));
-  return port;
-}
-
-async function connect(url) {
-  const socket = new WebSocket(url);
-  const pending = new Map();
-  let nextId = 1;
-  await new Promise((resolve, reject) => {
-    socket.addEventListener('open', () => resolve());
-    socket.addEventListener('error', () => reject(new Error(`CDP connection failed: ${url}`)));
-  });
-  socket.addEventListener('message', (event) => {
-    const frame = JSON.parse(event.data);
-    if (frame.id !== undefined) { pending.get(frame.id)?.(frame); pending.delete(frame.id); }
-  });
-  return {
-    send(method, params = {}, sessionId) {
-      const id = nextId++;
-      return new Promise((resolve, reject) => {
-        pending.set(id, (frame) =>
-          frame.error ? reject(new Error(`${method}: ${frame.error.message}`)) : resolve(frame.result));
-        socket.send(JSON.stringify({ id, method, params, ...(sessionId ? { sessionId } : {}) }));
-      });
-    },
-    async attach(targetId) {
-      const { sessionId } = await this.send('Target.attachToTarget', { targetId, flatten: true });
-      return sessionId;
-    },
-    close() { socket.close(); },
-  };
-}
-
 if (!existsSync(join(EXTENSION_DIR, 'manifest.json'))) {
   console.error('✖ no Chromium build found. Run `pnpm run build` first.');
   process.exit(1);
@@ -177,25 +99,16 @@ const results = new Map();
 /** The report's arithmetic, printed each run so the honesty gap is visible. */
 let counts;
 
-try {
-  const debugPort = await freePort();
-  chrome = spawn(findChrome(), [
-    `--user-data-dir=${profileDir}`,
-    `--remote-debugging-port=${debugPort}`,
-    `--load-extension=${EXTENSION_DIR}`,
-    `--disable-extensions-except=${EXTENSION_DIR}`,
-    ...(process.env['HEADFUL'] === '1' ? [] : ['--headless=new']),
-    ...(process.env['CI'] === undefined ? [] : ['--no-sandbox', '--disable-dev-shm-usage']),
-    '--no-first-run', '--no-default-browser-check', 'about:blank',
-  ], { stdio: 'ignore' });
+/**
+ * How this harness picks the tab: the only one, or the active one.
+ *
+ * One expression, shared by the readiness ping and the trigger — pinging one tab
+ * and filling another would prove nothing.
+ */
+const TAB = 'tabs.length === 1 ? tabs[0] : tabs.find((candidate) => candidate.active)';
 
-  let wsUrl;
-  for (let attempt = 0; attempt < 100 && wsUrl === undefined; attempt++) {
-    try {
-      wsUrl = (await (await fetch(`http://127.0.0.1:${debugPort}/json/version`)).json()).webSocketDebuggerUrl;
-    } catch { await sleep(150); }
-  }
-  cdp = await connect(wsUrl);
+try {
+  ({ chrome, cdp } = await launchChromium(EXTENSION_DIR, profileDir));
 
   const initial = (await cdp.send('Target.getTargets')).targetInfos.find((t) => t.type === 'page');
   const targetId =
@@ -205,48 +118,17 @@ try {
   await cdp.send('Runtime.enable', {}, page);
   await cdp.send('Page.navigate', { url: pageUrl }, page);
 
-  let worker;
-  for (let attempt = 0; attempt < 60 && worker === undefined; attempt++) {
-    const { targetInfos } = await cdp.send('Target.getTargets');
-    worker = targetInfos.find((t) => t.type === 'service_worker' && t.url.includes(extensionId));
-    if (worker === undefined) await sleep(100);
-  }
-  if (worker === undefined) throw new Error('the background service worker never started');
-  const workerSession = await cdp.attach(worker.targetId);
+  const workerSession = await attachToWorker(cdp, extensionId);
 
-  // Readiness as a condition, not a sleep. A fixed 1500 ms here was the thinnest
-  // margin in this harness: ample on an idle machine, and on a loaded shared
-  // runner short enough that the fill below could be triggered into a page whose
-  // agent was not yet listening — which fails as "the fill did not run",
-  // correctly diagnosed, but a flake all the same. The protocol's own ping is
-  // the exact condition the sleep approximated: a `pong` means the page agent is
-  // injected and listening in the tab about to be filled (the agent registers at
-  // `document_idle`, which Chrome may place immediately *after* the load event,
-  // so `readyState` alone would not prove it). Until it is listening,
-  // `sendMessage` rejects — "receiving end does not exist" — and the poll
-  // retries. The tab is identified the same way the trigger below identifies it.
-  let agentReady = false;
-  for (let attempt = 0; attempt < 100 && !agentReady; attempt++) {
-    const pinged = await cdp.send('Runtime.evaluate', {
-      expression: `chrome.tabs.query({}).then((tabs) => {
-        const tab = tabs.length === 1 ? tabs[0] : tabs.find((candidate) => candidate.active);
-        if (tab === undefined) return 'no tab among ' + tabs.length;
-        return chrome.tabs.sendMessage(tab.id, { kind: 'ping' })
-          .then((reply) => reply !== undefined && reply.kind === 'pong'
-            ? 'pong'
-            : 'answered without a pong: ' + JSON.stringify(reply))
-          .catch(() => 'not listening yet');
-      })`,
-      awaitPromise: true, returnByValue: true,
-    }, workerSession);
-    agentReady = pinged.result.value === 'pong';
-    if (!agentReady) await sleep(100);
-  }
-  if (!agentReady) throw new Error('the page agent never answered a ping within 10 s of navigation');
+  // Readiness as a condition, not a sleep — `waitForAgent` carries the argument
+  // for why, which this harness is where it was first made. The tab is
+  // identified the same way the trigger below identifies it, which is the whole
+  // reason that expression is a parameter.
+  await waitForAgent(cdp, workerSession, TAB);
 
   const triggered = await cdp.send('Runtime.evaluate', {
     expression: `chrome.tabs.query({}).then((tabs) => {
-      const tab = tabs.length === 1 ? tabs[0] : tabs.find((candidate) => candidate.active);
+      const tab = ${TAB};
       if (tab === undefined) return 'no tab to fill among ' + tabs.length;
       if (typeof chrome.action.onClicked.dispatch !== 'function') {
         return 'chrome.action.onClicked.dispatch is not available in this Chrome';
@@ -460,18 +342,8 @@ try {
 } catch (error) {
   fatal = error instanceof Error ? error.message : String(error);
 } finally {
-  try { cdp?.close(); } catch { /* already gone with the browser */ }
   server.close();
-  if (chrome !== undefined) {
-    chrome.kill();
-    const exited = await Promise.race([
-      new Promise((resolve) => chrome.once('exit', () => resolve(true))),
-      sleep(5000).then(() => false),
-    ]);
-    if (!exited) chrome.kill('SIGKILL');
-  }
-  try { rmSync(profileDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }); }
-  catch { console.warn(`  (left a temp profile behind: ${profileDir})`); }
+  await closeChromium({ chrome, cdp, profileDir });
 }
 
 if (fatal !== undefined) {

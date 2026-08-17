@@ -15,13 +15,18 @@
  *     worker has been stopped, so it pays for its own restart.
  *
  * **What this cannot measure yet, and says so rather than implying otherwise.**
- * NFR-028 budgets 250 ms for loading the data corpus. There is no corpus:
- * `src/lib/persona/persona.ts` carries about fifty placeholder entries, so its
- * load time is indistinguishable from zero. The cold number below is therefore a
- * *floor*, and its value now is not pass/fail — it is budget allocation. What
- * NFR-027's 400 ms has left over after the restart is the envelope the real
- * corpus has to fit inside, and knowing that before the corpus is written is the
- * whole reason to run this early.
+ * **NFR-028, and why it is bounded rather than isolated.** The corpus is a
+ * statically bundled module — it must be, because a `fetch()` of an extension
+ * URL would put a network call into shipped code and `check-network.mjs` fails
+ * the build on one (NFR-006, G3). So there is no moment at which the corpus
+ * "loads" that could be timed on its own: V8 parses it while the worker starts,
+ * as part of the same evaluation.
+ *
+ * What can be measured is the whole restart *including* it, and that is the
+ * stronger claim anyway: if everything the worker does on a cold start fits in
+ * single-digit milliseconds, the corpus's share of it cannot exceed that. The
+ * figure below is therefore an upper bound on NFR-028 rather than a reading of
+ * it, and it is reported as such.
  *
  * **Nothing here is a test hook.** The trigger is `action.onClicked.dispatch`,
  * as in `e2e-chrome.mjs`; the round trip is the protocol's own `ping`; and the
@@ -33,14 +38,12 @@
  *   RUNS=…         samples per measurement (default 7)
  *   HEADFUL=1      show the window
  */
-import { spawn } from 'node:child_process';
-import { createRequire } from 'node:module';
-import { createHash } from 'node:crypto';
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { closeChromium, derivedExtensionId, launchChromium, sleep } from './lib/chromium.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const EXTENSION_DIR = join(ROOT, '.output', 'chrome-mv3');
@@ -54,82 +57,6 @@ const BUDGETS = {
   restart: { ms: 400, id: 'NFR-027', what: 'service worker restart' },
   cold: { ms: 400, id: 'NFR-027', what: 'cold trigger (restart + warm)' },
 };
-
-const CHROME_CANDIDATES = [
-  '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
-  '/Applications/Chromium.app/Contents/MacOS/Chromium',
-  '/usr/bin/google-chrome',
-  '/usr/bin/chromium',
-  '/usr/bin/chromium-browser',
-];
-
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
-function playwrightChromium() {
-  try {
-    const require = createRequire(import.meta.url);
-    const path = require('playwright').chromium.executablePath();
-    return existsSync(path) ? path : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-function findChrome() {
-  const fromEnv = process.env['CHROME_PATH'];
-  if (fromEnv !== undefined && existsSync(fromEnv)) return fromEnv;
-  const pinned = playwrightChromium();
-  if (pinned !== undefined) return pinned;
-  const found = CHROME_CANDIDATES.find((candidate) => existsSync(candidate));
-  if (found === undefined) {
-    throw new Error(
-      'No Chrome or Chromium found. Run `pnpm exec playwright install chromium`, or set CHROME_PATH.',
-    );
-  }
-  return found;
-}
-
-function derivedExtensionId(absolutePath) {
-  const hash = createHash('sha256').update(absolutePath).digest('hex').slice(0, 32);
-  return [...hash].map((digit) => String.fromCharCode(97 + parseInt(digit, 16))).join('');
-}
-
-async function freePort() {
-  const probe = createServer();
-  await new Promise((resolve) => probe.listen(0, '127.0.0.1', resolve));
-  const { port } = probe.address();
-  await new Promise((resolve) => probe.close(resolve));
-  return port;
-}
-
-async function connect(url) {
-  const socket = new WebSocket(url);
-  const pending = new Map();
-  let nextId = 1;
-  await new Promise((resolve, reject) => {
-    socket.addEventListener('open', () => resolve());
-    socket.addEventListener('error', () => reject(new Error(`CDP connection failed: ${url}`)));
-  });
-  socket.addEventListener('message', (event) => {
-    const frame = JSON.parse(event.data);
-    if (frame.id !== undefined) { pending.get(frame.id)?.(frame); pending.delete(frame.id); }
-  });
-  return {
-    send(method, params = {}, sessionId) {
-      const id = nextId++;
-      return new Promise((resolve, reject) => {
-        pending.set(id, (frame) =>
-          frame.error ? reject(new Error(`${method}: ${frame.error.message}`)) : resolve(frame.result));
-        socket.send(JSON.stringify({ id, method, params, ...(sessionId ? { sessionId } : {}) }));
-      });
-    },
-    async attach(targetId) {
-      const { sessionId } = await this.send('Target.attachToTarget', { targetId, flatten: true });
-      return sessionId;
-    },
-    close() { socket.close(); },
-  };
-}
 
 /**
  * Percentiles from a small sample.
@@ -175,24 +102,7 @@ await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
 const pageUrl = `http://127.0.0.1:${server.address().port}/`;
 
 try {
-  const debugPort = await freePort();
-  chrome = spawn(findChrome(), [
-    `--user-data-dir=${profileDir}`,
-    `--remote-debugging-port=${debugPort}`,
-    `--load-extension=${EXTENSION_DIR}`,
-    `--disable-extensions-except=${EXTENSION_DIR}`,
-    ...(process.env['HEADFUL'] === '1' ? [] : ['--headless=new']),
-    ...(process.env['CI'] === undefined ? [] : ['--no-sandbox', '--disable-dev-shm-usage']),
-    '--no-first-run', '--no-default-browser-check', 'about:blank',
-  ], { stdio: 'ignore' });
-
-  let wsUrl;
-  for (let attempt = 0; attempt < 100 && wsUrl === undefined; attempt++) {
-    try {
-      wsUrl = (await (await fetch(`http://127.0.0.1:${debugPort}/json/version`)).json()).webSocketDebuggerUrl;
-    } catch { await sleep(150); }
-  }
-  cdp = await connect(wsUrl);
+  ({ chrome, cdp } = await launchChromium(EXTENSION_DIR, profileDir));
 
   const initial = (await cdp.send('Target.getTargets')).targetInfos.find((t) => t.type === 'page');
   const targetId =
@@ -457,24 +367,24 @@ try {
     console.log('    NFR-034 budgets 5 s for the whole cascade; messaging should be a rounding error in it.');
   }
 
-  if (cold.length > 0) {
-    const { median } = summarise(cold);
-    const left = BUDGETS.cold.ms - median;
-    console.log('\n  What this leaves for the corpus (NFR-028 budgets 250 ms):');
+  if (restart.length > 0) {
+    const { median } = summarise(restart);
+    console.log('\n  NFR-028 (corpus load, budget 250 ms):');
     console.log(
-      `    ${BUDGETS.cold.ms} ms − ${median.toFixed(0)} ms restart-and-fill = ${left.toFixed(0)} ms of envelope`,
+      `    The corpus is bundled into the worker, so it is parsed inside the ${median.toFixed(1)} ms restart`,
     );
+    console.log('    above — there is no separate load to time. That whole figure is an upper bound');
     console.log(
-      left >= 250
-        ? '    The corpus can be built to NFR-028 as written.'
-        : '    NFR-028 cannot be met inside NFR-027 as measured — the corpus budget or the corpus has to shrink.',
+      median <= 250
+        ? `    on the corpus's own cost, so NFR-028 is met with ${(250 - median).toFixed(0)} ms to spare.`
+        : '    on the corpus\'s own cost, and it already exceeds the budget: the corpus has to shrink.',
     );
   }
 
   console.log(
     '\n  Caveats, so these numbers are not quoted as more than they are:\n' +
-      '    · The corpus does not exist yet (src/lib/persona/persona.ts is a ~50-entry placeholder),\n' +
-      '      so every figure here is a floor and NFR-028 remains unmeasured.\n' +
+      '    · NFR-028 is bounded, not isolated: a bundled module has no load event to time,\n' +
+      '      so the restart figure stands in for it and can only overstate the cost.\n' +
       '    · The cold figure is composed, not observed: dispatching the toolbar listener requires\n' +
       '      reaching into the worker, which starts it. Restart and fill overlap in reality, so the\n' +
       '      sum is an upper bound.\n' +
@@ -486,18 +396,8 @@ try {
 } catch (error) {
   failure = error instanceof Error ? error.message : String(error);
 } finally {
-  try { cdp?.close(); } catch { /* already gone with the browser */ }
   server.close();
-  if (chrome !== undefined) {
-    chrome.kill();
-    const exited = await Promise.race([
-      new Promise((resolve) => chrome.once('exit', () => resolve(true))),
-      sleep(5000).then(() => false),
-    ]);
-    if (!exited) chrome.kill('SIGKILL');
-  }
-  try { rmSync(profileDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }); }
-  catch { console.warn(`  (left a temp profile behind: ${profileDir})`); }
+  await closeChromium({ chrome, cdp, profileDir });
 }
 
 if (failure !== undefined) {

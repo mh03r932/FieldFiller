@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createPersona, seededRandom } from '@/lib/persona/persona';
+import { corpusFor, createPersona, LOCALES, seededRandom } from '@/lib/persona/persona';
 import { generateValue } from '@/lib/generators/default-generator';
 import type { FieldDescriptor, FieldValue } from '@/lib/protocol';
 
@@ -34,27 +34,127 @@ describe('persona', () => {
     expect(persona.fullName).toBe(`${persona.firstName} ${persona.lastName}`);
   });
 
-  it('keeps postcode, locality and region in the same place', () => {
-    // BR-004-2. Checked against the known-good pairings rather than a format,
-    // because a plausible-looking postcode from the wrong town is exactly the
-    // incoherence this design exists to remove.
-    const pairs = new Map([
-      ['Bristol', 'BS1 4DJ'],
-      ['Aberdeen', 'AB10 1XG'],
-      ['Swansea', 'SA1 3RD'],
-    ]);
-    for (let seed = 0; seed < 50; seed++) {
-      const persona = createPersona(seededRandom(seed));
-      expect(persona.postalCode).toBe(pairs.get(persona.locality));
+  it.each(LOCALES)('keeps postal code, locality and region together in %s', (locale) => {
+    // BR-004-2. Checked against the corpus's own table rather than a format,
+    // because a plausible-looking postal code from the wrong town is exactly the
+    // incoherence this design exists to remove — and a format check would pass
+    // on a Zürich address carrying a Genève PLZ.
+    const corpus = corpusFor(locale);
+    for (let seed = 0; seed < 200; seed++) {
+      const persona = createPersona(seededRandom(seed), locale);
+      const place = corpus.places.find(
+        (candidate) =>
+          candidate.locality === persona.locality && candidate.regionCode === persona.regionCode,
+      );
+      expect(place, `${persona.locality} / ${persona.regionCode} is not a place in ${locale}`).toBeDefined();
+      expect(persona.postalCode.startsWith(place!.postalPrefix)).toBe(true);
+      expect(persona.region).toBe(place!.region);
     }
   });
 
-  it('can reach every entry of its corpus', () => {
+  it.each(LOCALES)('reaches the last entry of every list in %s', (locale) => {
     // D7: the reference indexes with `random() * (length - 1)`, so the last
-    // entry of every array is unreachable — a bug invisible without this test.
+    // entry of every array is unreachable — a bug that hid in plain sight on an
+    // eight-name corpus and would hide far better on this one. Asserted against
+    // the *specific* last entries rather than a count, because a count can be
+    // reached while the final element never is.
+    const corpus = corpusFor(locale);
+    const lastFirstName = corpus.firstNames.at(-1);
+    const lastPlace = corpus.places.at(-1);
+
+    const firstNames = new Set<string>();
+    const localities = new Set<string>();
+    for (let seed = 0; seed < 6000; seed++) {
+      const persona = createPersona(seededRandom(seed), locale);
+      firstNames.add(persona.firstName);
+      localities.add(persona.locality);
+    }
+
+    expect(firstNames.has(lastFirstName!)).toBe(true);
+    expect(localities.has(lastPlace!.locality)).toBe(true);
+  });
+
+  it.each(LOCALES)('draws from enough of %s to stop repeating', (locale) => {
+    // The complaint the corpus exists to answer: the placeholder repeated on the
+    // ninth fill. A hundred consecutive fills should produce close to a hundred
+    // different people.
     const seen = new Set<string>();
-    for (let seed = 0; seed < 400; seed++) seen.add(createPersona(seededRandom(seed)).firstName);
-    expect(seen.size).toBe(8);
+    for (let seed = 0; seed < 100; seed++) {
+      const persona = createPersona(seededRandom(seed), locale);
+      seen.add(`${persona.fullName}|${persona.locality}`);
+    }
+    expect(seen.size).toBeGreaterThan(95);
+  });
+
+  it('gives each locale its own country and phone format', () => {
+    const american = createPersona(seededRandom(11), 'en-US');
+    const swiss = createPersona(seededRandom(11), 'de-CH');
+
+    expect(american.countryCode).toBe('US');
+    expect(american.phone.startsWith('+1 ')).toBe(true);
+    expect(swiss.countryCode).toBe('CH');
+    expect(swiss.phone.startsWith('+41 ')).toBe(true);
+    // Same seed, different corpus — so the locale is doing the work, not the seed.
+    expect(american.locality).not.toBe(swiss.locality);
+  });
+
+  it('emits a Swiss AHV number whose check digit is right', () => {
+    // Verified by an independent implementation of the EAN-13 rule. Checking the
+    // generator's arithmetic with the generator's own arithmetic would prove
+    // only that it agrees with itself, and a number that fails a Swiss form's
+    // validation is worthless as test data — which is the only reason to emit
+    // one at all.
+    for (let seed = 0; seed < 200; seed++) {
+      const { nationalId } = createPersona(seededRandom(seed), 'de-CH');
+      expect(nationalId).toMatch(/^756\.\d{4}\.\d{4}\.\d{2}$/);
+
+      const stripped = nationalId.replace(/\./g, '');
+      const body = stripped.slice(0, 12);
+      const stated = Number(stripped.slice(12));
+      // Independent: sum the odd positions, treble the even ones, complete to ten.
+      let sum = 0;
+      for (const [index, character] of [...body].entries()) {
+        sum += Number(character) * (index % 2 === 0 ? 1 : 3);
+      }
+      expect(stated).toBe((10 - (sum % 10)) % 10);
+    }
+  });
+
+  it('emits a Swiss IBAN that passes the mod-97 check', () => {
+    for (let seed = 0; seed < 200; seed++) {
+      const { iban } = createPersona(seededRandom(seed), 'de-CH');
+      expect(iban).toMatch(/^CH\d{2}( \d{4}){4} \d$/);
+
+      // ISO 13616 verbatim: move the first four characters to the end, expand
+      // letters to numbers, and the whole value mod 97 must be 1.
+      const compact = iban.replace(/ /g, '');
+      const rearranged = `${compact.slice(4)}${compact.slice(0, 4)}`;
+      const expanded = [...rearranged]
+        .map((character) => (/[A-Z]/.test(character) ? String(character.charCodeAt(0) - 55) : character))
+        .join('');
+      let remainder = 0;
+      for (const character of expanded) remainder = (remainder * 10 + Number(character)) % 97;
+      expect(remainder).toBe(1);
+    }
+  });
+
+  it('emits no national identifier where the locale has none', () => {
+    // A US Social Security number carries no checksum, so a generated one is
+    // indistinguishable from a real one. The slot is empty rather than filled
+    // with something plausible.
+    const american = createPersona(seededRandom(5), 'en-US');
+    expect(american.nationalId).toBe('');
+    expect(american.iban).toBe('');
+  });
+
+  it('gives an adult a date of birth a form would accept', () => {
+    for (let seed = 0; seed < 100; seed++) {
+      const { dateOfBirth } = createPersona(seededRandom(seed), 'de-CH');
+      expect(dateOfBirth).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+      const age = new Date().getUTCFullYear() - Number(dateOfBirth.slice(0, 4));
+      expect(age).toBeGreaterThanOrEqual(18);
+      expect(age).toBeLessThanOrEqual(80);
+    }
   });
 });
 

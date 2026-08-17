@@ -30,7 +30,8 @@ separate passes, so this is the single ordering for both.
 
 **Decided 2026-08-12:** DD-001 → persistent `<all_urls>` · DD-003 → generation in the
 background, no corpus in the page agent · DD-004 → WXT · ND-1 → full persona · ND-2 →
-source-scoped matching · ND-9 → discriminated union. **One spike left.**
+source-scoped matching · ND-9 → discriminated union. **The one spike left was run on 2026-08-15**,
+against the real corpus rather than a placeholder, and is recorded in the table below.
 
 **Decided 2026-08-14:** DD-009 → event-driven fixpoint loop in the page agent for dependent
 and late-appearing fields, amending DD-003 to one round trip per pass. Lands in Phase 2 as
@@ -46,16 +47,25 @@ under "Where Phase 2 actually stands" below. Resolved by deciding DD-005 early r
 moving those rows, so the schema is designed once. The ladder itself is the one part not
 built — DD-005 accepts a tolerant parser in its place and records what that costs.
 
-| Work | Closes |
-|---|---|
-| **Spike: cold-start budget** — measure background restart + corpus load + round trip against NFR-027 (400 ms). If it fails, the corpus shrinks or gets lazily sliced | NFR-027, NFR-028, NFR-029 |
-| Scaffold WXT, TS strict, Chrome + Firefox from one source tree | C-002, C-003, C-004, NFR-017 |
-| Message protocol: field descriptors out, values plus provenance back | NFR-029, NFR-030, FR-069 |
-| CI: build, test, **uncompressed** page-agent size budget, disallowed-import check | NFR-003, **ND-4** |
-| **Reproducible build pipeline** — pinned lockfile, `SOURCE_DATE_EPOCH`, deterministic archive member order and timestamps, no build-time clock or randomness reaching the bundle, digest published per build | NFR-011, G4, UC-032 |
-| **Reference test page** — every control type, shadow root, cross-origin iframe, honeypot | the acceptance harness for every later phase |
+| Work | Closes | Built |
+|---|---|---|
+| **Spike: cold-start budget** — measure background restart + corpus load + round trip against NFR-027 (400 ms) | NFR-027, NFR-028, NFR-029 | **Yes** — `scripts/spike-coldstart.mjs`, re-run 2026-08-15 against the real corpus: 14.0 ms cold start of 400 ms, 0.2 ms per round trip of 20 ms. All three rows `Done` |
+| Scaffold WXT, TS strict, Chrome + Firefox from one source tree | C-002, C-003, C-004, NFR-017 | **Yes** — NFR-017 `Done`. C-002..C-004 are satisfied and gated, and still read `Open`: see the constraints note below |
+| Message protocol: field descriptors out, values plus provenance back | NFR-029, NFR-030, FR-069 | **Yes** — `src/lib/protocol.ts`; FR-069 `Done`, NFR-030 `Done` by construction |
+| CI: build, test, **uncompressed** page-agent size budget, disallowed-import check | NFR-003, **ND-4** | **Yes** — `check-size.mjs` and `check-imports.mjs`, joined since by the network, permissions and coverage-scope gates |
+| **Reproducible build pipeline** — pinned lockfile, `SOURCE_DATE_EPOCH`, deterministic archive member order and timestamps, no build-time clock or randomness reaching the bundle, digest published per build | NFR-011, G4, UC-032 | **Yes** — `check-reproducible.mjs` and `digest.mjs`, both in CI on every push. NFR-011 `Done`; UC-032, the auditor's *use* of it, is Phase 7 and unstarted |
+| **Reference test page** — every control type, shadow root, cross-origin iframe, honeypot | the acceptance harness for every later phase | **Yes** — `tests/fixtures/reference.html`, joined since by `cascade.html` and `scopes.html` |
 
 Nothing here ships. All of it is load-bearing.
+
+**Phase 0 is complete**, and the table says so per row rather than leaving it to be inferred from
+the phases built on top of it. Two things the "Built" column deliberately does not round off:
+UC-032 is the auditor's use of the reproducible pipeline and belongs to Phase 7, so NFR-011 being
+`Done` does not close it; and **C-002, C-003 and C-004 read `Open` in §3 of the catalog while this
+table calls the work that satisfies them built**. That is the unscored-constraints gap recorded
+under "Where Phase 2 actually stands" — the constraints were never scored at all, and this row is
+where the omission is most visible, since the scaffold closing them is the oldest work in the
+project.
 
 Reproducibility gets its own row because bundlers are not reproducible by default — they
 embed timestamps, order archive members by filesystem enumeration, and minify with passes
@@ -108,9 +118,9 @@ convenience and trust.
 Reconciling `requirements.md` against the test suite after DD-009 gave the first honest
 picture: **51 Done, 13 Partial, 9 Blocked, 44 Open** — 117 rows, being the 82 functional and 35
 non-functional requirements that existed at that moment. After DD-005 and DD-006 both landed
-later the same day, and Phase 3 after them, the count reads **70 Done, 10 Partial, 1 Blocked,
-50 Open and 1 Deferred**, across **132**: the same rows plus NFR-036, which DD-009 added, plus
-the 14 Constraints.
+later the same day, then Phase 3 and the data corpus after them, the count reads **72 Done, 9
+Partial, 50 Open and 1 Deferred — and nothing Blocked**, across **132**: the same rows plus
+NFR-036, which DD-009 added, plus the 14 Constraints.
 
 **The two denominators are stated because they differ, and the difference is not only
 arithmetic.** The Constraints carry a status column and every one of the 14 reads `Open` — as a
@@ -120,11 +130,10 @@ so the 132-row tally's `Open` count is inflated by rows that were never scored. 
 rather than corrected in passing: scoring 14 constraints is a judgement per row, and the
 regulatory ones are not ours to mark off between commits.
 
-The single remaining Blocked row is NFR-028, waiting on the data
-corpus rather than on any decision. Almost everything Phase 2
-lists is built and verified — every control kind, native constraints, the framework-safe write,
-the full exclusion set with honeypots, confirmation mirroring, coherent personas, frames, shadow
-roots, error isolation, and all three steps of UC-034.
+NFR-028 was the last Blocked row, and the data corpus it waited for now exists. Almost
+everything Phase 2 lists is built and verified — every control kind, native constraints, the
+framework-safe write, the full exclusion set with honeypots, confirmation mirroring, coherent
+personas, frames, shadow roots, error isolation, and all three steps of UC-034.
 
 **What was left in this phase was blocked by a decision this plan deferred past it.**
 FR-019..FR-022 (generator types, alphanumeric templates, regex, randomized list), FR-031
@@ -146,10 +155,13 @@ change loses what the tolerant parser cannot recognise.
 **Two things remain unscheduled anywhere**, and both were surfaced by DD-009's work rather than
 by this plan:
 
-- **The data corpus.** `persona.ts` carries about fifty placeholder entries. Every Phase 0
-  latency budget was written against a corpus that does not exist: NFR-028 (250 ms to load it)
-  has never been measurable, and NFR-027's cold-start figure is a floor rather than a result,
-  with roughly 390 ms of its 400 ms budget reserved for something unwritten.
+- ~~**The data corpus.**~~ **Built 2026-08-15.** Two locales (en-US, de-CH), ~2,300 entries held
+  as parts and combined, so the number of distinct records is effectively unbounded while the
+  data stays small enough to read in a diff. Real cities, regions and postal districts — the
+  only way the coherence claim means anything — with invented people and streets. NFR-027 is no
+  longer a floor (14.0 ms with the corpus in place) and NFR-028 is measured as a bound: the
+  corpus is a bundled module, so it is parsed inside an 11.0 ms worker start and has no separate
+  load to time.
 - **FR-082**, persona-preferred options, which UC-004 owes and DD-009 deliberately split off.
 
 ### UC-034 in three steps
@@ -377,9 +389,13 @@ up. **DD-006** (the feedback surface) was decided and built on 2026-08-15: badge
 options-page report. That unblocked Phase 3, which was built the same day — UC-002 and UC-003
 needed only to supply their own scope value, because the sentence already named one.
 
-The cold-start spike is the sole remaining unknown, and it is a tuning question rather than
-an architectural one: if the corpus loads too slowly, the corpus shrinks. It cannot invalidate
-Phase 1.
+The cold-start spike was the last unknown on this path, and it is now measured rather than
+estimated: **14.0 ms with the corpus in place**, against NFR-027's 400 ms. The contingency this
+paragraph used to carry — if the corpus loads too slowly, the corpus shrinks — was never
+exercised and can be retired. There is no separate load to shrink: the corpus is a bundled
+module, parsed inside an **11.0 ms** worker start, which is what turns NFR-028 from a floor into
+a measured bound. Nothing on the critical path is now unknown; what remains is unbuilt, which is
+a different thing.
 
 ## Shippable points
 

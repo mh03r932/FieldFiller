@@ -31,110 +31,40 @@
  *   CHROME_PATH=…  override the browser binary
  *   HEADFUL=1      show the window
  */
-import { spawn } from 'node:child_process';
-import { createRequire } from 'node:module';
-import { createHash } from 'node:crypto';
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { attachToWorker, closeChromium, derivedExtensionId, launchChromium, sleep, waitForAgent } from './lib/chromium.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const EXTENSION_DIR = join(ROOT, '.output', 'chrome-mv3');
 const REFERENCE_PAGE = join(ROOT, 'tests', 'fixtures', 'reference.html');
 
-const CHROME_CANDIDATES = [
-  '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
-  '/Applications/Chromium.app/Contents/MacOS/Chromium',
-  '/usr/bin/google-chrome',
-  '/usr/bin/chromium',
-  '/usr/bin/chromium-browser',
-];
-
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
 /** Filled-field count for tests/fixtures/reference.html. See the badge check. */
 const EXPECTED_FILLED = 33;
 
 /**
- * Playwright's pinned Chromium, if it has been downloaded.
+ * Out-of-process frames the fixture must have running before a fill is useful:
+ * `cross-origin` and `cross-origin-twin`, both served from the second origin.
  *
- * Used as a browser *locator* only — the driving below is still plain CDP. It is
- * preferred over whatever Chrome the machine happens to have so that a local run
- * and a CI run exercise the same build: "works on my machine" is otherwise a
- * statement about an unpinned browser.
+ * Same-origin and `srcdoc` frames are part of the top-level target and need no
+ * wait — it is site isolation that makes these two their own targets, and their
+ * own agents.
  */
-function playwrightChromium() {
-  try {
-    const require = createRequire(import.meta.url);
-    const path = require('playwright').chromium.executablePath();
-    return existsSync(path) ? path : undefined;
-  } catch {
-    // Not installed. The candidate list below still applies.
-    return undefined;
-  }
-}
+const CROSS_ORIGIN_FRAMES = 2;
 
-function findChrome() {
-  const fromEnv = process.env['CHROME_PATH'];
-  if (fromEnv !== undefined && existsSync(fromEnv)) return fromEnv;
-
-  const pinned = playwrightChromium();
-  if (pinned !== undefined) return pinned;
-
-  const found = CHROME_CANDIDATES.find((candidate) => existsSync(candidate));
-  if (found === undefined) {
-    throw new Error(
-      'No Chrome or Chromium found. Run `pnpm exec playwright install chromium`, or set CHROME_PATH.',
-    );
-  }
-  return found;
-}
-
-function derivedExtensionId(absolutePath) {
-  const hash = createHash('sha256').update(absolutePath).digest('hex').slice(0, 32);
-  return [...hash].map((digit) => String.fromCharCode(97 + parseInt(digit, 16))).join('');
-}
-
-async function freePort() {
-  const probe = createServer();
-  await new Promise((resolve) => probe.listen(0, '127.0.0.1', resolve));
-  const { port } = probe.address();
-  await new Promise((resolve) => probe.close(resolve));
-  return port;
-}
-
-async function connect(url) {
-  const socket = new WebSocket(url);
-  const pending = new Map();
-  let nextId = 1;
-  await new Promise((resolve, reject) => {
-    socket.addEventListener('open', () => resolve());
-    socket.addEventListener('error', () => reject(new Error(`CDP connection failed: ${url}`)));
-  });
-  socket.addEventListener('message', (event) => {
-    const frame = JSON.parse(event.data);
-    if (frame.id !== undefined) { pending.get(frame.id)?.(frame); pending.delete(frame.id); }
-  });
-  return {
-    send(method, params = {}, sessionId) {
-      const id = nextId++;
-      return new Promise((resolve, reject) => {
-        pending.set(id, (frame) =>
-          frame.error ? reject(new Error(`${method}: ${frame.error.message}`)) : resolve(frame.result));
-        socket.send(JSON.stringify({ id, method, params, ...(sessionId ? { sessionId } : {}) }));
-      });
-    },
-    async attach(targetId) {
-      const { sessionId } = await this.send('Target.attachToTarget', { targetId, flatten: true });
-      return sessionId;
-    },
-    close() {
-      socket.close();
-    },
-  };
-}
+/**
+ * How this harness picks the tab: the only one, or the active one.
+ *
+ * The only tab, preferentially — without the `tabs` permission Chrome withholds
+ * `url` from every tab it returns, so identity has to come from there being
+ * exactly one, which is why this harness navigates the initial tab rather than
+ * opening a second. Shared by the readiness ping and the trigger so that the tab
+ * pinged is the tab filled.
+ */
+const TAB = 'tabs.length === 1 ? tabs[0] : tabs.find((candidate) => candidate.active)';
 
 if (!existsSync(join(EXTENSION_DIR, 'manifest.json'))) {
   console.error('✖ no Chromium build found. Run `pnpm run build` first.');
@@ -185,28 +115,26 @@ const server = createServer((_request, response) => {
 await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
 const pageUrl = `http://127.0.0.1:${server.address().port}/`;
 
-try {
-  const debugPort = await freePort();
-  chrome = spawn(findChrome(), [
-    `--user-data-dir=${profileDir}`,
-    `--remote-debugging-port=${debugPort}`,
-    `--load-extension=${EXTENSION_DIR}`,
-    `--disable-extensions-except=${EXTENSION_DIR}`,
-    ...(process.env['HEADFUL'] === '1' ? [] : ['--headless=new']),
-    // CI containers run as root, where Chrome's sandbox refuses to start, and
-    // their /dev/shm is typically too small for the renderer. Applied only when
-    // CI is set, so a developer's machine keeps the sandbox it should have.
-    ...(process.env['CI'] === undefined ? [] : ['--no-sandbox', '--disable-dev-shm-usage']),
-    '--no-first-run', '--no-default-browser-check', 'about:blank',
-  ], { stdio: 'ignore' });
-
-  let wsUrl;
-  for (let attempt = 0; attempt < 100 && wsUrl === undefined; attempt++) {
-    try {
-      wsUrl = (await (await fetch(`http://127.0.0.1:${debugPort}/json/version`)).json()).webSocketDebuggerUrl;
-    } catch { await sleep(150); }
+/**
+ * Waits until the fixture's out-of-process frames have their own targets.
+ *
+ * The same filter `collect` uses, so what is waited for and what is read are the
+ * same set by construction.
+ */
+async function waitForCrossOriginFrames(expected) {
+  for (let attempt = 0; attempt < 100; attempt++) {
+    const { targetInfos } = await cdp.send('Target.getTargets');
+    const frames = targetInfos.filter(
+      (target) => target.type === 'iframe' && target.url.startsWith('http://'),
+    );
+    if (frames.length >= expected) return;
+    await sleep(100);
   }
-  cdp = await connect(wsUrl);
+  throw new Error(`only ${expected - 1} or fewer cross-origin frames appeared within 10 s`);
+}
+
+try {
+  ({ chrome, cdp } = await launchChromium(EXTENSION_DIR, profileDir));
 
   // Navigate the tab Chrome already opened rather than creating a second one, so
   // the browser has exactly one tab. The trigger below then identifies it by
@@ -223,17 +151,25 @@ try {
   await cdp.send('Page.enable', {}, page);
   await cdp.send('Page.navigate', { url: pageUrl }, page);
   await cdp.send('Runtime.enable', {}, page);
-  await sleep(1500);
 
   // The service worker is started by an event, so it may not exist yet.
-  let worker;
-  for (let attempt = 0; attempt < 60 && worker === undefined; attempt++) {
-    const { targetInfos } = await cdp.send('Target.getTargets');
-    worker = targetInfos.find((t) => t.type === 'service_worker' && t.url.includes(extensionId));
-    if (worker === undefined) await sleep(100);
-  }
-  if (worker === undefined) throw new Error('the background service worker never started');
-  const workerSession = await cdp.attach(worker.targetId);
+  const workerSession = await attachToWorker(cdp, extensionId);
+
+  // The fixed 1500 ms this replaces was doing two jobs, and only one of them is
+  // the agent's. Both are now conditions, because a sleep long enough for the
+  // slower of two unrelated things is a sleep that is too short for either on a
+  // loaded runner.
+  //
+  // First: the out-of-process frames have to *exist* before the fill is
+  // triggered. A cross-origin frame that has not loaded yet has no agent to
+  // join the operation, so its fields stay empty and C-007's assertion fails —
+  // and a top-frame ping says nothing about that, which is why this is not just
+  // a `waitForAgent` call. `collect` re-enumerates frames on every poll, so a
+  // frame arriving late is still *read*; it is the fill that cannot wait.
+  await waitForCrossOriginFrames(CROSS_ORIGIN_FRAMES);
+
+  // Second: the top frame's agent is listening. See `waitForAgent`.
+  await waitForAgent(cdp, workerSession, TAB);
 
   // Invoke the toolbar listener against the page's tab.
   // The tab is identified by being active, not by its URL: without the `tabs`
@@ -242,11 +178,7 @@ try {
   // hands the listener its tab — so the awkwardness is the harness's alone.
   const triggered = await cdp.send('Runtime.evaluate', {
     expression: `chrome.tabs.query({}).then((tabs) => {
-      // The only tab, not the focused one. Without the \`tabs\` permission Chrome
-      // withholds \`url\` from every tab it returns, so identity has to come from
-      // there being exactly one — which is why the harness navigates the initial
-      // tab rather than opening a second.
-      const tab = tabs.length === 1 ? tabs[0] : tabs.find((candidate) => candidate.active);
+      const tab = ${TAB};
       if (tab === undefined) return 'no tab to fill among ' + tabs.length;
       if (typeof chrome.action.onClicked.dispatch !== 'function') {
         return 'chrome.action.onClicked.dispatch is not available in this Chrome';
@@ -505,19 +437,9 @@ try {
   // Closed explicitly, matching both smoke harnesses. Relying on process exit to
   // tidy up works right until something wants to run two of these in one
   // process.
-  try { cdp?.close(); } catch { /* already gone with the browser */ }
   server.close();
   crossOriginServer.close();
-  if (chrome !== undefined) {
-    chrome.kill();
-    const exited = await Promise.race([
-      new Promise((resolve) => chrome.once('exit', () => resolve(true))),
-      sleep(5000).then(() => false),
-    ]);
-    if (!exited) chrome.kill('SIGKILL');
-  }
-  try { rmSync(profileDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }); }
-  catch { console.warn(`  (left a temp profile behind: ${profileDir})`); }
+  await closeChromium({ chrome, cdp, profileDir });
 }
 
 if (failures.length > 0) {
