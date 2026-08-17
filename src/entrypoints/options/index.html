@@ -18,7 +18,24 @@
   <body>
     <main>
       <h1 data-i18n="optionsTitle"></h1>
-      <p data-i18n="optionsPlaceholder"></p>
+
+      <!--
+        The rule editor. Sections on one scrolling page rather than tabs: every
+        setting stays findable with the browser's own find-in-page, deep links
+        work, and there is no navigation state to keep accessible.
+      -->
+      <section aria-labelledby="rules-heading">
+        <h2 id="rules-heading" data-i18n="rulesHeading"></h2>
+        <p data-i18n="rulesIntro"></p>
+        <div id="rules"></div>
+      </section>
+
+      <!--
+        Politely announced changes that a sighted user sees in the list itself —
+        a rule's new position after a move (BR-012-2). Empty until something
+        needs saying, and never focused.
+      -->
+      <div id="announcements" class="visually-hidden" role="status" aria-live="polite"></div>
 
       <!--
         DD-006's third surface. The section exists in the markup so the heading

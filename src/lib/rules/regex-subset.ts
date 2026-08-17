@@ -379,7 +379,7 @@ function expandRange(from: string, to: string): string {
   if (end < start) throw new Error(`the range "${from}-${to}" runs backwards`);
 
   let out = '';
-  // Bounded so that `[ -￿]` cannot build a 65k-character string per
+  // Bounded so that `[\x00-\uffff]` cannot build a 65k-character string per
   // rule; the cap is far above any range a field format uses.
   for (let code = start; code <= Math.min(end, start + 255); code++) {
     out += String.fromCharCode(code);

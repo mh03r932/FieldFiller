@@ -14,8 +14,13 @@ import { DEFAULT_SETTINGS, parseSettings, type Settings } from '../settings';
  * storage changes, so on any doubt — a restart, a change from another context —
  * storage wins.
  *
- * Reads only, for now. Writing, validation, propagation to open tabs and the
- * debounce (BR-024-7) arrive in Phase 4 with the settings UI that needs them.
+ * **Propagation is not in this module because there is none to do** (BR-024-6).
+ * Every fill instruction carries the settings it should be filled with, so a
+ * page agent holds none between fills and none can go stale. "Live propagation"
+ * (FR-051) is satisfied by there being nothing in the tab to update — the push
+ * design this replaces has a failure mode it cannot have, where a throttled or
+ * navigating tab misses the message and then fills with old settings, silently
+ * and only sometimes.
  */
 
 const STORAGE_KEY = 'settings';
@@ -47,3 +52,34 @@ export async function getSettings(): Promise<Settings> {
 browser.storage.onChanged.addListener((changes, areaName) => {
   if (areaName === 'local' && STORAGE_KEY in changes) cached = undefined;
 });
+
+/**
+ * Writes a complete settings state (UC-024, NFR-021).
+ *
+ * Whole, never patched (BR-024-1): a partial update admits a stored combination
+ * that no validation ever saw, which is exactly what NFR-021 exists to prevent.
+ *
+ * The candidate goes through `parseSettings` on the way *in*, and what that
+ * returns is what gets written (BR-024-7). Validating with one function and
+ * loading with another is how a user comes to see a rule saved and then find it
+ * altered or gone on the next fill, with nothing to indicate why. Here the
+ * reader is the validator, so a state that survives the write survives the read
+ * by construction.
+ *
+ * That is a claim about *shape*, and nothing more. `parseSettings` coerces a
+ * state into the current types; it does not apply FR-070, so a rule whose regex
+ * will not compile is well-shaped and passes through here untouched. Keeping
+ * invalid rules out of storage is the rule editor's doing — it commits only what
+ * `validateRule` accepts — which means a future writer that is not the editor
+ * has to validate for itself. BR-024-7 states the boundary and why filtering
+ * here was considered and declined.
+ *
+ * The cache is not updated here. `onChanged` drops it and the next read
+ * repopulates from storage, so storage stays the source of truth even for a
+ * write this context made itself (BR-024-3) — and a write that silently failed
+ * cannot leave memory claiming otherwise.
+ */
+export async function saveSettings(candidate: Settings): Promise<void> {
+  const normalised = parseSettings(candidate);
+  await browser.storage.local.set({ [STORAGE_KEY]: normalised });
+}

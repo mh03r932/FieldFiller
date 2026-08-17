@@ -208,5 +208,403 @@
   "resultRuleAnchorControl": {
     "message": "the control you pointed at",
     "description": "The single-control scope, which resolves to the anchor itself (UC-003)."
+  },
+  "rulesHeading": {
+    "message": "Field rules",
+    "description": "Heading of the rule list on the options page (UC-009)."
+  },
+  "rulesIntro": {
+    "message": "Rules decide what a matching field receives. The first rule that matches a field wins, so order matters — move a rule up to give it precedence. Fields no rule matches are filled from the built-in generators.",
+    "description": "Explains the rule list, including that order is precedence (FR-031)."
+  },
+  "rulesEmpty": {
+    "message": "No rules yet. Without any, every field is filled from the built-in generators — which is a complete configuration, not an empty one.",
+    "description": "Shown when the rule list is empty (UC-009)."
+  },
+  "ruleAdd": {
+    "message": "Add a rule",
+    "description": "Button that appends a new rule (UC-009)."
+  },
+  "ruleUnnamed": {
+    "message": "Unnamed rule",
+    "description": "Stands in for a rule whose name is blank (BR-009-3)."
+  },
+  "ruleLabel": {
+    "message": "Name",
+    "description": "Field label for a rule's name, shown in the fill report as provenance."
+  },
+  "ruleLabelHint": {
+    "message": "Shown in the fill report, so you can tell which rule produced a value.",
+    "description": "Help text under the rule name field (FR-069)."
+  },
+  "ruleEnabled": {
+    "message": "Enabled",
+    "description": "Toggle that keeps a rule but stops it being applied (UC-010 A3)."
+  },
+  "ruleMatch": {
+    "message": "Matches",
+    "description": "Label for the rule's pattern field."
+  },
+  "ruleMatchMode": {
+    "message": "Match by",
+    "description": "Label for the matcher's mode select (FR-068)."
+  },
+  "ruleModeContains": {
+    "message": "Contains",
+    "description": "Match mode: the field's identity contains this text."
+  },
+  "ruleModeExact": {
+    "message": "Exactly",
+    "description": "Match mode: the field's identity is exactly this text."
+  },
+  "ruleModeRegex": {
+    "message": "Regular expression",
+    "description": "Match mode: the pattern is a regular expression."
+  },
+  "ruleMatchHint": {
+    "message": "Matching ignores case. Your pattern is used exactly as written — nothing is added to it.",
+    "description": "States that patterns are never rewritten (FR-068)."
+  },
+  "ruleSources": {
+    "message": "Match against",
+    "description": "Label for the per-rule source scoping (FR-067)."
+  },
+  "ruleSourcesAll": {
+    "message": "Whatever is enabled globally",
+    "description": "Default option for a rule that names no sources (FR-067)."
+  },
+  "sourceName": {
+    "message": "Name attribute",
+    "description": "Identity source: the control's name attribute (FR-027)."
+  },
+  "sourceId": {
+    "message": "ID attribute",
+    "description": "Identity source: the control's id attribute (FR-027)."
+  },
+  "sourceClassName": {
+    "message": "CSS classes",
+    "description": "Identity source: the control's class attribute. Off globally by default, being the noisiest (FR-028)."
+  },
+  "sourceLabel": {
+    "message": "Label text",
+    "description": "Identity source: the text of the control's label (FR-027)."
+  },
+  "sourcePlaceholder": {
+    "message": "Placeholder text",
+    "description": "Identity source: the control's placeholder attribute (FR-027)."
+  },
+  "sourceAriaLabel": {
+    "message": "Accessible name",
+    "description": "Identity source: the control's aria-label (FR-027)."
+  },
+  "ruleGenerator": {
+    "message": "Generates",
+    "description": "Label for the generator type select (FR-019)."
+  },
+  "ruleFromPersona": {
+    "message": "Use this fill's person",
+    "description": "Toggle for the coherence flag (ND-1, DD-005)."
+  },
+  "ruleFromPersonaHint": {
+    "message": "On, the value belongs to the same person as the rest of the form — so a confirmation field or a summary still agrees. Off, it is unrelated to the other fields.",
+    "description": "Explains the coherence flag in the user's terms rather than the design's."
+  },
+  "ruleMoveUp": {
+    "message": "Move up",
+    "description": "Reorders a rule one place earlier (UC-012)."
+  },
+  "ruleMoveDown": {
+    "message": "Move down",
+    "description": "Reorders a rule one place later (UC-012)."
+  },
+  "ruleDelete": {
+    "message": "Delete",
+    "description": "Deletes a rule (UC-011)."
+  },
+  "ruleDeleted": {
+    "message": "Deleted “$NAME$”.",
+    "description": "Announces a deletion, beside the undo offer (UC-011).",
+    "placeholders": {
+      "name": {
+        "content": "$1",
+        "example": "Postcode"
+      }
+    }
+  },
+  "ruleUndo": {
+    "message": "Undo",
+    "description": "Restores a just-deleted rule to its old position (UC-011 A1)."
+  },
+  "ruleMoved": {
+    "message": "“$NAME$” is now rule $POSITION$ of $TOTAL$.",
+    "description": "Announced after a move, so the change is perceivable without sight of the list (BR-012-2).",
+    "placeholders": {
+      "name": {
+        "content": "$1",
+        "example": "Postcode"
+      },
+      "position": {
+        "content": "$2",
+        "example": "2"
+      },
+      "total": {
+        "content": "$3",
+        "example": "5"
+      }
+    }
+  },
+  "settingsSaveFailed": {
+    "message": "That change could not be saved, so it is not in effect: $REASON$. Your other settings are unchanged.",
+    "description": "UC-024 A2/A3: a write that was rejected has to say so, and why. The page is optimistic in memory, so without this the editor shows a change that storage does not have — and a reload silently undoes it.",
+    "placeholders": {
+      "reason": {
+        "content": "$1",
+        "example": "the browser storage quota is full"
+      }
+    }
+  },
+  "settingsChangedElsewhere": {
+    "message": "Your settings were changed somewhere else. The rule you are editing is safe and your next change will not overwrite theirs; the rest of the list is out of date on screen and refreshes when you close this rule.",
+    "description": "UC-024: another options page wrote settings while a rule was open here. Memory adopts their state with the draft carried across, so the next write cannot revert them; only the rendered list is left stale, because replacing it would take the caret out of the open editor."
+  },
+  "settingsAdoptedFromElsewhere": {
+    "message": "Your settings were changed somewhere else, and this page has been updated to match.",
+    "description": "UC-024, BR-024-3: another writer changed settings while nothing was being edited here, so the page adopted them rather than going on to overwrite them."
+  },
+  "rulePreview": {
+    "message": "Sample output",
+    "description": "Heading of the preview area (UC-013)."
+  },
+  "rulePreviewEmpty": {
+    "message": "Fill in the rule to see what it produces.",
+    "description": "Shown before a rule is complete enough to preview."
+  },
+  "rulePreviewUnusable": {
+    "message": "This rule is valid but produced no value. An imported pattern may use syntax this generator does not support.",
+    "description": "Shown when a valid rule cannot generate (UC-013 A2)."
+  },
+  "ruleInvalid": {
+    "message": "Not saved: $PROBLEM$",
+    "description": "Frames one validation failure beside the field that caused it (FR-070, UC-009 A1). The substitution is a whole sentence resolved from a ruleProblem* key, never prose assembled in code — see RuleProblemCode in src/lib/rules/validate.ts.",
+    "placeholders": {
+      "problem": {
+        "content": "$1",
+        "example": "the match pattern is empty. Type the text a field's name should contain."
+      }
+    }
+  },
+  "ruleProblemPatternEmpty": {
+    "message": "the match pattern is empty. Type the text a field's name should contain.",
+    "description": "FR-070. Every ruleProblem* message names the cause and the correction in one sentence (NFR-020), and is written to read after \"Not saved: \"."
+  },
+  "ruleProblemPatternInvalid": {
+    "message": "that is not a valid regular expression ($DETAIL$). Correct the syntax, or switch the mode to Contains to match the text literally.",
+    "description": "FR-070. The detail is the regex engine's own complaint, which is not translated.",
+    "placeholders": {
+      "detail": {
+        "content": "$1",
+        "example": "Invalid regular expression: missing ) "
+      }
+    }
+  },
+  "ruleProblemPatternBacktracks": {
+    "message": "this pattern can backtrack catastrophically and would hang the extension — $DETAIL$. Rewrite the repeated group so its parts cannot match the same text.",
+    "description": "FR-070, NFR-009. The detail names the offending construct and is not translated.",
+    "placeholders": {
+      "detail": {
+        "content": "$1",
+        "example": "\"(a+)+\" repeats a group that already repeats — the classic (a+)+ shape"
+      }
+    }
+  },
+  "ruleProblemNoSources": {
+    "message": "this rule matches against no source, so it can never fire. Tick at least one source, or go back to \"Whatever is enabled globally\".",
+    "description": "FR-067. Unticking all six is one click away in the editor and produces a rule that looks finished and is dead."
+  },
+  "ruleProblemTemplateInvalid": {
+    "message": "the template cannot be read — $DETAIL$. Fix the placeholder, or remove the braces to use the text literally.",
+    "description": "FR-070. The detail names the offending placeholder and is not translated.",
+    "placeholders": {
+      "detail": {
+        "content": "$1",
+        "example": "\"{nope}\" is not a placeholder. Available: letter, digit, alphanumeric"
+      }
+    }
+  },
+  "ruleProblemRegexUngeneratable": {
+    "message": "no value can be generated from this pattern — $DETAIL$. Generation supports literals, character classes, groups, alternation and quantifiers; replace anything else.",
+    "description": "FR-021, FR-070. A pattern can be valid to match with and impossible to generate from.",
+    "placeholders": {
+      "detail": {
+        "content": "$1",
+        "example": "lookahead is not supported"
+      }
+    }
+  },
+  "ruleProblemGeneratorBacktracks": {
+    "message": "this pattern can backtrack catastrophically — $DETAIL$. Rewrite the repeated group so its parts cannot match the same text.",
+    "description": "FR-070, NFR-009, for the generator's own pattern rather than the matcher's.",
+    "placeholders": {
+      "detail": {
+        "content": "$1",
+        "example": "\"(a|ab)+\" repeats alternatives that can both match \"a\", so a failure has to try every split"
+      }
+    }
+  },
+  "ruleProblemListEmpty": {
+    "message": "a randomised list needs at least one item. Type one value per line.",
+    "description": "FR-070."
+  },
+  "ruleProblemNumberRange": {
+    "message": "the minimum is greater than the maximum. Lower the minimum, or raise the maximum.",
+    "description": "FR-070."
+  },
+  "ruleProblemTextRange": {
+    "message": "the shortest length is greater than the longest. Lower the shortest, or raise the longest.",
+    "description": "FR-070."
+  },
+  "ruleProblemDateNoToken": {
+    "message": "the format contains no date token, so every field would receive the format itself. Use tokens such as YYYY-MM-DD.",
+    "description": "FR-070."
+  },
+  "ruleProblemDateBounds": {
+    "message": "the range bounds must be real dates, written as YYYY-MM-DD.",
+    "description": "FR-070."
+  },
+  "ruleProblemDateRange": {
+    "message": "the date range starts after it ends. Swap the two bounds.",
+    "description": "FR-070."
+  },
+  "genName": {
+    "message": "Name",
+    "description": "Generator type: a person's name."
+  },
+  "genNamePart": {
+    "message": "Which part",
+    "description": "Selects full, first or last name."
+  },
+  "genNameFull": {
+    "message": "Full name",
+    "description": "Name generator option."
+  },
+  "genNameFirst": {
+    "message": "First name",
+    "description": "Name generator option."
+  },
+  "genNameLast": {
+    "message": "Last name",
+    "description": "Name generator option."
+  },
+  "genEmail": {
+    "message": "Email address",
+    "description": "Generator type."
+  },
+  "genUsername": {
+    "message": "Username",
+    "description": "Generator type."
+  },
+  "genOrganisation": {
+    "message": "Organisation",
+    "description": "Generator type."
+  },
+  "genTelephone": {
+    "message": "Telephone number",
+    "description": "Generator type."
+  },
+  "genUrl": {
+    "message": "Web address",
+    "description": "Generator type."
+  },
+  "genNumber": {
+    "message": "Number",
+    "description": "Generator type."
+  },
+  "genDate": {
+    "message": "Date",
+    "description": "Generator type."
+  },
+  "genText": {
+    "message": "Text",
+    "description": "Generator type."
+  },
+  "genAlphanumeric": {
+    "message": "Template",
+    "description": "Generator type: the braced placeholder grammar (FR-020)."
+  },
+  "genRegex": {
+    "message": "Regular expression",
+    "description": "Generator type: values generated from a pattern (FR-021)."
+  },
+  "genList": {
+    "message": "Pick from a list",
+    "description": "Generator type: a randomized list (FR-022)."
+  },
+  "genConstant": {
+    "message": "Always the same value",
+    "description": "Generator type: a constant."
+  },
+  "genMin": {
+    "message": "Lowest",
+    "description": "Number generator: the minimum."
+  },
+  "genMax": {
+    "message": "Highest",
+    "description": "Number generator: the maximum."
+  },
+  "genDecimals": {
+    "message": "Decimal places",
+    "description": "Number generator."
+  },
+  "genFormat": {
+    "message": "Format",
+    "description": "Date generator: the output format."
+  },
+  "genFormatHint": {
+    "message": "YYYY, YY, MMM, MM, DD, HH, mm and ss are replaced. Everything else is kept as written.",
+    "description": "Documents the date tokens (our own grammar, not moment's)."
+  },
+  "genFrom": {
+    "message": "Earliest",
+    "description": "Date generator: the start of the range."
+  },
+  "genTo": {
+    "message": "Latest",
+    "description": "Date generator: the end of the range."
+  },
+  "genMinWords": {
+    "message": "Fewest words",
+    "description": "Text generator."
+  },
+  "genMaxWords": {
+    "message": "Most words",
+    "description": "Text generator."
+  },
+  "genTemplate": {
+    "message": "Template",
+    "description": "Alphanumeric generator: the pattern to expand."
+  },
+  "genTemplateHint": {
+    "message": "Placeholders are braced and named: {digit:4}, {upper:2}, {letter}, {consonant}, {vowel}, {alnum}, {symbol}. Anything outside braces is kept as written.",
+    "description": "Documents the template grammar (FR-020)."
+  },
+  "genPattern": {
+    "message": "Pattern",
+    "description": "Regex generator: the expression to generate from."
+  },
+  "genPatternHint": {
+    "message": "Supports literals, character classes, groups, alternation and quantifiers. Lookahead and backreferences cannot be generated from and are refused.",
+    "description": "Documents the bounded regex subset (FR-021)."
+  },
+  "genItems": {
+    "message": "Items",
+    "description": "List generator: the values to choose between."
+  },
+  "genItemsHint": {
+    "message": "One per line. A field gets one of them, chosen independently each time.",
+    "description": "Documents the randomized list (FR-022)."
+  },
+  "genValue": {
+    "message": "Value",
+    "description": "Constant generator: the value to write."
   }
 }

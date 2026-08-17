@@ -1,15 +1,24 @@
 import { browser } from 'wxt/browser';
 import { localise, message } from '@/lib/platform/i18n';
+import { getSettings, saveSettings } from '@/lib/platform/settings-store';
+import { DEFAULT_SETTINGS, parseSettings, type Settings } from '@/lib/settings';
 import { resultSentence, scopeRuleSentence } from '@/lib/report/surface';
+import {
+  adoptKeepingEdit,
+  forgetUndo,
+  isEditingRule,
+  renderRules,
+  type RuleEditorHost,
+} from './rules';
 import type { FieldReportEntry, FillReport, ReportResponse } from '@/lib/protocol';
 
 /**
- * Options page. Settings are Phase 4; what it carries today is DD-006's third
- * surface — the per-control report for the last fill.
+ * Options page. Two sections so far: the rule editor (UC-009..UC-013) and the
+ * per-control report DD-006 put here.
  *
- * The badge holds a count and the tooltip holds a sentence. Neither can say
- * *why this field got that value*, which is FR-069's whole purpose, and the
- * answer needs a row per control. This is the surface with room for one.
+ * Sections on one scrolling page rather than tabs, so every setting stays
+ * findable with the browser's own find-in-page and there is no navigation state
+ * to keep accessible. The remaining Phase 4 screens land as more sections.
  *
  * Every user-facing string comes from the i18n catalog (NFR-018), and every
  * value that came from a page is written with `textContent` rather than any form
@@ -21,6 +30,122 @@ document.title = message('extName');
 localise(document);
 
 void render();
+void mountRules();
+
+/**
+ * The rule editor, and the settings state it edits (UC-009..UC-013).
+ *
+ * Held here in memory and written through on every valid change. The write goes
+ * to the same store the background reads, and the background drops its cache on
+ * a storage change — so a rule edited here applies to the next fill in every
+ * open tab with nothing pushed anywhere (UC-024, BR-024-6).
+ */
+async function mountRules(): Promise<void> {
+  const host = document.querySelector('#rules');
+  const live = document.querySelector('#announcements');
+  if (!(host instanceof HTMLElement)) return;
+
+  let settings: Settings = DEFAULT_SETTINGS;
+  try {
+    settings = await getSettings();
+  } catch {
+    // A page that cannot read settings shows the defaults rather than nothing:
+    // the defaults are a complete, self-consistent state.
+  }
+
+  const announce = (text: string): void => {
+    if (live instanceof HTMLElement) live.textContent = text;
+  };
+
+  const editor: RuleEditorHost = {
+    settings: () => settings,
+    save: (next) => {
+      // Optimistic in memory, durable in storage. A rejected write leaves
+      // storage holding the previous state (BR-024-2), which means the page is
+      // then ahead of storage and the next load silently undoes what the user
+      // did — so the rejection is not something to swallow.
+      //
+      // UC-024 A2/A3 asks for exactly this: the surface that requested the
+      // change is told the change did not take effect, and why. It goes to the
+      // live region rather than an alert, because every other outcome on this
+      // page is announced the same way and a failed save is not more modal
+      // than a successful one.
+      settings = next;
+      void saveSettings(next).catch((error: unknown) => {
+        const reason = error instanceof Error ? error.message : String(error);
+        announce(message('settingsSaveFailed', [reason]));
+      });
+    },
+    announce,
+  };
+
+  renderRules(editor, host);
+
+  /**
+   * Adopts settings written by anyone else (UC-024, BR-024-3).
+   *
+   * This page holds the whole state in memory for its lifetime and writes all of
+   * it on every change, so a second writer is a real way to lose configuration
+   * rather than a theoretical one: open the options page in two tabs, add a rule
+   * in each, and the tab that saves second reverts the first tab's rule with no
+   * error anywhere. Two tabs is not an exotic setup, and today the extension
+   * itself never writes settings — so the *only* second writer is another copy
+   * of this page.
+   *
+   * Adopting keeps memory level with storage, which is what makes the next write
+   * from this page correct rather than a rollback.
+   *
+   * Not by re-rendering while a rule is open, though. Replacing the list under
+   * someone mid-edit discards the rule they are still writing — a new rule lives
+   * only in this page's memory until it validates — and losing the edit in front
+   * of you is worse than the staleness it would fix. Memory is still brought
+   * level, with the draft carried across; only the DOM is left alone, and it
+   * catches up when the rule closes.
+   *
+   * Adopting *only* into memory is what makes the advice safe to follow. Telling
+   * the user to finish their rule while this page still held the pre-change
+   * snapshot walked them into the loss it was warning about: the next valid
+   * keystroke wrote the whole stale state back and reverted the other tab.
+   */
+  browser.storage.onChanged.addListener((changes, areaName) => {
+    if (areaName !== 'local' || !('settings' in changes)) return;
+    void getSettings().then((stored) => {
+      // Our own write comes back through here too, and it is *not* what we asked
+      // for: `saveSettings` normalises the candidate and stores the result, so
+      // the echo differs from memory whenever the parser reshaped anything — a
+      // half-written rule it drops, a clamped bound, even a key it emits in a
+      // different order. Comparing raw memory against it called every one of
+      // those somebody else's write. Adding a rule did it every time, because a
+      // new rule has an empty pattern and the parser drops it.
+      //
+      // Both sides through the parser, so the comparison is between two states
+      // in the same normal form and answers the question actually being asked:
+      // does storage hold something this page did not put there?
+      if (JSON.stringify(stored) === JSON.stringify(parseSettings(settings))) return;
+
+      if (isEditingRule()) {
+        // Foreign, and a rule is open. Take their state, carry our draft across,
+        // and do not touch the DOM.
+        settings = adoptKeepingEdit(stored, settings);
+        forgetUndo(host);
+        announce(message('settingsChangedElsewhere'));
+        return;
+      }
+
+      settings = stored;
+      // The undo offer belongs to the list it was deleted from, and this is a
+      // different list — its stored position would land the rule somewhere
+      // nobody chose.
+      forgetUndo(host);
+      // The same host object, re-rendered. Building a new one here — or calling
+      // `mountRules` again — would register a second copy of this listener on
+      // every foreign change, which is a leak that grows for as long as the page
+      // stays open.
+      renderRules(editor, host);
+      announce(message('settingsAdoptedFromElsewhere'));
+    });
+  });
+}
 
 async function render(): Promise<void> {
   const host = document.querySelector('#report');

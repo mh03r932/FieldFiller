@@ -40,12 +40,16 @@
     "cascade:chrome": "node scripts/e2e-cascade.mjs",
     "scopes:chrome": "node scripts/e2e-scopes.mjs",
     "locale:chrome": "node scripts/e2e-locale.mjs",
+    "options:chrome": "node scripts/e2e-options.mjs",
     "spike:combobox": "node scripts/spike-combobox.mjs",
-    "spike:coldstart": "node scripts/spike-coldstart.mjs"
+    "spike:coldstart": "node scripts/spike-coldstart.mjs",
+    "spike:rulescale": "node scripts/spike-rule-scale.mjs",
+    "a11y": "node scripts/a11y-options.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",
     "@vitest/coverage-v8": "^4.1.10",
+    "axe-core": "^4.13.0",
     "eslint": "^9.39.1",
     "globals": "^17.11.0",
     "happy-dom": "^20.11.2",
