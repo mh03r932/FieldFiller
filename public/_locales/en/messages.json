@@ -329,6 +329,24 @@
       }
     }
   },
+  "settingsSaveFailed": {
+    "message": "That change could not be saved, so it is not in effect: $REASON$. Your other settings are unchanged.",
+    "description": "UC-024 A2/A3: a write that was rejected has to say so, and why. The page is optimistic in memory, so without this the editor shows a change that storage does not have — and a reload silently undoes it.",
+    "placeholders": {
+      "reason": {
+        "content": "$1",
+        "example": "the browser storage quota is full"
+      }
+    }
+  },
+  "settingsChangedElsewhere": {
+    "message": "Your settings were changed somewhere else. This page is showing an older copy — finish or close the rule you are editing, then reload before making more changes.",
+    "description": "UC-024: another options page wrote settings while a rule was open here. Adopting the change would discard the rule being edited, so the page says it is stale instead."
+  },
+  "settingsAdoptedFromElsewhere": {
+    "message": "Your settings were changed somewhere else, and this page has been updated to match.",
+    "description": "UC-024, BR-024-3: another writer changed settings while nothing was being edited here, so the page adopted them rather than going on to overwrite them."
+  },
   "rulePreview": {
     "message": "Sample output",
     "description": "Heading of the preview area (UC-013)."

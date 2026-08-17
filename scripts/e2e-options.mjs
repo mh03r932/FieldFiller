@@ -282,6 +282,69 @@ try {
       `fields ${shown} vs stored ${held} — the page and storage disagree until reload`);
   }
 
+  // ── Per-rule source scoping, which changes the field set (FR-067) ───────────
+  // The same defect class as the generator type, in the other control that
+  // decides which fields exist. Clearing "Whatever is enabled globally" gives the
+  // rule its own list of sources, which is six checkboxes that exist only when
+  // that list does — and until 2026-08-17 the edit was not structural, so the
+  // list was written to storage and nothing appeared. Per-rule scoping was
+  // unreachable from the editor, with no error and no clue.
+  //
+  // This harness never touched the control, which is why CI was green.
+  const sourceBoxes = async () =>
+    inPage(`document.querySelectorAll('#rules .rule-body fieldset.sources input[type=checkbox]').length`);
+
+  const allOn = await sourceBoxes();
+  check('with global scoping on, only the one checkbox is offered',
+    allOn === 1, `${allOn} checkboxes — expected just "Whatever is enabled globally"`);
+
+  await inPage(`(() => {
+    const box = document.querySelector('#rules .rule-body fieldset.sources input.sources-all');
+    box.checked = false;
+    box.dispatchEvent(new Event('change', { bubbles: true }));
+    return true;
+  })()`);
+  await sleep(300);
+
+  const revealed = await sourceBoxes();
+  check('clearing it reveals a checkbox per source, so the scoping can be reached',
+    revealed === 7, `${revealed} checkboxes — expected the "all" box plus one per source`);
+  check('and the rule now carries its own source list',
+    Array.isArray((await storedRules())[0]?.sources) &&
+      (await storedRules())[0]?.sources?.length === 6,
+    `sources=${JSON.stringify((await storedRules())[0]?.sources)}`);
+
+  // Narrowing it is the point of the feature, and the checkboxes have to be live
+  // for that — a revealed control that does nothing is the same defect wearing a
+  // different face.
+  await inPage(`(() => {
+    const boxes = [...document.querySelectorAll('#rules .rule-body fieldset.sources input[type=checkbox]')];
+    const className = boxes.find((box) => box.parentElement?.textContent?.trim() === 'className');
+    className.checked = false;
+    className.dispatchEvent(new Event('change', { bubbles: true }));
+    return true;
+  })()`);
+  await sleep(300);
+  check('unchecking one source narrows the stored list',
+    !((await storedRules())[0]?.sources ?? []).includes('className') &&
+      ((await storedRules())[0]?.sources ?? []).length === 5,
+    `sources=${JSON.stringify((await storedRules())[0]?.sources)}`);
+
+  // And back: re-checking "all" has to remove the six, not leave them on screen
+  // editing a list the rule no longer has.
+  await inPage(`(() => {
+    const box = document.querySelector('#rules .rule-body fieldset.sources input.sources-all');
+    box.checked = true;
+    box.dispatchEvent(new Event('change', { bubbles: true }));
+    return true;
+  })()`);
+  await sleep(300);
+  check('restoring global scoping removes the per-source boxes again',
+    (await sourceBoxes()) === 1, `${await sourceBoxes()} checkboxes remain`);
+  check('and the rule stops carrying its own list',
+    (await storedRules())[0]?.sources === undefined,
+    `sources=${JSON.stringify((await storedRules())[0]?.sources)}`);
+
   // Back to a shape the ordering checks below expect.
   await choose('Generates', 'alphanumeric');
   await type('Template', 'REF-{digit:3}');
@@ -312,6 +375,53 @@ try {
   check('the move is announced for a reader who cannot see the list',
     (await inPage(`document.querySelector('#announcements').textContent`)).includes('Second'),
     `announcement=${JSON.stringify(await inPage(`document.querySelector('#announcements').textContent`))}`);
+
+  // ── Focus after a move lands on the button that was pressed (UC-012 step 3) ─
+  // Needs a third rule, because up and down only disagree in the middle of a
+  // list: for any rule but the first, `button:not(:disabled)` is the up arrow,
+  // so a rule moved *down* into a middle position is the one case where
+  // "whichever is enabled" and "the one just pressed" differ. With two rules
+  // every move ends at an end, the pressed button is disabled, and the fallback
+  // hides the defect.
+  //
+  // The spare rule matches nothing the fill below reads, and the moves undo
+  // themselves, so the order the last assertions depend on is restored.
+  await inPage(`document.querySelector('#rules button.primary').click()`);
+  await sleep(300);
+  await type('Name', 'Spare');
+  await type('Matches', 'zzz_unused');
+  await choose('Generates', 'constant');
+  await type('Value', 'SPARE');
+  await sleep(400);
+
+  /** Clicks a move button on a named rule, and reports where the focus landed. */
+  const moveAndFocus = async (label, direction) => {
+    await inPage(`(() => {
+      const row = [...document.querySelectorAll('#rules .rule')]
+        .find((item) => item.querySelector('.rule-name')?.textContent?.startsWith(${JSON.stringify(label)}));
+      if (row === undefined) throw new Error('no rule named ' + ${JSON.stringify(label)});
+      row.querySelector('.rule-order button[data-direction=' + ${JSON.stringify(direction)} + ']').click();
+      return true;
+    })()`);
+    await sleep(300);
+    return inPage(`document.activeElement?.dataset?.direction ?? 'nowhere'`);
+  };
+
+  check('after moving a rule down, the focus is on the button that moved it',
+    (await moveAndFocus('Second', 'down')) === 'down',
+    'focus went elsewhere — a second press would move the rule straight back');
+
+  // Back to the top, where the button just pressed becomes disabled. Focus has
+  // to go to the other one rather than to the body: written expecting 'up'
+  // first, and this is the case that corrected it — the fallback is the right
+  // answer here, not a second-best.
+  check('and moving it to an end falls back rather than dropping the focus',
+    (await moveAndFocus('Second', 'up')) === 'down',
+    'focus was lost when the button that moved the rule became disabled');
+
+  check('the moves left the order they started in',
+    (await storedRules()).map((rule) => rule.label).join('|') === 'Second|Order reference|Spare',
+    `order=${JSON.stringify((await storedRules()).map((rule) => rule.label))}`);
 
   // ── The point of all of it: the rule changes what a fill writes ─────────────
   await cdp.send('Page.navigate', { url: pageUrl }, page);

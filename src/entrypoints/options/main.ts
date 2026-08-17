@@ -3,7 +3,7 @@ import { localise, message } from '@/lib/platform/i18n';
 import { getSettings, saveSettings } from '@/lib/platform/settings-store';
 import { DEFAULT_SETTINGS, type Settings } from '@/lib/settings';
 import { resultSentence, scopeRuleSentence } from '@/lib/report/surface';
-import { renderRules } from './rules';
+import { isEditingRule, renderRules, type RuleEditorHost } from './rules';
 import type { FieldReportEntry, FillReport, ReportResponse } from '@/lib/protocol';
 
 /**
@@ -47,23 +47,76 @@ async function mountRules(): Promise<void> {
     // the defaults are a complete, self-consistent state.
   }
 
-  renderRules(
-    {
-      settings: () => settings,
-      save: (next) => {
-        // Optimistic in memory, durable in storage. A rejected write leaves
-        // storage holding the previous state (BR-024-2); the page would then be
-        // ahead of it, which the next load corrects — stated because it is a
-        // real gap and Phase 4's remaining screens are where it gets a surface.
-        settings = next;
-        void saveSettings(next);
-      },
-      announce: (text) => {
-        if (live instanceof HTMLElement) live.textContent = text;
-      },
+  const announce = (text: string): void => {
+    if (live instanceof HTMLElement) live.textContent = text;
+  };
+
+  const editor: RuleEditorHost = {
+    settings: () => settings,
+    save: (next) => {
+      // Optimistic in memory, durable in storage. A rejected write leaves
+      // storage holding the previous state (BR-024-2), which means the page is
+      // then ahead of storage and the next load silently undoes what the user
+      // did — so the rejection is not something to swallow.
+      //
+      // UC-024 A2/A3 asks for exactly this: the surface that requested the
+      // change is told the change did not take effect, and why. It goes to the
+      // live region rather than an alert, because every other outcome on this
+      // page is announced the same way and a failed save is not more modal
+      // than a successful one.
+      settings = next;
+      void saveSettings(next).catch((error: unknown) => {
+        const reason = error instanceof Error ? error.message : String(error);
+        announce(message('settingsSaveFailed', [reason]));
+      });
     },
-    host,
-  );
+    announce,
+  };
+
+  renderRules(editor, host);
+
+  /**
+   * Adopts settings written by anyone else (UC-024, BR-024-3).
+   *
+   * This page holds the whole state in memory for its lifetime and writes all of
+   * it on every change, so a second writer is a real way to lose configuration
+   * rather than a theoretical one: open the options page in two tabs, add a rule
+   * in each, and the tab that saves second reverts the first tab's rule with no
+   * error anywhere. Two tabs is not an exotic setup, and today the extension
+   * itself never writes settings — so the *only* second writer is another copy
+   * of this page.
+   *
+   * Adopting keeps memory level with storage, which is what makes the next write
+   * from this page correct rather than a rollback.
+   *
+   * Not while a rule is open, though. Replacing the list under someone mid-edit
+   * discards the rule they are still writing — a new rule lives only in this
+   * page's memory until it validates — and losing the edit in front of you is
+   * worse than the staleness it would fix. That case is told instead, because a
+   * page that knows it is out of date and says nothing is the version of this
+   * bug that was already here.
+   */
+  browser.storage.onChanged.addListener((changes, areaName) => {
+    if (areaName !== 'local' || !('settings' in changes)) return;
+    void getSettings().then((stored) => {
+      // Our own write comes back through here too. It is not necessarily
+      // identical to what we asked for — `saveSettings` normalises on the way in
+      // — so the comparison is against what storage now holds, and an unchanged
+      // result means there is nothing to adopt whoever wrote it.
+      if (JSON.stringify(stored) === JSON.stringify(settings)) return;
+      if (isEditingRule()) {
+        announce(message('settingsChangedElsewhere'));
+        return;
+      }
+      settings = stored;
+      // The same host object, re-rendered. Building a new one here — or calling
+      // `mountRules` again — would register a second copy of this listener on
+      // every foreign change, which is a leak that grows for as long as the page
+      // stays open.
+      renderRules(editor, host);
+      announce(message('settingsAdoptedFromElsewhere'));
+    });
+  });
 }
 
 async function render(): Promise<void> {

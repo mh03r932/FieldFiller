@@ -42,6 +42,18 @@ export type RuleEditorHost = {
 /** Which rule is expanded. One at a time: the list is the context (UC-009). */
 let openRuleId: string | undefined;
 
+/**
+ * Whether a rule is open for editing.
+ *
+ * Exported for the page's storage listener, which adopts another writer's
+ * settings only when nothing is being edited here — replacing the list under
+ * someone mid-edit would discard the rule they are still writing, which is a
+ * worse outcome than the staleness it fixes.
+ */
+export function isEditingRule(): boolean {
+  return openRuleId !== undefined;
+}
+
 /** The last deletion, for as long as this page stays open (UC-011). */
 let undoable: { readonly rule: Rule; readonly at: number } | undefined;
 
@@ -167,6 +179,9 @@ function ordering(
     const button = document.createElement('button');
     button.type = 'button';
     button.textContent = direction === -1 ? '↑' : '↓';
+    // Named so the rebuild below can return the focus to *this* button rather
+    // than to whichever one comes first in the DOM.
+    button.dataset['direction'] = direction === -1 ? 'up' : 'down';
     // A visible label would repeat for every rule; the accessible name carries
     // it instead, and the title makes it discoverable with a pointer.
     button.setAttribute('aria-label', `${message(key)}: ${nameOf(rule)}`);
@@ -182,9 +197,26 @@ function ordering(
       const list = item.closest('#rules');
       if (list instanceof HTMLElement) {
         renderRules(host, list);
-        list
-          .querySelector<HTMLButtonElement>(`[data-rule="${rule.id}"] .rule-order button:not(:disabled)`)
-          ?.focus();
+        // The button that was pressed, not the first one still enabled. Those
+        // differ for every rule but the first: `button:not(:disabled)` is the up
+        // arrow, so moving a rule *down* handed the focus to up, and a second
+        // press of the same key moved it straight back — the opposite of what
+        // UC-012 step 3 asks for, and invisible unless you are working by
+        // keyboard.
+        //
+        // The fallback is not a nicety: a rule moved to either end has the
+        // button that moved it disabled, and focus would otherwise be dropped on
+        // the body, which for a keyboard user means starting again from the top
+        // of the page.
+        const rowSelector = `[data-rule="${rule.id}"] .rule-order button`;
+        const pressed = list.querySelector<HTMLButtonElement>(
+          `${rowSelector}[data-direction="${direction === -1 ? 'up' : 'down'}"]`,
+        );
+        const target =
+          pressed !== null && !pressed.disabled
+            ? pressed
+            : list.querySelector<HTMLButtonElement>(`${rowSelector}:not(:disabled)`);
+        target?.focus();
       }
     });
     group.append(button);
@@ -232,31 +264,45 @@ function editor(host: RuleEditorHost, rule: Rule, item: HTMLElement): HTMLElemen
   const live = (): Rule => current;
 
   /**
-   * `structural` means the *set* of fields changed, not just their values.
+   * `refocus` marks an edit that changes the *set* of fields, not their values.
    *
    * Ordinary edits re-render only the preview and the problems, because
    * rebuilding the form on every keystroke would take the focus and the caret
-   * with it and make a text field unusable. A change of generator type is the
-   * one edit that genuinely changes which fields exist — a date has a format
-   * where a regex has a pattern — so it rebuilds the body and puts the focus
-   * back on the control that caused it.
+   * with it and make a text field unusable. A few edits genuinely change which
+   * fields exist, and those have to rebuild the body — so they say where the
+   * focus belongs afterwards, because a rebuild that drops the user at the top
+   * of the page is its own defect.
    *
-   * Found by the options-page harness: without this the new type's fields never
-   * appeared, and the rule kept the previous type's editor while storing the
-   * new type's defaults.
+   * There are exactly two, and both were found the same way — by the state
+   * changing while the controls that display it did not:
+   *
+   *   · the generator type. A date has a format where a regex has a pattern.
+   *     Without this the new type's fields never appeared and the rule kept the
+   *     previous type's editor while storing the new type's defaults. Caught by
+   *     the options-page harness.
+   *   · "whatever is enabled globally". Clearing it gives the rule its own list
+   *     of sources, which is six checkboxes that exist only when that list does
+   *     (FR-067). Without this, unchecking the box wrote the list to storage and
+   *     revealed nothing, so per-rule scoping could not be reached from the
+   *     editor at all — and re-checking it left the six behind, still live,
+   *     editing a list no longer in the rule. Caught by review, because the
+   *     harness did not touch this control; it does now.
+   *
+   * A boolean would not do here: the two rebuild the same body and want the
+   * focus in different places, and the selector says which.
    */
-  const update = (next: Rule, structural = false): void => {
+  const update = (next: Rule, refocus?: string): void => {
     current = next;
     const problems = validateRule(next);
     // Written only when valid. An invalid rule in storage is one the engine
     // meets during a fill, on a page the user is not looking at (UC-009 A1).
     if (problems.length === 0) commit(host, replaceRule(host.settings().rules, next));
 
-    if (structural) {
+    if (refocus !== undefined) {
       const list = item.closest('#rules');
       if (list instanceof HTMLElement) {
         renderRules(host, list);
-        list.querySelector<HTMLSelectElement>(`[data-rule="${next.id}"] .generator select`)?.focus();
+        list.querySelector<HTMLElement>(`[data-rule="${next.id}"] ${refocus}`)?.focus();
       }
       return;
     }
@@ -311,7 +357,7 @@ function matcher(live: () => Rule, update: (rule: Rule) => void): HTMLElement {
  * intersection with the global toggles, and a rule cannot opt back into a source
  * switched off there.
  */
-function sources(live: () => Rule, update: (rule: Rule) => void): HTMLElement {
+function sources(live: () => Rule, update: (rule: Rule, refocus?: string) => void): HTMLElement {
   const rule = live();
   const group = document.createElement('fieldset');
   group.className = 'sources';
@@ -322,12 +368,19 @@ function sources(live: () => Rule, update: (rule: Rule) => void): HTMLElement {
   const all = document.createElement('label');
   const allBox = document.createElement('input');
   allBox.type = 'checkbox';
+  // Named so the rebuild below can put the focus back on it. Selecting the
+  // fieldset's first input would work today and stop working the moment
+  // anything is added above it.
+  allBox.className = 'sources-all';
   allBox.checked = rule.sources === undefined;
   allBox.addEventListener('change', () => {
     const next = { ...live() };
     if (allBox.checked) delete (next as { sources?: unknown }).sources;
     else (next as { sources?: readonly MatchSource[] }).sources = [...MATCH_SOURCES];
-    update(next);
+    // Structural: this toggle is what decides whether the six per-source
+    // checkboxes exist at all, so the body has to be rebuilt to show or remove
+    // them. Focus returns here, to the box the user just operated.
+    update(next, '.sources-all');
   });
   all.append(allBox, document.createTextNode(` ${message('ruleSourcesAll')}`));
   group.append(all);
@@ -354,7 +407,7 @@ const GENERATOR_LABELS: ReadonlyArray<readonly [Generator['type'], string]> = [
   ['constant', 'genConstant'],
 ].map(([type, key]) => [type as Generator['type'], message(key as 'genName')] as const);
 
-function generatorFields(live: () => Rule, update: (rule: Rule, structural?: boolean) => void): HTMLElement {
+function generatorFields(live: () => Rule, update: (rule: Rule, refocus?: string) => void): HTMLElement {
   const rule = live();
   const wrapper = document.createElement('div');
   wrapper.className = 'generator';
@@ -367,7 +420,7 @@ function generatorFields(live: () => Rule, update: (rule: Rule, structural?: boo
       // Keeps the name, matcher, scoping and flag; discards options that mean
       // nothing to the new type (UC-009 A4, ND-9). Structural: the fields the
       // new type needs are not the ones on screen.
-      (value) => update(changeGeneratorType(live(), value as Generator['type']), true),
+      (value) => update(changeGeneratorType(live(), value as Generator['type']), '.generator select'),
     ),
   );
 

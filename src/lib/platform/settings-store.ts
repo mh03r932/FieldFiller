@@ -66,6 +66,14 @@ browser.storage.onChanged.addListener((changes, areaName) => {
  * reader is the validator, so a state that survives the write survives the read
  * by construction.
  *
+ * That is a claim about *shape*, and nothing more. `parseSettings` coerces a
+ * state into the current types; it does not apply FR-070, so a rule whose regex
+ * will not compile is well-shaped and passes through here untouched. Keeping
+ * invalid rules out of storage is the rule editor's doing — it commits only what
+ * `validateRule` accepts — which means a future writer that is not the editor
+ * has to validate for itself. BR-024-7 states the boundary and why filtering
+ * here was considered and declined.
+ *
  * The cache is not updated here. `onChanged` drops it and the next read
  * repopulates from storage, so storage stays the source of truth even for a
  * write this context made itself (BR-024-3) — and a write that silently failed
