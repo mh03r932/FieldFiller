@@ -239,6 +239,15 @@ jobs:
         # running, which is the failure mode a green build is least able to see.
         run: pnpm run settings:chrome
 
+      - name: Profiles (Chromium)
+        # UC-014..UC-017. The rule editor runs over a profile's rules through a
+        # lens, so the failure worth catching is it writing to the wrong list —
+        # which storage shows and a rendered page does not. It found two things
+        # on its first run: a profile's "matches nothing" flag that never cleared
+        # when the pattern fixing it was typed, and an Add button indistinguishable
+        # from the rule editor's own.
+        run: pnpm run profiles:chrome
+
       - name: Corpus per locale (Chromium)
         # The path a unit test cannot reach: a locale written to storage, parsed
         # back, resolved, and turned into a record on a real page. Until this
@@ -258,11 +267,13 @@ jobs:
         # that quietly starts passing is a claim nobody wrote down.
         run: pnpm run cascade:chrome
 
-      # Firefox on release candidates only, per NFR-014. Installed from Mozilla
-      # directly rather than through Playwright, whose Firefox is a patched build
-      # that does not expose the remote agent the BiDi harness attaches to.
+      # Installed on every run, not only on tags. NFR-014 asks for the *packaged
+      # add-on* to be exercised in Firefox on release candidates and for the
+      # *engine* to run against both targets on every change, and the second of
+      # those needs a browser here every time. Installed from Mozilla directly
+      # rather than through Playwright, whose Firefox is a patched build that
+      # does not expose the remote agent the BiDi harness attaches to.
       - name: Install Firefox
-        if: startsWith(github.ref, 'refs/tags/')
         run: |
           set -euo pipefail
           # `--fail` because without it curl exits 0 on a 404 and writes the
@@ -277,6 +288,21 @@ jobs:
         run: |
           pnpm run build:firefox
           FIREFOX_PATH=/tmp/firefox/firefox pnpm run smoke:firefox
+
+      # The other half of NFR-014, and it runs on *every* change rather than on
+      # tags: it needs no extension package, only a browser. Until it existed the
+      # engine had never executed in Gecko at all — the unit suite runs once,
+      # under happy-dom, which is neither of the engines we ship to, and
+      # `smoke:firefox` proved the add-on installs and filled nothing.
+      #
+      # It cannot be moved into the Chromium job's position of "the whole product
+      # end to end": the extension's own trigger cannot be synthesised in
+      # Firefox, because WebDriver input goes to the content area and
+      # browser-level shortcut handling is deliberately out of its reach. So this
+      # covers the engine and `smoke:firefox` covers the packaging, and the join
+      # between them is stated against NFR-014 rather than implied.
+      - name: Engine against the reference page (Firefox)
+        run: FIREFOX_PATH=/tmp/firefox/firefox pnpm run engine:firefox
 
   package:
     runs-on: ubuntu-latest

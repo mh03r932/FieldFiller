@@ -2,7 +2,7 @@ import { browser } from 'wxt/browser';
 import { localise, message } from '@/lib/platform/i18n';
 import { getSettings, saveSettings } from '@/lib/platform/settings-store';
 import { DEFAULT_SETTINGS, parseSettings, type Settings } from '@/lib/settings';
-import { resultSentence, scopeRuleSentence } from '@/lib/report/surface';
+import { profileSentence, resultSentence, scopeRuleSentence } from '@/lib/report/surface';
 import {
   adoptKeepingEdit,
   forgetUndo,
@@ -11,6 +11,7 @@ import {
   type RuleEditorHost,
 } from './rules';
 import { SECTIONS } from './sections';
+import { isEditingProfile } from './profiles-section';
 import type { FieldReportEntry, FillReport, ReportResponse } from '@/lib/protocol';
 
 /**
@@ -181,6 +182,11 @@ function renderSections(editor: RuleEditorHost): void {
     const into = document.querySelector(`#${section.id}`);
     if (!(into instanceof HTMLElement)) continue;
     if (focused !== null && into.contains(focused)) continue;
+    // A profile holds an open item and a rule editor inside it, so it is skipped
+    // on the same terms the rule list is: rebuilding it would collapse the open
+    // profile and discard whatever rule was being written inside it. It catches
+    // up when the profile closes.
+    if (section.id === 'profiles' && isEditingProfile()) continue;
     section.render(editor, into);
   }
 }
@@ -245,6 +251,18 @@ function reportView(report: FillReport): HTMLElement {
     rule.className = 'report-scope-rule';
     rule.textContent = chosenBy;
     fragment.append(rule);
+  }
+
+  // FR-047, on the same surface and for the same reason. Present even when no
+  // profile applied: "none" is the answer a tester checking whether their scoped
+  // rules ran actually needs, and an absent line cannot give it.
+  const profile = profileSentence(report, message);
+  if (profile !== undefined) {
+    const line = document.createElement('p');
+    line.className = 'report-profile';
+    // `textContent`: a profile label is whatever the user typed.
+    line.textContent = profile;
+    fragment.append(line);
   }
 
   if (report.fields.length > 0) fragment.append(table(report.fields));

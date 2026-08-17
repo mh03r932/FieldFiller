@@ -24,7 +24,7 @@ Legend — **Spec:** `Not started` · `Blocked` · `Drafted` · `Approved`
 | UC-004 | Determine the Value for a Field | *(included)* | Identify a field, select the winning rule, generate and apply a value | FR-011..013, FR-019..023, FR-025, FR-027..032, FR-065..069, FR-080, FR-082 | High | **Drafted** *(revision owed — FR-082)* |
 | UC-005 | Exclude a Field from Filling | *(included)* | Decide that a field must be left untouched | FR-033..036, FR-071, FR-075, FR-079 | High | **Drafted** |
 | UC-006 | Reuse a Value for a Confirmation Field | *(extends UC-004)* | Repeat the previously generated value in a confirmation field | FR-024, FR-032 | High | Not started |
-| UC-007 | Apply a URL Profile | *(extends UC-004)* | Give profile rules precedence over global rules on a matching page | FR-031, FR-045 | High | Not started |
+| UC-007 | Apply a URL Profile | *(extends UC-004)* | Give profile rules precedence over global rules on a matching page | FR-031, FR-045 | High | **Drafted** *(built 2026-08-17)* |
 | UC-008 | Suspend Filling on an Excluded Domain | *(extends UC-001..003)* | Make the extension inert on domains the user has excluded | FR-037, FR-038, FR-074 | High | **Drafted** *(built 2026-08-15; FR-074 rewritten, see BR-008-4)* |
 | UC-034 | Fill Fields That Depend on an Earlier Answer | *(included)* | Follow the page's own cascade — options rewritten, fields revealed, controls enabled — verifying each write and stopping honestly at a declared bound | FR-076..081, DD-009 | High | **Drafted** *(built in full; A3, A7 and A9 revised by what implementing them showed)* |
 
@@ -41,10 +41,10 @@ Legend — **Spec:** `Not started` · `Blocked` · `Drafted` · `Approved`
 
 | ID | Use Case | Primary Actor | Goal | Traces to | Priority | Spec |
 |---|---|---|---|---|---|---|
-| UC-014 | Create a URL Profile | Power User | Scope a named rule set to URLs matching a pattern | FR-045 | High | Not started |
-| UC-015 | Edit a URL Profile | Power User | Change a profile's pattern, name or rules | FR-046 | High | Not started |
-| UC-016 | Delete a URL Profile | Power User | Remove a profile | FR-046 | High | Not started |
-| UC-017 | Identify the Active Profile for a Page | Browser | Resolve and indicate which profile governs the current page | FR-047 | Medium | Not started |
+| UC-014 | Create a URL Profile | Power User | Scope a named rule set to URLs matching a pattern | FR-045 | High | **Drafted** *(built 2026-08-17)* |
+| UC-015 | Edit a URL Profile | Power User | Change a profile's pattern, name or rules | FR-046 | High | **Drafted** *(built 2026-08-17)* |
+| UC-016 | Delete a URL Profile | Power User | Remove a profile | FR-046 | High | **Drafted** *(built 2026-08-17)* |
+| UC-017 | Identify the Active Profile for a Page | Browser | Resolve and indicate which profile governs the current page | FR-047 | Medium | **Drafted** *(built 2026-08-17; BR-017-3 records that the indicator can only be a fill *result*)* |
 
 ## Settings
 

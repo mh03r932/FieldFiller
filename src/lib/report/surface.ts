@@ -153,6 +153,8 @@ export type ResultMessageKey =
   | 'resultRefusedNoForm'
   | 'resultRefusedNoAnchor'
   | 'reportScopeChosenBy'
+  | 'reportProfileApplied'
+  | 'reportProfileNone'
   | 'resultRuleElementForm'
   | 'resultRuleRoleForm'
   | 'resultRuleSubmitContainer'
@@ -225,6 +227,30 @@ export function resultSentence(report: FillReport, translate: Translate): string
 export function scopeRuleSentence(report: FillReport, translate: Translate): string | undefined {
   if (report.refused !== undefined || report.scopeRule === undefined) return undefined;
   return translate('reportScopeChosenBy', [translate(ruleKey(report.scopeRule))]);
+}
+
+/**
+ * Which profile governed this fill, in the user's language (FR-047, UC-017).
+ *
+ * **Always a sentence, including when no profile applied**, which is the one
+ * decision here worth stating. FR-047 exists so a tester can tell whether their
+ * scoped rules were in effect, and silence cannot answer that: a fill with no
+ * profile line reads identically to a fill from a build that never had
+ * profiles, and "my profile did not apply" is precisely the case the indicator
+ * is for. So a fill that matched nothing says so.
+ *
+ * `undefined` only for a fill that refused — it ran no rules at all, and its own
+ * sentence explains more than a profile line would.
+ *
+ * Shown on the options page and not on the badge, on DD-006's terms: the badge
+ * and tooltip have no room for a fourth fact, and this one answers "were my
+ * rules in effect?", which is asked after a fill rather than during it.
+ */
+export function profileSentence(report: FillReport, translate: Translate): string | undefined {
+  if (report.refused !== undefined) return undefined;
+  return report.profile === undefined || report.profile === ''
+    ? translate('reportProfileNone')
+    : translate('reportProfileApplied', [report.profile]);
 }
 
 function ruleKey(rule: ScopeRule): ResultMessageKey {

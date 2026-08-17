@@ -23,22 +23,13 @@ export function newExclusion(): Matcher {
   return { mode: 'contains', pattern: '' };
 }
 
-export function appendAt<T>(items: readonly T[], item: T): readonly T[] {
-  return [...items, item];
-}
-
-export function replaceAt<T>(items: readonly T[], at: number, item: T): readonly T[] {
-  return items.map((existing, index) => (index === at ? item : existing));
-}
-
 /**
- * Removes one entry by position.
+ * The list operations, re-exported from where they now live.
  *
- * By index rather than by value, because neither list holds identifiers and both
- * can hold duplicates: two identical patterns are a redundant configuration
- * rather than an illegal one, and removing "the pattern equal to this" would
- * take the first of them however far down the list the user clicked.
+ * They moved to `lib/lists.ts` when profiles needed the same four (UC-014..016)
+ * and a fifth, `moveAt`, that exclusions have no use for — order carries nothing
+ * here (BR-020-2). Re-exported rather than repointed at every call site, because
+ * a field exclusion's `removeAt` is what this module is *about*, and a screen
+ * importing it from `lib/lists` would read as reaching past the abstraction.
  */
-export function removeAt<T>(items: readonly T[], at: number): readonly T[] {
-  return items.filter((_, index) => index !== at);
-}
+export { appendAt, removeAt, replaceAt } from './lists';

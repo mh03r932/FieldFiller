@@ -68,6 +68,12 @@ export default defineConfig({
         // the wrong exclusion, and an exclusion silently gone is a page that
         // silently gets filled.
         'src/lib/exclusions.ts': { lines: 90, functions: 90 },
+        // Profile resolution and the list operations under it (Phase 5). Both
+        // fail silently when wrong, which is the argument for the floor: the
+        // wrong profile means the wrong rules ran, and the fill still reports
+        // success on every field it filled.
+        'src/lib/profiles.ts': { lines: 90, functions: 90 },
+        'src/lib/lists.ts': { lines: 90, functions: 90 },
       },
     },
   },

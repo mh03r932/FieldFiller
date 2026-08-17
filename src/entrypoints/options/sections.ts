@@ -22,6 +22,7 @@ import {
   textInput,
 } from './controls';
 import type { OptionsHost } from './host';
+import { renderProfiles } from './profiles-section';
 
 /**
  * Every options section that is not the rule editor: UC-018..UC-023, plus the
@@ -694,6 +695,7 @@ export const SECTIONS: ReadonlyArray<{
   readonly render: (host: OptionsHost, into: HTMLElement) => void;
 }> = [
   { id: 'general', render: renderGeneral },
+  { id: 'profiles', render: renderProfiles },
   { id: 'sources', render: renderSources },
   { id: 'field-exclusions', render: renderFieldExclusions },
   { id: 'domain-exclusions', render: renderDomainExclusions },

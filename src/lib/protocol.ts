@@ -418,6 +418,17 @@ export type FillReport = {
    * ladder ran — the page scope, and a fill that refused.
    */
   readonly scopeRule: ScopeRule | undefined;
+  /**
+   * The label of the profile that governed this fill (FR-047, UC-017).
+   *
+   * `undefined` when no profile matched, which includes the case where the
+   * address could not be read. The two are not distinguished here and are not
+   * worth distinguishing: both mean the fill ran on the global rules alone,
+   * which is the fact the user needs.
+   *
+   * A label, not an id. This exists to be read.
+   */
+  readonly profile: string | undefined;
   readonly fields: readonly FieldReportEntry[];
 };
 
