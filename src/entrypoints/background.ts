@@ -220,8 +220,9 @@ function trace(text: string): void {
  * state that outlives this context, so "create the three entries" is only
  * idempotent if what was there is cleared — and an MV3 worker is restarted by
  * events often enough that a second registration is the ordinary case rather
- * than the exception. Duplicating them is not a cosmetic fault: `create` rejects
- * on a duplicate id, which would leave the menu half-built.
+ * than the exception. Duplicating them is not a cosmetic fault: `create` fails
+ * on a duplicate id — silently, since it neither throws nor rejects — which
+ * would leave the menu half-built with nothing to say so.
  *
  * Called from `onInstalled`, from a settings change, and on every worker start,
  * so the menu matches the setting at the first right-click after any of them —
@@ -236,19 +237,34 @@ async function syncContextMenus(): Promise<void> {
       return;
     }
     for (const item of MENU_ITEMS) {
-      browser.contextMenus.create({
-        id: item.id,
-        title: message(item.titleMessage),
-        contexts: ['page', 'editable'],
-      });
+      // Not awaited, and not because it was forgotten: `create` is the one
+      // method in this namespace that returns the new id rather than a promise,
+      // in both browsers. There is no rejection for the `catch` below to
+      // receive, so a failure is reported the only way this call reports one —
+      // through `runtime.lastError`, read in the callback, where the call that
+      // set it is still identifiable. Unread, a failed entry is simply absent
+      // from the menu with nothing said anywhere.
+      browser.contextMenus.create(
+        {
+          id: item.id,
+          title: message(item.titleMessage),
+          contexts: ['page', 'editable'],
+        },
+        () => {
+          const failure = browser.runtime.lastError;
+          if (failure === undefined) return;
+          trace(`context menu entry "${item.id}" was not created: ${failure.message ?? 'no reason given'}`);
+        },
+      );
     }
     trace(`registered ${MENU_ITEMS.length} context menu entries`);
   } catch (error) {
     // `onInstalled` has no error path, and an unhandled rejection here would be
-    // reported as an extension error naming no channel. Awaited rather than
-    // given a callback because Firefox's `browser.*` is promise-only and
-    // validates arguments strictly — the callback form risks leaving every menu
-    // silently absent there (NFR-017).
+    // reported as an extension error naming no channel. It covers what actually
+    // rejects: `getSettings` and `removeAll`, both promise-returning in both
+    // browsers. `create` is not one of them — it returns an id and reports
+    // through `runtime.lastError`, which is why it is handled at the call rather
+    // than here (NFR-017).
     //
     // A failure here leaves the menu as it was, which is UC-023 A2's failure
     // postcondition: the previous trigger configuration remains in force. The

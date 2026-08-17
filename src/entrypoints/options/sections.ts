@@ -63,7 +63,13 @@ export function renderGeneral(host: OptionsHost, into: HTMLElement): void {
       [['auto', message('localeAuto')], ...LOCALES.map((locale) => [locale, locale] as const)],
       settings.locale,
       (value) => {
-        host.save({ ...settings, locale: value as Settings['locale'] });
+        // `host.settings()`, not the `settings` read above — see `renderSources`
+        // for the same hazard at closer range. It is worse here: one control
+        // means nothing ever re-renders this section from its own handler, so
+        // its snapshot is as old as the page (or as the last write from another
+        // tab). Saving the whole state from it would revert every change made in
+        // every other section since, in memory and in storage alike.
+        host.save({ ...host.settings(), locale: value as Settings['locale'] });
         host.announce(message('localeChanged', [value]));
       },
       message('localeHint'),

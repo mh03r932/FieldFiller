@@ -141,6 +141,23 @@ try {
     await sleep(200);
   };
 
+  /** Chooses a value in the one select a section has. */
+  const choose = async (sectionId, value) => {
+    await inPage(`(() => {
+      const control = document.querySelector('#${sectionId} select');
+      if (control === null) throw new Error('no select in #${sectionId}');
+      control.value = ${JSON.stringify(value)};
+      if (control.value !== ${JSON.stringify(value)}) {
+        throw new Error('no option ' + ${JSON.stringify(value)} + ' in #${sectionId}');
+      }
+      // Assigned then dispatched: a select is not clicked open from script, and
+      // change is the event the handler listens for.
+      control.dispatchEvent(new Event('change', { bubbles: true }));
+      return true;
+    })()`);
+    await sleep(200);
+  };
+
   const openOptions = async () => {
     await cdp.send('Page.navigate', { url: OPTIONS_URL }, page);
     // The condition has to be something a *render* produces. `#triggers` is
@@ -269,6 +286,32 @@ try {
     `sample=${JSON.stringify(await inPage(`document.querySelector('#passwords .samples')?.textContent ?? ''`))}`);
 
   await type('behaviour', 'Text area', '25');
+
+  // ── ND-1: the locale, and what it must not take with it ────────────────────
+  // The section with a single control, and therefore the one that never
+  // re-renders itself: its handler holds the state the page opened with. Every
+  // setting changed above was changed *after* that, so a save computed from that
+  // snapshot reverts all of them — in memory and in storage — and nothing on
+  // screen says a word about it. Driven here rather than in the sections above
+  // because the defect needs two sections and an order: change something, then
+  // change the locale, then look at the something.
+  await choose('general', 'de-CH');
+  const afterLocale = await stored();
+  check('changing the locale does not revert settings changed since the page opened',
+    afterLocale.locale === 'de-CH' &&
+      afterLocale.passwords.length === 20 &&
+      afterLocale.passwords.symbols === false,
+    `stored locale=${JSON.stringify(afterLocale.locale)} passwords=${JSON.stringify(afterLocale.passwords)}` +
+      ' — the locale save was computed from a stale snapshot');
+
+  // Back to the shipped default, so the fills below draw from the corpus every
+  // other check in this file assumes. A second change from the same handler,
+  // which is also the two-in-a-row case the sources section is checked for.
+  await choose('general', 'auto');
+  const afterRestore = await stored();
+  check('and neither does changing it back',
+    afterRestore.locale === 'auto' && afterRestore.passwords.length === 20,
+    `stored locale=${JSON.stringify(afterRestore.locale)} passwords=${JSON.stringify(afterRestore.passwords)}`);
 
   const filled = await fillAndRead(['password', 'notes', 'pw', 'pw_second']);
 
