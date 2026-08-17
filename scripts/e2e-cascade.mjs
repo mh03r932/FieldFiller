@@ -34,7 +34,7 @@ import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { attachToWorker, closeChromium, derivedExtensionId, launchChromium, sleep } from './lib/chromium.mjs';
+import { attachToWorker, closeChromium, derivedExtensionId, launchChromium, sleep, waitForAgent } from './lib/chromium.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const EXTENSION_DIR = join(ROOT, '.output', 'chrome-mv3');
@@ -99,6 +99,14 @@ const results = new Map();
 /** The report's arithmetic, printed each run so the honesty gap is visible. */
 let counts;
 
+/**
+ * How this harness picks the tab: the only one, or the active one.
+ *
+ * One expression, shared by the readiness ping and the trigger — pinging one tab
+ * and filling another would prove nothing.
+ */
+const TAB = 'tabs.length === 1 ? tabs[0] : tabs.find((candidate) => candidate.active)';
+
 try {
   ({ chrome, cdp } = await launchChromium(EXTENSION_DIR, profileDir));
 
@@ -112,39 +120,15 @@ try {
 
   const workerSession = await attachToWorker(cdp, extensionId);
 
-  // Readiness as a condition, not a sleep. A fixed 1500 ms here was the thinnest
-  // margin in this harness: ample on an idle machine, and on a loaded shared
-  // runner short enough that the fill below could be triggered into a page whose
-  // agent was not yet listening — which fails as "the fill did not run",
-  // correctly diagnosed, but a flake all the same. The protocol's own ping is
-  // the exact condition the sleep approximated: a `pong` means the page agent is
-  // injected and listening in the tab about to be filled (the agent registers at
-  // `document_idle`, which Chrome may place immediately *after* the load event,
-  // so `readyState` alone would not prove it). Until it is listening,
-  // `sendMessage` rejects — "receiving end does not exist" — and the poll
-  // retries. The tab is identified the same way the trigger below identifies it.
-  let agentReady = false;
-  for (let attempt = 0; attempt < 100 && !agentReady; attempt++) {
-    const pinged = await cdp.send('Runtime.evaluate', {
-      expression: `chrome.tabs.query({}).then((tabs) => {
-        const tab = tabs.length === 1 ? tabs[0] : tabs.find((candidate) => candidate.active);
-        if (tab === undefined) return 'no tab among ' + tabs.length;
-        return chrome.tabs.sendMessage(tab.id, { kind: 'ping' })
-          .then((reply) => reply !== undefined && reply.kind === 'pong'
-            ? 'pong'
-            : 'answered without a pong: ' + JSON.stringify(reply))
-          .catch(() => 'not listening yet');
-      })`,
-      awaitPromise: true, returnByValue: true,
-    }, workerSession);
-    agentReady = pinged.result.value === 'pong';
-    if (!agentReady) await sleep(100);
-  }
-  if (!agentReady) throw new Error('the page agent never answered a ping within 10 s of navigation');
+  // Readiness as a condition, not a sleep — `waitForAgent` carries the argument
+  // for why, which this harness is where it was first made. The tab is
+  // identified the same way the trigger below identifies it, which is the whole
+  // reason that expression is a parameter.
+  await waitForAgent(cdp, workerSession, TAB);
 
   const triggered = await cdp.send('Runtime.evaluate', {
     expression: `chrome.tabs.query({}).then((tabs) => {
-      const tab = tabs.length === 1 ? tabs[0] : tabs.find((candidate) => candidate.active);
+      const tab = ${TAB};
       if (tab === undefined) return 'no tab to fill among ' + tabs.length;
       if (typeof chrome.action.onClicked.dispatch !== 'function') {
         return 'chrome.action.onClicked.dispatch is not available in this Chrome';

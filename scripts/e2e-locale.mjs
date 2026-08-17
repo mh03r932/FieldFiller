@@ -140,6 +140,18 @@ try {
     // most likely to register late on a loaded runner.
     await waitForAgent(cdp, workerSession, TAB);
 
+    // Cleared here rather than relied upon to be clear. The badge is this
+    // harness's completion signal, so "it is empty until this fill sets it" is a
+    // precondition of the check below — and leaving it implicit makes that check
+    // depend on two production behaviours nothing here asserts: that a count
+    // reverts after three seconds, and that a navigation clears the mark. Both
+    // are true, both are UC-008's and DD-006's to change, and neither is this
+    // harness's subject. One line makes the signal mean what it says regardless.
+    await inWorker(`chrome.tabs.query({}).then((tabs) => {
+      const tab = ${TAB};
+      return tab === undefined ? 'no tab' : chrome.action.setBadgeText({ tabId: tab.id, text: '' }).then(() => 'ok');
+    })`);
+
     const fired = await inWorker(`chrome.tabs.query({}).then((tabs) => {
       const tab = ${TAB};
       if (tab === undefined) return 'no tab';

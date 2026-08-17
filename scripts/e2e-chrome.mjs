@@ -36,7 +36,7 @@ import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { attachToWorker, closeChromium, derivedExtensionId, launchChromium, sleep } from './lib/chromium.mjs';
+import { attachToWorker, closeChromium, derivedExtensionId, launchChromium, sleep, waitForAgent } from './lib/chromium.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const EXTENSION_DIR = join(ROOT, '.output', 'chrome-mv3');
@@ -44,6 +44,27 @@ const REFERENCE_PAGE = join(ROOT, 'tests', 'fixtures', 'reference.html');
 
 /** Filled-field count for tests/fixtures/reference.html. See the badge check. */
 const EXPECTED_FILLED = 33;
+
+/**
+ * Out-of-process frames the fixture must have running before a fill is useful:
+ * `cross-origin` and `cross-origin-twin`, both served from the second origin.
+ *
+ * Same-origin and `srcdoc` frames are part of the top-level target and need no
+ * wait — it is site isolation that makes these two their own targets, and their
+ * own agents.
+ */
+const CROSS_ORIGIN_FRAMES = 2;
+
+/**
+ * How this harness picks the tab: the only one, or the active one.
+ *
+ * The only tab, preferentially — without the `tabs` permission Chrome withholds
+ * `url` from every tab it returns, so identity has to come from there being
+ * exactly one, which is why this harness navigates the initial tab rather than
+ * opening a second. Shared by the readiness ping and the trigger so that the tab
+ * pinged is the tab filled.
+ */
+const TAB = 'tabs.length === 1 ? tabs[0] : tabs.find((candidate) => candidate.active)';
 
 if (!existsSync(join(EXTENSION_DIR, 'manifest.json'))) {
   console.error('✖ no Chromium build found. Run `pnpm run build` first.');
@@ -94,6 +115,24 @@ const server = createServer((_request, response) => {
 await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
 const pageUrl = `http://127.0.0.1:${server.address().port}/`;
 
+/**
+ * Waits until the fixture's out-of-process frames have their own targets.
+ *
+ * The same filter `collect` uses, so what is waited for and what is read are the
+ * same set by construction.
+ */
+async function waitForCrossOriginFrames(expected) {
+  for (let attempt = 0; attempt < 100; attempt++) {
+    const { targetInfos } = await cdp.send('Target.getTargets');
+    const frames = targetInfos.filter(
+      (target) => target.type === 'iframe' && target.url.startsWith('http://'),
+    );
+    if (frames.length >= expected) return;
+    await sleep(100);
+  }
+  throw new Error(`only ${expected - 1} or fewer cross-origin frames appeared within 10 s`);
+}
+
 try {
   ({ chrome, cdp } = await launchChromium(EXTENSION_DIR, profileDir));
 
@@ -112,10 +151,25 @@ try {
   await cdp.send('Page.enable', {}, page);
   await cdp.send('Page.navigate', { url: pageUrl }, page);
   await cdp.send('Runtime.enable', {}, page);
-  await sleep(1500);
 
   // The service worker is started by an event, so it may not exist yet.
   const workerSession = await attachToWorker(cdp, extensionId);
+
+  // The fixed 1500 ms this replaces was doing two jobs, and only one of them is
+  // the agent's. Both are now conditions, because a sleep long enough for the
+  // slower of two unrelated things is a sleep that is too short for either on a
+  // loaded runner.
+  //
+  // First: the out-of-process frames have to *exist* before the fill is
+  // triggered. A cross-origin frame that has not loaded yet has no agent to
+  // join the operation, so its fields stay empty and C-007's assertion fails —
+  // and a top-frame ping says nothing about that, which is why this is not just
+  // a `waitForAgent` call. `collect` re-enumerates frames on every poll, so a
+  // frame arriving late is still *read*; it is the fill that cannot wait.
+  await waitForCrossOriginFrames(CROSS_ORIGIN_FRAMES);
+
+  // Second: the top frame's agent is listening. See `waitForAgent`.
+  await waitForAgent(cdp, workerSession, TAB);
 
   // Invoke the toolbar listener against the page's tab.
   // The tab is identified by being active, not by its URL: without the `tabs`
@@ -124,11 +178,7 @@ try {
   // hands the listener its tab — so the awkwardness is the harness's alone.
   const triggered = await cdp.send('Runtime.evaluate', {
     expression: `chrome.tabs.query({}).then((tabs) => {
-      // The only tab, not the focused one. Without the \`tabs\` permission Chrome
-      // withholds \`url\` from every tab it returns, so identity has to come from
-      // there being exactly one — which is why the harness navigates the initial
-      // tab rather than opening a second.
-      const tab = tabs.length === 1 ? tabs[0] : tabs.find((candidate) => candidate.active);
+      const tab = ${TAB};
       if (tab === undefined) return 'no tab to fill among ' + tabs.length;
       if (typeof chrome.action.onClicked.dispatch !== 'function') {
         return 'chrome.action.onClicked.dispatch is not available in this Chrome';

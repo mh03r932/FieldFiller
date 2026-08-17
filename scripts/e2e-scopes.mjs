@@ -21,7 +21,7 @@ import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { attachToWorker, closeChromium, derivedExtensionId, launchChromium, sleep } from './lib/chromium.mjs';
+import { attachToWorker, closeChromium, derivedExtensionId, launchChromium, sleep, waitForAgent } from './lib/chromium.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const EXTENSION_DIR = join(ROOT, '.output', 'chrome-mv3');
@@ -64,6 +64,14 @@ try {
   await cdp.send('Runtime.enable', {}, page);
 
   const workerSession = await attachToWorker(cdp, extensionId);
+
+  /**
+   * How this harness picks the tab: the active one, or the only one.
+   *
+   * Shared by the readiness ping, the menu trigger and the badge reads, so the
+   * tab that is waited for is the tab that is acted on and then inspected.
+   */
+  const TAB = 'tabs.find((candidate) => candidate.active) ?? tabs[0]';
 
   const inPage = async (expression) => {
     const { result } = await cdp.send(
@@ -117,7 +125,11 @@ try {
 
   async function reload() {
     await cdp.send('Page.navigate', { url: pageUrl }, page);
-    await sleep(900);
+    // Every case reloads first, so this ran once per case with the thinnest
+    // margin of any harness here — and a scope triggered into a page whose agent
+    // had not registered would fail as a scope defect, which is the most
+    // expensive way for a flake to be wrong.
+    await waitForAgent(cdp, workerSession, TAB);
   }
 
   /**
@@ -166,7 +178,7 @@ try {
     await reload();
     if (selector !== undefined) await rightClick(selector);
     const fired = await inWorker(`chrome.tabs.query({}).then((tabs) => {
-      const tab = tabs.find((candidate) => candidate.active) ?? tabs[0];
+      const tab = ${TAB};
       if (tab === undefined) return 'no tab';
       chrome.contextMenus.onClicked.dispatch({ menuItemId: '${menuItemId}', frameId: 0 }, tab);
       return 'ok';
@@ -176,12 +188,16 @@ try {
   }
 
   const badgeTitle = async () =>
-    inWorker(`chrome.tabs.query({}).then((tabs) =>
-      chrome.action.getTitle({ tabId: (tabs.find((t) => t.active) ?? tabs[0]).id }))`);
+    inWorker(`chrome.tabs.query({}).then((tabs) => {
+      const tab = ${TAB};
+      return tab === undefined ? '' : chrome.action.getTitle({ tabId: tab.id });
+    })`);
 
   const badgeText = async () =>
-    inWorker(`chrome.tabs.query({}).then((tabs) =>
-      chrome.action.getBadgeText({ tabId: (tabs.find((t) => t.active) ?? tabs[0]).id }))`);
+    inWorker(`chrome.tabs.query({}).then((tabs) => {
+      const tab = ${TAB};
+      return tab === undefined ? '' : chrome.action.getBadgeText({ tabId: tab.id });
+    })`);
 
   // ── UC-002, rung 1: the page said so ────────────────────────────────────────
   await pointAndFill('[name="a_one"]', 'current-form');
