@@ -6,6 +6,18 @@
  * (NFR-019) applies to this page from its first pixel, and contrast is easiest
  * to keep true when both schemes are declared together rather than retrofitted.
  */
+/*
+ * Border-box everywhere, so a control given `width: 100%` fits the column it was
+ * given rather than that width plus its own padding and border. Without it the
+ * narrow-window fixes below each overflow by a few pixels, which is the failure
+ * they exist to remove (WCAG 1.4.10).
+ */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
 :root {
   color-scheme: light dark;
   --ff-bg: #ffffff;
@@ -29,7 +41,12 @@
 
 body {
   margin: 0;
-  padding: 2rem;
+  /*
+   * The inline padding yields as the window narrows. At a fixed 2rem it spent
+   * 64 of the 320 CSS pixels WCAG 1.4.10 asks the page to work within, before
+   * anything had been laid out.
+   */
+  padding: 2rem clamp(0.75rem, 4vw, 2rem);
   background: var(--ff-bg);
   color: var(--ff-fg);
   font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
@@ -124,7 +141,14 @@ h2 {
 .report-scope-rule {
   margin-top: 0.25rem;
   font-size: 0.875em;
-  opacity: 0.8;
+  /*
+   * Quieter by colour, not by opacity. `opacity: 0.8` composited the muted
+   * foreground toward the background and took it to 4.35:1 in the light scheme —
+   * under the 4.5:1 this small text needs, and invisible to a palette check,
+   * which measures the token rather than what lands on screen. Found by axe;
+   * `--ff-muted` is 7.13:1 light and 7.58:1 dark on its own (WCAG 1.4.3).
+   */
+  color: var(--ff-muted);
 }
 
 /*
@@ -148,7 +172,8 @@ h2 {
 
 .rule-list {
   list-style: decimal;
-  padding-inline-start: 2rem;
+  /* Yields with the body padding, for the same reason. */
+  padding-inline-start: clamp(1.25rem, 5vw, 2rem);
   margin: 0 0 1rem;
 }
 
@@ -163,10 +188,14 @@ h2 {
   display: flex;
   align-items: center;
   gap: 0.5rem;
+  /* The controls drop to a second line rather than off the side. */
+  flex-wrap: wrap;
 }
 
 .rule-name {
   flex: 1;
+  /* A flex item will not shrink past its content without this. */
+  min-width: 0;
   text-align: start;
   background: none;
   border: 0;
@@ -233,6 +262,15 @@ button.primary {
   background: var(--ff-bg);
   color: var(--ff-fg);
   max-width: 32rem;
+  /*
+   * A form control carries an intrinsic width — an `input` is about twenty
+   * characters wide whatever the space around it — and a grid item will not
+   * shrink below that on its own. Together those held the editor at ~354 px
+   * however narrow the window got, which was most of the 126 px this page used
+   * to overflow by at 320 px (WCAG 1.4.10).
+   */
+  width: 100%;
+  min-width: 0;
 }
 
 .hint,
@@ -243,15 +281,28 @@ button.primary {
 
 .row {
   display: grid;
-  grid-template-columns: minmax(10rem, auto) 1fr;
+  grid-template-columns: minmax(min(10rem, 100%), auto) minmax(0, 1fr);
   gap: 0.75rem;
   align-items: start;
+}
+
+/*
+ * Two columns need room for two columns. Below that the mode and the pattern
+ * stack, which is the pair that forced the widest overflow: a 10rem minimum
+ * beside an input that would not shrink.
+ */
+@media (max-width: 30rem) {
+  .row {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 .sources {
   border: 1px solid var(--ff-rule);
   border-radius: 4px;
   padding: 0.5rem 0.75rem;
+  /* A fieldset's default `min-inline-size: min-content` ignores its container. */
+  min-inline-size: 0;
 }
 
 .preview {

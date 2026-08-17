@@ -630,8 +630,24 @@ function isReportRequest(raw: unknown): raw is FromPageMessage {
  * running inside a document we do not control — which is the whole reason the
  * report request is not part of `FromAgentMessage`.
  */
+/**
+ * Whether a message came from one of this extension's own pages (DD-006).
+ *
+ * The URL is the whole test, and it has to be: `sender.url` for a content script
+ * is the *document's* URL, so a page we do not control cannot present an
+ * extension origin here, and one frame's agent still cannot read a report that
+ * spans every frame.
+ *
+ * There used to be a `sender.tab !== undefined` rejection in front of it, meant
+ * to exclude content scripts. It excluded the options page instead: Chrome sets
+ * `sender.tab` for *anything* sent from a tab, extension pages included, and an
+ * options page is a tab — it is how the browser opens one from the extensions
+ * screen. So the report request was refused for every real user, the page fell
+ * back to its "no report available" text, and that text blames the background
+ * being evicted between uses, which is plausible enough that the failure read as
+ * the design working. Nothing else asks for a report, so nothing else noticed.
+ */
 function fromExtensionPage(sender: { tab?: unknown; url?: string | undefined }): boolean {
-  if (sender.tab !== undefined) return false;
   return sender.url?.startsWith(browser.runtime.getURL('/')) === true;
 }
 

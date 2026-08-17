@@ -585,11 +585,29 @@ try {
   //
   // Last in the file because it navigates back to the options page, so nothing
   // after it depends on the state this leaves behind.
+  //
+  // The values land before the fill *operation* closes, and the report is built
+  // when it does — so this waits before asking, rather than reading an honest
+  // "no report yet" as the defect below.
+  await sleep(4000);
   await cdp.send('Page.navigate', { url: `chrome-extension://${extensionId}/options.html` }, page);
   await waitFor(
     `(document.querySelector('#rules')?.children.length ?? 0) > 0`,
     'the rule editor never rendered after navigating back',
   );
+
+  // DD-006's third surface, and until 2026-08-17 it never worked: the background
+  // refused the report request from any sender with a `tab`, meaning to exclude
+  // content scripts — but an options page *is* a tab, which is how the browser
+  // opens one. The page fell back to "no report is available", and that text
+  // blames the background being evicted between uses, which is plausible enough
+  // that the failure read as the design working.
+  const reportRows = Number(await inPage(`document.querySelectorAll('#report tbody tr').length`));
+  check('the fill that just ran is reported back on the options page',
+    reportRows > 0,
+    `#report has no rows — text was ${JSON.stringify(
+      String(await inPage(`document.querySelector('#report')?.textContent?.slice(0, 90) ?? ''`)),
+    )}`);
 
   await clickDisclosure('Second');
   check('a rule is open for the concurrent-writer check',
