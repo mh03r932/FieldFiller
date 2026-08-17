@@ -314,20 +314,60 @@ try {
       (await storedRules())[0]?.sources?.length === 6,
     `sources=${JSON.stringify((await storedRules())[0]?.sources)}`);
 
+  // The six are labelled for a reader, not with the identifiers the code uses
+  // (NFR-018). They were passed straight in as labels until 2026-08-17, so this
+  // screen said "className" and "ariaLabel" to somebody who never wrote either.
+  const sourceLabels = await inPage(`JSON.stringify(
+    [...document.querySelectorAll('#rules .rule-body fieldset.sources label')]
+      .slice(1)
+      .map((label) => label.textContent.trim()),
+  )`);
+  const labels = JSON.parse(sourceLabels);
+  check('the sources are labelled in words, not in identifiers',
+    labels.length === 6 && !labels.some((label) => /^[a-z]+[A-Z]/.test(label)),
+    `labels=${sourceLabels}`);
+
   // Narrowing it is the point of the feature, and the checkboxes have to be live
   // for that — a revealed control that does nothing is the same defect wearing a
   // different face.
-  await inPage(`(() => {
-    const boxes = [...document.querySelectorAll('#rules .rule-body fieldset.sources input[type=checkbox]')];
-    const className = boxes.find((box) => box.parentElement?.textContent?.trim() === 'className');
-    className.checked = false;
-    className.dispatchEvent(new Event('change', { bubbles: true }));
-    return true;
-  })()`);
-  await sleep(300);
+  const untick = async (label) => {
+    await inPage(`(() => {
+      const boxes = [...document.querySelectorAll('#rules .rule-body fieldset.sources label')];
+      const box = boxes.find((candidate) => candidate.textContent.trim() === ${JSON.stringify(label)});
+      const input = box.querySelector('input');
+      input.checked = false;
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+      return true;
+    })()`);
+    await sleep(200);
+  };
+
+  await untick('CSS classes');
   check('unchecking one source narrows the stored list',
     !((await storedRules())[0]?.sources ?? []).includes('className') &&
       ((await storedRules())[0]?.sources ?? []).length === 5,
+    `sources=${JSON.stringify((await storedRules())[0]?.sources)}`);
+
+  // Unticking the *last* one is the case that had no answer: an empty list is
+  // well-shaped, survives the parser, and matches nothing at all, so the rule
+  // was written to storage looking finished and was dead. The preview cannot
+  // reveal it — it draws from the generator, which is fine — so validation has
+  // to, and the write has to be refused like any other invalid edit (FR-070).
+  for (const label of ['Name attribute', 'ID attribute', 'Label text', 'Placeholder text', 'Accessible name']) {
+    await untick(label);
+  }
+
+  const noSourceProblem = await inPage(
+    `document.querySelector('#rules .rule-body .problems')?.textContent?.trim() ?? ''`,
+  );
+  check('unticking every source states that the rule could never fire',
+    noSourceProblem.includes('never fire'), `problems="${noSourceProblem}"`);
+  // The last source standing, not the five we began with: every untick down to
+  // one is a valid narrowing and is written as it happens, which is the whole
+  // no-Save-button contract. Only the step to nothing is refused, so storage
+  // stops one short of the edit on screen.
+  check('and the rule scoped to nothing is not written',
+    ((await storedRules())[0]?.sources ?? []).length === 1,
     `sources=${JSON.stringify((await storedRules())[0]?.sources)}`);
 
   // And back: re-checking "all" has to remove the six, not leave them on screen

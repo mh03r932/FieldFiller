@@ -42,7 +42,8 @@
     "locale:chrome": "node scripts/e2e-locale.mjs",
     "options:chrome": "node scripts/e2e-options.mjs",
     "spike:combobox": "node scripts/spike-combobox.mjs",
-    "spike:coldstart": "node scripts/spike-coldstart.mjs"
+    "spike:coldstart": "node scripts/spike-coldstart.mjs",
+    "spike:rulescale": "node scripts/spike-rule-scale.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",

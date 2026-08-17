@@ -1,4 +1,4 @@
-import { message } from '@/lib/platform/i18n';
+import { message, type MessageKey } from '@/lib/platform/i18n';
 import { MATCH_SOURCES, type Generator, type MatchSource, type Rule, type Settings } from '@/lib/settings';
 import {
   addRule,
@@ -9,7 +9,7 @@ import {
   restoreRule,
   sampleRule,
 } from '@/lib/rules/editing';
-import { validateRule } from '@/lib/rules/validate';
+import { validateRule, type RuleProblem } from '@/lib/rules/validate';
 import type { Locale } from '@/lib/persona/persona';
 
 /**
@@ -142,7 +142,7 @@ function ruleRow(host: RuleEditorHost, rule: Rule, index: number, total: number)
     const flag = document.createElement('span');
     flag.className = 'rule-flag';
     flag.textContent = '!';
-    flag.title = problems[0]!.message;
+    flag.title = problemText(problems[0]!);
     disclose.append(flag);
   }
 
@@ -350,12 +350,38 @@ function matcher(live: () => Rule, update: (rule: Rule) => void): HTMLElement {
 }
 
 /**
+ * What each identity source is called, for a reader (NFR-018).
+ *
+ * `MatchSource` is spelled for the code that consumes it — `className`,
+ * `ariaLabel` — and those spellings were what the six checkboxes displayed,
+ * being passed straight in as labels. A settings screen that says "ariaLabel"
+ * is showing an identifier to somebody who never wrote one, in the one control
+ * FR-067 exists for, and it could not be translated because it was not a string.
+ *
+ * Declared as a total record rather than a lookup with a fallback, so adding a
+ * seventh source is a compile error here instead of a raw identifier on screen.
+ */
+const SOURCE_LABELS: Record<MatchSource, MessageKey> = {
+  name: 'sourceName',
+  id: 'sourceId',
+  className: 'sourceClassName',
+  label: 'sourceLabel',
+  placeholder: 'sourcePlaceholder',
+  ariaLabel: 'sourceAriaLabel',
+};
+
+/**
  * The rule's own source scoping (FR-067).
  *
  * Presented as "whatever is enabled globally" plus a set of checkboxes, because
  * that is what the setting means: the effective sources are always the
  * intersection with the global toggles, and a rule cannot opt back into a source
  * switched off there.
+ *
+ * Unticking all six is allowed to happen and then refused: `validateRule` reports
+ * it and `update` does not commit, which is the same path an empty pattern takes.
+ * Preventing the last untick instead would leave the user with a checkbox that
+ * silently does nothing and no statement of why.
  */
 function sources(live: () => Rule, update: (rule: Rule, refocus?: string) => void): HTMLElement {
   const rule = live();
@@ -389,7 +415,7 @@ function sources(live: () => Rule, update: (rule: Rule, refocus?: string) => voi
     for (const source of MATCH_SOURCES) {
       const chosen = rule.sources.includes(source);
       group.append(
-        checkbox(source, chosen, (value) => {
+        checkbox(message(SOURCE_LABELS[source]), chosen, (value) => {
           const kept = (live().sources ?? []).filter((candidate) => candidate !== source);
           update({ ...live(), sources: value ? [...kept, source] : kept });
         }),
@@ -547,10 +573,26 @@ function problemList(problems: ReturnType<typeof validateRule>): HTMLElement {
   for (const problem of problems) {
     const line = document.createElement('p');
     line.className = 'problem';
-    line.textContent = message('ruleInvalid', [problem.message]);
+    line.textContent = message('ruleInvalid', [problemText(problem)]);
     box.append(line);
   }
   return box;
+}
+
+/**
+ * One validation failure as a sentence (NFR-018, NFR-020).
+ *
+ * `problem.code` goes straight into `message`, whose parameter type is the union
+ * of keys WXT generates from the catalog — so a code without a message does not
+ * compile, and the pairing needs no test to hold. What used to be here was
+ * `message('ruleInvalid', [problem.message])`, where `problem.message` was an
+ * English literal from `lib/rules/validate.ts`: the frame was translatable and
+ * the sentence inside it never could be.
+ */
+function problemText(problem: RuleProblem): string {
+  return problem.params === undefined
+    ? message(problem.code)
+    : message(problem.code, problem.params);
 }
 
 /* ------------------------------------------------------------ small builders */

@@ -15,7 +15,7 @@ import {
   type SourceToggles,
 } from '@/lib/settings';
 import { compileRules, effectiveSources, selectRule } from '@/lib/rules/match';
-import { validateMatcher, validateRule } from '@/lib/rules/validate';
+import { validateMatcher, validateRule, type RuleProblemCode } from '@/lib/rules/validate';
 import { analysePattern } from '@/lib/rules/redos';
 import { generateFromRegex, parseRegex } from '@/lib/rules/regex-subset';
 import { generateFromTemplate, parseTemplate } from '@/lib/rules/template';
@@ -211,10 +211,13 @@ describe('matching (FR-067, FR-068)', () => {
 
 describe('rule validation at save time (FR-070)', () => {
   it('rejects an empty or uncompilable pattern', () => {
-    expect(validateMatcher({ mode: 'regex', pattern: '' })[0]?.message).toContain('empty');
-    expect(validateMatcher({ mode: 'regex', pattern: '([unclosed' })[0]?.message).toContain(
-      'not a valid regular expression',
-    );
+    expect(validateMatcher({ mode: 'regex', pattern: '' })[0]?.code).toBe('ruleProblemPatternEmpty');
+
+    const invalid = validateMatcher({ mode: 'regex', pattern: '([unclosed' })[0];
+    expect(invalid?.code).toBe('ruleProblemPatternInvalid');
+    // The engine's own complaint is carried as a substitution rather than
+    // rewritten, so the user sees which construct it objected to.
+    expect(invalid?.params?.[0]).toBeTruthy();
   });
 
   it('accepts a literal that would be invalid as a regex', () => {
@@ -275,21 +278,54 @@ describe('rule validation at save time (FR-070)', () => {
     expect(validateRule(rule({ generator }))).toEqual([]);
   });
 
-  it.each<[Generator, string]>([
-    [{ type: 'alphanumeric', template: 'x-{digits:4}' }, 'is not a placeholder'],
-    [{ type: 'alphanumeric', template: 'x-{digit' }, 'never closed'],
-    [{ type: 'alphanumeric', template: '{digit:0}' }, 'must repeat between'],
-    [{ type: 'regex', pattern: 'a(?=b)c' }, 'lookahead is not supported'],
-    [{ type: 'regex', pattern: '(a)\\1' }, 'backreferences are not supported'],
-    [{ type: 'regex', pattern: '(?<year>\\d{4})' }, 'named groups are not supported'],
-    [{ type: 'number', min: 10, max: 1, decimals: 0 }, 'minimum is greater'],
-    [{ type: 'text', minWords: 9, maxWords: 2 }, 'shortest length is greater'],
-    [{ type: 'date', format: 'no tokens here', from: '2000-01-01', to: '2001-01-01' }, 'no date token'],
-    [{ type: 'date', format: 'YYYY', from: '2000-02-31', to: '2001-01-01' }, 'must be real dates'],
-    [{ type: 'date', format: 'YYYY', from: '2005-01-01', to: '2001-01-01' }, 'starts after it ends'],
-  ])('rejects %o with a message naming the problem', (generator, expected) => {
+  /**
+   * Each case names the code, and where a parser below supplies detail, the
+   * substring of that detail which identifies the construct.
+   *
+   * The code is what the surface resolves against the catalog; the detail is the
+   * part deliberately left in English, because it names syntax rather than
+   * addressing the user. Asserting both keeps the split honest — a code with the
+   * detail dropped would still pass a code-only assertion while showing the user
+   * a sentence with an empty parenthesis in it.
+   */
+  it.each<[Generator, RuleProblemCode, string | undefined]>([
+    [{ type: 'alphanumeric', template: 'x-{digits:4}' }, 'ruleProblemTemplateInvalid', 'is not a placeholder'],
+    [{ type: 'alphanumeric', template: 'x-{digit' }, 'ruleProblemTemplateInvalid', 'never closed'],
+    [{ type: 'alphanumeric', template: '{digit:0}' }, 'ruleProblemTemplateInvalid', 'must repeat between'],
+    [{ type: 'regex', pattern: 'a(?=b)c' }, 'ruleProblemRegexUngeneratable', 'lookahead is not supported'],
+    [{ type: 'regex', pattern: '(a)\\1' }, 'ruleProblemRegexUngeneratable', 'backreferences are not supported'],
+    [{ type: 'regex', pattern: '(?<year>\\d{4})' }, 'ruleProblemRegexUngeneratable', 'named groups are not supported'],
+    [{ type: 'number', min: 10, max: 1, decimals: 0 }, 'ruleProblemNumberRange', undefined],
+    [{ type: 'text', minWords: 9, maxWords: 2 }, 'ruleProblemTextRange', undefined],
+    [{ type: 'date', format: 'no tokens here', from: '2000-01-01', to: '2001-01-01' }, 'ruleProblemDateNoToken', undefined],
+    [{ type: 'date', format: 'YYYY', from: '2000-02-31', to: '2001-01-01' }, 'ruleProblemDateBounds', undefined],
+    [{ type: 'date', format: 'YYYY', from: '2005-01-01', to: '2001-01-01' }, 'ruleProblemDateRange', undefined],
+  ])('rejects %o with a code naming the problem', (generator, code, detail) => {
     const problems = validateRule(rule({ generator }));
-    expect(problems.map((problem) => problem.message).join(' | ')).toContain(expected);
+    const problem = problems.find((candidate) => candidate.code === code);
+
+    expect(problem, `expected ${code}, got ${problems.map((p) => p.code).join(', ')}`).toBeDefined();
+    if (detail === undefined) {
+      expect(problem?.params).toBeUndefined();
+    } else {
+      expect(problem?.params?.[0]).toContain(detail);
+    }
+  });
+
+  /**
+   * FR-067. A rule that names its own sources and then names none of them is
+   * inert: `effectiveSources` returns nothing to iterate, so it can never match.
+   * Unticking the last of the six is one click in the editor, and nothing else
+   * would have said so — the preview draws from the generator, which is fine.
+   */
+  it('rejects a rule scoped to no source at all', () => {
+    expect(validateRule(rule({ sources: [] }))[0]?.code).toBe('ruleProblemNoSources');
+  });
+
+  it('accepts a rule scoped to one source, and one that names none', () => {
+    expect(validateRule(rule({ sources: ['name'] }))).toEqual([]);
+    // `undefined` is not "no sources", it is "whatever is enabled globally".
+    expect(validateRule(rule({}))).toEqual([]);
   });
 });
 

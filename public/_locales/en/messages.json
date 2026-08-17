@@ -273,6 +273,30 @@
     "message": "Whatever is enabled globally",
     "description": "Default option for a rule that names no sources (FR-067)."
   },
+  "sourceName": {
+    "message": "Name attribute",
+    "description": "Identity source: the control's name attribute (FR-027)."
+  },
+  "sourceId": {
+    "message": "ID attribute",
+    "description": "Identity source: the control's id attribute (FR-027)."
+  },
+  "sourceClassName": {
+    "message": "CSS classes",
+    "description": "Identity source: the control's class attribute. Off globally by default, being the noisiest (FR-028)."
+  },
+  "sourceLabel": {
+    "message": "Label text",
+    "description": "Identity source: the text of the control's label (FR-027)."
+  },
+  "sourcePlaceholder": {
+    "message": "Placeholder text",
+    "description": "Identity source: the control's placeholder attribute (FR-027)."
+  },
+  "sourceAriaLabel": {
+    "message": "Accessible name",
+    "description": "Identity source: the control's aria-label (FR-027)."
+  },
   "ruleGenerator": {
     "message": "Generates",
     "description": "Label for the generator type select (FR-019)."
@@ -361,13 +385,95 @@
   },
   "ruleInvalid": {
     "message": "Not saved: $PROBLEM$",
-    "description": "Shown beside the field that caused a validation failure (FR-070, UC-009 A1).",
+    "description": "Frames one validation failure beside the field that caused it (FR-070, UC-009 A1). The substitution is a whole sentence resolved from a ruleProblem* key, never prose assembled in code — see RuleProblemCode in src/lib/rules/validate.ts.",
     "placeholders": {
       "problem": {
         "content": "$1",
-        "example": "the pattern is empty"
+        "example": "the match pattern is empty. Type the text a field's name should contain."
       }
     }
+  },
+  "ruleProblemPatternEmpty": {
+    "message": "the match pattern is empty. Type the text a field's name should contain.",
+    "description": "FR-070. Every ruleProblem* message names the cause and the correction in one sentence (NFR-020), and is written to read after \"Not saved: \"."
+  },
+  "ruleProblemPatternInvalid": {
+    "message": "that is not a valid regular expression ($DETAIL$). Correct the syntax, or switch the mode to Contains to match the text literally.",
+    "description": "FR-070. The detail is the regex engine's own complaint, which is not translated.",
+    "placeholders": {
+      "detail": {
+        "content": "$1",
+        "example": "Invalid regular expression: missing ) "
+      }
+    }
+  },
+  "ruleProblemPatternBacktracks": {
+    "message": "this pattern can backtrack catastrophically and would hang the extension — $DETAIL$. Rewrite the repeated group so its parts cannot match the same text.",
+    "description": "FR-070, NFR-009. The detail names the offending construct and is not translated.",
+    "placeholders": {
+      "detail": {
+        "content": "$1",
+        "example": "\"(a+)+\" repeats a group that already repeats — the classic (a+)+ shape"
+      }
+    }
+  },
+  "ruleProblemNoSources": {
+    "message": "this rule matches against no source, so it can never fire. Tick at least one source, or go back to \"Whatever is enabled globally\".",
+    "description": "FR-067. Unticking all six is one click away in the editor and produces a rule that looks finished and is dead."
+  },
+  "ruleProblemTemplateInvalid": {
+    "message": "the template cannot be read — $DETAIL$. Fix the placeholder, or remove the braces to use the text literally.",
+    "description": "FR-070. The detail names the offending placeholder and is not translated.",
+    "placeholders": {
+      "detail": {
+        "content": "$1",
+        "example": "\"{nope}\" is not a placeholder. Available: letter, digit, alphanumeric"
+      }
+    }
+  },
+  "ruleProblemRegexUngeneratable": {
+    "message": "no value can be generated from this pattern — $DETAIL$. Generation supports literals, character classes, groups, alternation and quantifiers; replace anything else.",
+    "description": "FR-021, FR-070. A pattern can be valid to match with and impossible to generate from.",
+    "placeholders": {
+      "detail": {
+        "content": "$1",
+        "example": "lookahead is not supported"
+      }
+    }
+  },
+  "ruleProblemGeneratorBacktracks": {
+    "message": "this pattern can backtrack catastrophically — $DETAIL$. Rewrite the repeated group so its parts cannot match the same text.",
+    "description": "FR-070, NFR-009, for the generator's own pattern rather than the matcher's.",
+    "placeholders": {
+      "detail": {
+        "content": "$1",
+        "example": "\"(a|ab)+\" repeats alternatives that can both match \"a\", so a failure has to try every split"
+      }
+    }
+  },
+  "ruleProblemListEmpty": {
+    "message": "a randomised list needs at least one item. Type one value per line.",
+    "description": "FR-070."
+  },
+  "ruleProblemNumberRange": {
+    "message": "the minimum is greater than the maximum. Lower the minimum, or raise the maximum.",
+    "description": "FR-070."
+  },
+  "ruleProblemTextRange": {
+    "message": "the shortest length is greater than the longest. Lower the shortest, or raise the longest.",
+    "description": "FR-070."
+  },
+  "ruleProblemDateNoToken": {
+    "message": "the format contains no date token, so every field would receive the format itself. Use tokens such as YYYY-MM-DD.",
+    "description": "FR-070."
+  },
+  "ruleProblemDateBounds": {
+    "message": "the range bounds must be real dates, written as YYYY-MM-DD.",
+    "description": "FR-070."
+  },
+  "ruleProblemDateRange": {
+    "message": "the date range starts after it ends. Swap the two bounds.",
+    "description": "FR-070."
   },
   "genName": {
     "message": "Name",
