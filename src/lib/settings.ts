@@ -324,6 +324,23 @@ export const DEFAULT_PASSWORD_POLICY: PasswordPolicy = {
 };
 
 /**
+ * What `parseSettings` will accept as a password length.
+ *
+ * Named here so the screen that edits it and the parser that stores it cannot
+ * hold different bounds. They did: the control had none at all, so a length of 0
+ * lived happily in the options page's memory while storage held the clamped
+ * value — and because this page decides whose write a change was by comparing
+ * `parseSettings(memory)` with storage, the clamp came back looking like its own
+ * work and was never adopted. The screen's sample and the next fill then
+ * disagreed until a reload.
+ *
+ * The floor is 1 because a zero-length password is the empty string, which no
+ * field wants and every `required` field rejects. The ceiling is arbitrary and
+ * generous: it is a bound against nonsense, not a policy.
+ */
+export const PASSWORD_LENGTH: { readonly min: number; readonly max: number } = { min: 1, max: 256 };
+
+/**
  * The shipped consent vocabulary (FR-015).
  *
  * English only, because it is what the reference page and the great majority of
@@ -488,7 +505,12 @@ export function parseSettings(stored: unknown): Settings {
       ),
     },
     passwords: {
-      length: integer(passwords['length'], DEFAULT_PASSWORD_POLICY.length, 1, 256),
+      length: integer(
+        passwords['length'],
+        DEFAULT_PASSWORD_POLICY.length,
+        PASSWORD_LENGTH.min,
+        PASSWORD_LENGTH.max,
+      ),
       upper: boolean(passwords['upper'], DEFAULT_PASSWORD_POLICY.upper),
       lower: boolean(passwords['lower'], DEFAULT_PASSWORD_POLICY.lower),
       digits: boolean(passwords['digits'], DEFAULT_PASSWORD_POLICY.digits),

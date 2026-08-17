@@ -1,5 +1,5 @@
-import { message } from '@/lib/platform/i18n';
-import type { Profile } from '@/lib/settings';
+import { message, type MessageKey } from '@/lib/platform/i18n';
+import type { Profile, Settings } from '@/lib/settings';
 import { appendAt, moveAt, removeAt, replaceAt } from '@/lib/lists';
 import { newProfile } from '@/lib/profiles';
 import { validateDomainPattern } from '@/lib/rules/validate';
@@ -34,6 +34,35 @@ let openProfileId: string | undefined;
  */
 export function isEditingProfile(): boolean {
   return openProfileId !== undefined;
+}
+
+/**
+ * Closes the editor when the profile it belongs to has been deleted by somebody
+ * else (UC-015 A4).
+ *
+ * The page skips this section while a profile is open, so that adopting another
+ * writer's settings cannot collapse the editor under the caret. That skip has no
+ * end condition of its own: if their write was the *deletion* of the open
+ * profile, the editor stayed on screen over a profile that no longer exists —
+ * `live()` fell back to the object it was built from, every further edit computed
+ * `replaceAt(profiles, -1, …)` and wrote nothing, and the section went on being
+ * skipped for every later change too. A ghost that silently swallows typing is a
+ * worse outcome than the collapse the skip exists to prevent.
+ *
+ * The rule draft inside it is already handled — `adoptKeepingEdit` finds no
+ * profile to write back to and drops it, which is A4's first step. This is the
+ * same decision applied to the surface: the list is gone, so its editor goes,
+ * and the profile is not resurrected to keep it company.
+ *
+ * Returns whether it closed one, so the caller can say so rather than leaving the
+ * editor to vanish with no explanation.
+ */
+export function closeIfProfileGone(settings: Settings): boolean {
+  if (openProfileId === undefined) return false;
+  if (settings.profiles.some((candidate) => candidate.id === openProfileId)) return false;
+
+  openProfileId = undefined;
+  return true;
 }
 
 export function renderProfiles(host: OptionsHost, into: HTMLElement): void {
@@ -194,22 +223,47 @@ function remove(host: OptionsHost, profile: Profile, into: HTMLElement): HTMLEle
   button.textContent = message('profileDelete');
   button.setAttribute('aria-label', `${message('profileDelete')}: ${nameOf(profile)}`);
   button.addEventListener('click', () => {
-    const count = profile.rules.length;
+    // Found by id, in the list as it stands. `indexOf(profile)` was the object
+    // this row was *built* from, and every edit inside the editor replaces it:
+    // `update` writes a new profile and patches the header rather than rebuilding
+    // the row, precisely so the caret survives. So after any edit the captured
+    // object was no longer in the list, `indexOf` answered -1, and
+    // `removeAt(list, -1)` filtered on a position no entry has — the list was
+    // saved unchanged while the deletion was announced and the editor collapsed.
+    // Naming a profile and then deleting it is the shortest path to it, which is
+    // to say the ordinary one.
+    const profiles = host.settings().profiles;
+    const at = profiles.findIndex((candidate) => candidate.id === profile.id);
+
+    // The profile as it stands, for the question and the announcement. The
+    // captured one carries the name and rule count from before the edits, and a
+    // confirmation stating the cost of a profile other than the one about to be
+    // deleted is not the confirmation BR-016-2 asks for.
+    const current = profiles[at] ?? profile;
+    const count = current.rules.length;
     // The count is in the question, because "delete this profile?" and "delete
     // this profile and the 14 rules in it?" are different questions and only one
     // of them is the one being asked.
     const confirmed = globalThis.confirm(
       count === 0
-        ? message('profileDeleteConfirmEmpty', [nameOf(profile)])
-        : message('profileDeleteConfirm', [nameOf(profile), String(count)]),
+        ? message('profileDeleteConfirmEmpty', [nameOf(current)])
+        : message('profileDeleteConfirm', [nameOf(current), String(count)]),
     );
     if (!confirmed) return;
 
-    save(host, removeAt(host.settings().profiles, host.settings().profiles.indexOf(profile)));
+    // Already gone, because another writer deleted it while this page had it on
+    // screen. There is nothing to remove, and writing the list back would be this
+    // page asserting a state it did not compose. The row goes either way, which
+    // is both what the user asked for and where they already are (UC-015 A4).
+    if (at !== -1) save(host, removeAt(profiles, at));
     if (openProfileId === profile.id) openProfileId = undefined;
-    host.announce(message('profileDeleted', [nameOf(profile)]));
+    host.announce(message('profileDeleted', [nameOf(current)]));
     renderProfiles(host, into);
-    focusIn(into, 'button.primary');
+    // `.profile-add`, not `button.primary`. An open profile contains the rule
+    // editor and *its* Add button is also `.primary` and comes first in document
+    // order — the ambiguity this class was added to fix, walked into by the one
+    // selector that had not been updated.
+    focusIn(into, '.profile-add');
   });
   return button;
 }
@@ -242,6 +296,19 @@ function editor(host: OptionsHost, profile: Profile, into: HTMLElement): HTMLEle
     const name = header.querySelector('.profile-name');
     if (name instanceof HTMLElement && name.firstChild !== null) {
       name.firstChild.textContent = nameOf(next);
+    }
+
+    // The accessible names of the row's other controls, which embed the profile's
+    // name too. Found alongside the flag: the visible header was being kept true
+    // and "Delete: Staging" was left announcing a profile that had since been
+    // renamed — the one reading a screen-reader user has, and the only one that
+    // could send them to delete the wrong thing (NFR-019).
+    for (const [selector, key] of [
+      ['.profile-delete', 'profileDelete'],
+      ['.rule-order button[data-direction="up"]', 'ruleMoveUp'],
+      ['.rule-order button[data-direction="down"]', 'ruleMoveDown'],
+    ] as ReadonlyArray<readonly [string, MessageKey]>) {
+      header.querySelector(selector)?.setAttribute('aria-label', `${message(key)}: ${nameOf(next)}`);
     }
 
     const problem = problemOf(next);
@@ -320,6 +387,13 @@ function urls(
   for (const [index, pattern] of profile.urls.entries()) {
     const row = document.createElement('div');
     row.className = 'row';
+    // Addressed by position, the way the exclusion lists address their rows.
+    // What this replaces was `.row:nth-of-type(n)`, which counts *div* siblings
+    // — and the problem lines between the rows are divs too, so it named the
+    // right element only for the first pattern and matched nothing from the
+    // second on. The focus then fell to `<body>` after the rebuild, silently,
+    // because `focusIn` reports a miss and this caller had nothing to report to.
+    row.dataset['url'] = String(index);
 
     const problems = document.createElement('div');
     problems.className = 'problems';
@@ -370,7 +444,7 @@ function urls(
     const at = live().urls.length;
     update({ ...live(), urls: appendAt(live().urls, '') });
     renderProfiles(host, into);
-    focusIn(into, `[data-profile="${profile.id}"] .row:nth-of-type(${String(at + 1)}) input`);
+    focusIn(into, `[data-profile="${profile.id}"] [data-url="${String(at)}"] input`);
   });
   group.append(add);
   return group;

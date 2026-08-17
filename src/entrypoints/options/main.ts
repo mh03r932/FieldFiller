@@ -10,8 +10,9 @@ import {
   renderRules,
   type RuleEditorHost,
 } from './rules';
+import { focusIn } from './controls';
 import { SECTIONS } from './sections';
-import { isEditingProfile } from './profiles-section';
+import { closeIfProfileGone, isEditingProfile } from './profiles-section';
 import type { FieldReportEntry, FillReport, ReportResponse } from '@/lib/protocol';
 
 /**
@@ -152,10 +153,19 @@ async function mountSettings(): Promise<void> {
         announce(message('settingsAdoptedFromElsewhere'));
       }
 
+      // Checked before the sections are drawn, so the profiles section is no
+      // longer skipped on behalf of an editor whose profile they deleted
+      // (UC-015 A4). Announced over the general adoption sentence above, because
+      // it is the more specific thing that just happened to this user: their
+      // editor is about to disappear, and the general sentence does not account
+      // for it.
+      const profileGone = closeIfProfileGone(settings);
+      if (profileGone) announce(message('profileRemovedElsewhere'));
+
       // The other sections either way: none of them holds a draft the way an
       // open rule does, so there is nothing for a rebuild to discard — except
       // the caret, which is why `renderSections` skips whatever is focused.
-      renderSections(editor);
+      renderSections(editor, profileGone ? 'profiles' : undefined);
     });
   });
 }
@@ -175,19 +185,39 @@ async function mountSettings(): Promise<void> {
  * user is told a change arrived, and this page's memory is level with storage
  * either way — so the next thing they type saves against *their* state and not
  * over it.
+ *
+ * `force` names the one section that must be drawn regardless, and it exists for
+ * a case where both exemptions above argue the wrong way: the open profile has
+ * been deleted by somebody else (UC-015 A4). Its editor then edits nothing —
+ * every keystroke computes a write against a profile that is not in the list and
+ * saves the list unchanged — so preserving the caret preserves it inside a
+ * control that silently discards typing. The caret is taken, the announcement
+ * says why, and the focus is put somewhere real by the caller.
  */
-function renderSections(editor: RuleEditorHost): void {
+function renderSections(editor: RuleEditorHost, force?: string): void {
   const focused = document.activeElement;
   for (const section of SECTIONS) {
     const into = document.querySelector(`#${section.id}`);
     if (!(into instanceof HTMLElement)) continue;
-    if (focused !== null && into.contains(focused)) continue;
-    // A profile holds an open item and a rule editor inside it, so it is skipped
-    // on the same terms the rule list is: rebuilding it would collapse the open
-    // profile and discard whatever rule was being written inside it. It catches
-    // up when the profile closes.
-    if (section.id === 'profiles' && isEditingProfile()) continue;
+    // Asked before the render, because rendering detaches whatever was focused
+    // and `contains` would then answer no about the element it just destroyed.
+    const heldFocus = focused !== null && into.contains(focused);
+
+    if (section.id !== force) {
+      if (heldFocus) continue;
+      // A profile holds an open item and a rule editor inside it, so it is
+      // skipped on the same terms the rule list is: rebuilding it would collapse
+      // the open profile and discard whatever rule was being written inside it.
+      // It catches up when the profile closes.
+      if (section.id === 'profiles' && isEditingProfile()) continue;
+    }
     section.render(editor, into);
+
+    // Only where the rebuild was forced, and therefore only where it may have
+    // just destroyed the focused control. Everywhere else the section either was
+    // not holding the focus or was skipped for holding it, so moving the focus
+    // here would take it from wherever the user actually is.
+    if (section.id === force && heldFocus) focusIn(into, '.profile-add');
   }
 }
 

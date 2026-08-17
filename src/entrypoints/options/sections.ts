@@ -1,6 +1,7 @@
 import { message, type MessageKey } from '@/lib/platform/i18n';
 import {
   MATCH_SOURCES,
+  PASSWORD_LENGTH,
   type Behaviour,
   type Matcher,
   type MatchSource,
@@ -546,7 +547,7 @@ export function renderPasswords(host: OptionsHost, into: HTMLElement): void {
   into.replaceChildren(
     field(
       message('passwordLength'),
-      numberInput(policy.length, (value) => update({ length: Math.trunc(value) })),
+      numberInput(policy.length, (value) => update({ length: value }), PASSWORD_LENGTH),
       message('passwordLengthHint'),
     ),
     classes,

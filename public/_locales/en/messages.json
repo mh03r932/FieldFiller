@@ -1017,6 +1017,10 @@
       }
     }
   },
+  "profileRemovedElsewhere": {
+    "message": "The profile you were editing was deleted somewhere else, so its editor has closed. Anything you were writing inside it is gone with it.",
+    "description": "UC-015 A4: another options page deleted the profile open here. The editor is closed rather than left over a profile that no longer exists, and the rule draft inside it is dropped — said plainly, because the editor disappearing on its own would otherwise look like a fault."
+  },
   "profileMoved": {
     "message": "$PROFILE$ moved to position $POSITION$ of $TOTAL$.",
     "description": "Announced politely after a profile is reordered (BR-014-2).",

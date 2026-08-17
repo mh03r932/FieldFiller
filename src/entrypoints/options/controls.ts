@@ -39,13 +39,37 @@ export function textInput(value: string, onChange: (value: string) => void): HTM
   return input;
 }
 
-export function numberInput(value: number, onChange: (value: number) => void): HTMLInputElement {
+/**
+ * A whole number within stated bounds.
+ *
+ * The bounds are the caller's, and they are not decoration: `min` and `max` go on
+ * the element for the browser's own validation, and the guard is what keeps a
+ * value `parseSettings` would refuse out of this page's memory in the first
+ * place. Without it the two disagreed and stayed that way — a password length of
+ * 0 reached memory, storage clamped it on the way in, and the page's own storage
+ * listener then compared `parseSettings(memory)` against storage, found them
+ * equal, and concluded the clamped echo was its own write with nothing to adopt.
+ * So the sample on screen was generated from 0 (the empty string) while every
+ * fill used the stored length, until the page was reloaded.
+ *
+ * Anything outside the bounds is ignored rather than clamped as it is typed.
+ * Clamping fights the caret — a box on its way to `12` passes through `1` — and
+ * the element's own `min`/`max` already mark the entry invalid on screen, which
+ * is the same treatment `optionalNumberInput` gives and for the same reason.
+ */
+export function numberInput(
+  value: number,
+  onChange: (value: number) => void,
+  { min, max }: { readonly min: number; readonly max: number },
+): HTMLInputElement {
   const input = document.createElement('input');
   input.type = 'number';
+  input.min = String(min);
+  input.max = String(max);
   input.value = String(value);
   input.addEventListener('input', () => {
     const parsed = Number(input.value);
-    if (Number.isFinite(parsed)) onChange(parsed);
+    if (Number.isInteger(parsed) && parsed >= min && parsed <= max) onChange(parsed);
   });
   return input;
 }
