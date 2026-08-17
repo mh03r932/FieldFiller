@@ -111,6 +111,23 @@ export async function freePort() {
 const CDP_TIMEOUT_MS = 30_000;
 
 /**
+ * What a page or worker threw, as a sentence.
+ *
+ * `Runtime.evaluate` reports a thrown expression — or, under `awaitPromise`, a
+ * rejected promise — in `exceptionDetails`, and answers *successfully* while
+ * doing it: the command worked, the code inside it did not. A caller reading
+ * `result.value` therefore gets `undefined` and carries on, so the harness fails
+ * later and somewhere else, naming the wrong thing. Every one of these is
+ * surfaced at the `send` that caused it instead.
+ *
+ * `description` carries the message and stack where there is one; `text` is
+ * usually just "Uncaught", so it is the fallback rather than the answer.
+ */
+function describeException(details) {
+  return details.exception?.description ?? details.text ?? 'threw, with no detail given';
+}
+
+/**
  * A minimal CDP client with flat session support.
  *
  * Sessions are needed because service-worker targets are only reachable through
@@ -185,7 +202,9 @@ export async function connect(url, { timeoutMs = CDP_TIMEOUT_MS } = {}) {
           settle: (frame) => {
             clearTimeout(watchdog);
             if (frame.error) reject(new Error(`${method}: ${frame.error.message}`));
-            else resolve(frame.result);
+            else if (frame.result?.exceptionDetails !== undefined) {
+              reject(new Error(`${method}: ${describeException(frame.result.exceptionDetails)}`));
+            } else resolve(frame.result);
           },
           reject: (error) => {
             clearTimeout(watchdog);
@@ -212,8 +231,16 @@ export async function connect(url, { timeoutMs = CDP_TIMEOUT_MS } = {}) {
  * The flags are the ones every harness passed identically. `extensionDir` is
  * optional: a spike measuring page behaviour rather than the extension passes
  * nothing and gets a plain browser.
+ *
+ * Nothing survives a failure here. The caller's handle comes from destructuring
+ * what this returns, so a throw leaves its `chrome` unassigned and its
+ * `finally { chrome?.kill() }` a no-op — and the browser, if it did start,
+ * outlives the run holding the temp profile open, which is what makes the next
+ * run's `rmSync` fail too. The inline code this replaced assigned the caller's
+ * variable before it could fail; owning the cleanup here restores that property
+ * rather than asking every harness to remember it.
  */
-export async function launchChromium(extensionDir, profileDir, extraArguments = []) {
+export async function launchChromium(extensionDir, profileDir) {
   const debugPort = await freePort();
   const chrome = spawn(
     findChrome(),
@@ -232,26 +259,31 @@ export async function launchChromium(extensionDir, profileDir, extraArguments = 
       ...(process.env['CI'] === undefined ? [] : ['--no-sandbox', '--disable-dev-shm-usage']),
       '--no-first-run',
       '--no-default-browser-check',
-      ...extraArguments,
       'about:blank',
     ],
     { stdio: 'ignore' },
   );
 
-  let wsUrl;
-  for (let attempt = 0; attempt < 100 && wsUrl === undefined; attempt++) {
-    try {
-      wsUrl = (await (await fetch(`http://127.0.0.1:${debugPort}/json/version`)).json())
-        .webSocketDebuggerUrl;
-    } catch {
-      await sleep(150);
+  try {
+    let wsUrl;
+    for (let attempt = 0; attempt < 100 && wsUrl === undefined; attempt++) {
+      try {
+        wsUrl = (await (await fetch(`http://127.0.0.1:${debugPort}/json/version`)).json())
+          .webSocketDebuggerUrl;
+      } catch {
+        await sleep(150);
+      }
     }
+    if (wsUrl === undefined) {
+      throw new Error(`Chromium never opened a debugging endpoint on port ${debugPort}`);
+    }
+    return { chrome, cdp: await connect(wsUrl) };
+  } catch (error) {
+    // Covers both failure points: an endpoint that never opened, and a socket
+    // that refused the connection after it did.
+    chrome.kill();
+    throw error;
   }
-  if (wsUrl === undefined) {
-    throw new Error(`Chromium never opened a debugging endpoint on port ${debugPort}`);
-  }
-
-  return { chrome, cdp: await connect(wsUrl) };
 }
 
 /**
