@@ -42,11 +42,40 @@ jobs:
       # rather than in the workflow, and local runs use the same version CI does.
       - uses: pnpm/action-setup@v4
 
+      # No `cache: pnpm` here, deliberately, though it is the obvious way to write
+      # this. That option makes `setup-node` shell out to `pnpm store path` to
+      # find the directory it should cache — so it needs pnpm on `PATH` inside a
+      # JavaScript action, and on this runner it is not there. The step before
+      # reports "Running self-installer… Installation Completed!" and this one
+      # then fails with "Unable to locate executable file: pnpm", which is
+      # `action-setup`'s `GITHUB_PATH` entry reaching the shell steps but not the
+      # action steps. The failure lands before a single line of the project has
+      # been built, and reads as though the package manager were misconfigured.
+      #
+      # Caching the store ourselves keeps the speed and removes the only step
+      # that needed pnpm from somewhere it might not be.
+      #
+      # `Locate the pnpm store` is also the diagnostic if this reading is wrong.
+      # It is a shell step, so if pnpm is missing there too the problem is not
+      # about action steps at all — and it says so at the point of failure,
+      # rather than leaving `Install dependencies` to fail for what looks like an
+      # unrelated reason. `pnpm store path` reports the configured directory
+      # whether or not it exists yet, so a cold runner is not a special case.
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 24
-          cache: pnpm
+
+      - name: Locate the pnpm store
+        run: echo "PNPM_STORE=$(pnpm store path --silent)" >> "$GITHUB_ENV"
+
+      - name: Cache the pnpm store
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.PNPM_STORE }}
+          key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            pnpm-${{ runner.os }}-
 
       # Frozen: the lockfile is an input to the reproducible build (NFR-011), so
       # an install that is allowed to resolve differently from the committed tree
@@ -93,11 +122,23 @@ jobs:
 
       - uses: pnpm/action-setup@v4
 
+      # No `cache: pnpm`, and the store cached by hand instead — see the `quality`
+      # job, where the reason is written out in full.
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 24
-          cache: pnpm
+
+      - name: Locate the pnpm store
+        run: echo "PNPM_STORE=$(pnpm store path --silent)" >> "$GITHUB_ENV"
+
+      - name: Cache the pnpm store
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.PNPM_STORE }}
+          key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            pnpm-${{ runner.os }}-
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -215,11 +256,23 @@ jobs:
       # rather than in the workflow, and local runs use the same version CI does.
       - uses: pnpm/action-setup@v4
 
+      # No `cache: pnpm`, and the store cached by hand instead — see the `quality`
+      # job, where the reason is written out in full.
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 24
-          cache: pnpm
+
+      - name: Locate the pnpm store
+        run: echo "PNPM_STORE=$(pnpm store path --silent)" >> "$GITHUB_ENV"
+
+      - name: Cache the pnpm store
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.PNPM_STORE }}
+          key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            pnpm-${{ runner.os }}-
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
