@@ -4,7 +4,7 @@ import { classify, classifyStructural, matchesIgnorePattern, radioGroup } from '
 import { describe as describeField } from '@/lib/page/identify';
 import { applyValue, type WritableValue } from '@/lib/page/apply';
 import { createPersona, seededRandom } from '@/lib/persona/persona';
-import { generateValue } from '@/lib/generators/default-generator';
+import { generateValue, mirrorsAnotherField } from '@/lib/generators/default-generator';
 import { generateBatch } from '@/lib/generators/batch';
 import type { ControlKind, FieldDescriptor } from '@/lib/protocol';
 
@@ -405,6 +405,65 @@ describe('confirmation fields (UC-006, ND-7, D2)', () => {
     valueFor('<input type="text" name="nickname">');
     valueFor('<input type="text" name="street">');
     expect(valueFor('<input type="email" name="email_confirmation">')).toBe(first);
+  });
+});
+
+/**
+ * The second address line, reached by name rather than by `autocomplete`.
+ *
+ * The slot arrived with the corpus and was reachable only through
+ * `autocomplete="address-line2"`: `/address|street/` sat above it in the hint
+ * list and first match wins, so every `address2` went to the *first* line. That
+ * is not merely the wrong slot — `2$` is also a confirmation marker, so the
+ * field was told to agree with the street address and both lines came out
+ * identical.
+ */
+describe('second address line by identity (UC-004)', () => {
+  const valueFor = (html: string): string => {
+    const value = generateValue(descriptorFor(html), persona, random);
+    return value.as === 'text' ? value.value : '';
+  };
+
+  it.each([
+    ['a bare ordinal', '<input name="address2">'],
+    ['an underscored line number', '<input name="address_line_2">'],
+    ['a hyphenated line number', '<input name="address-line-2">'],
+    ['a human label', '<label>Address line 2<input name="al2"></label>'],
+    ['the German storey', '<input name="stock">'],
+    ['an apartment', '<input name="apartment">'],
+  ])('resolves %s to the second line', (_label, html) => {
+    expect(valueFor(html)).toBe(persona.addressLine2);
+  });
+
+  it.each([
+    ['address', '<input name="address">'],
+    ['street', '<input name="street">'],
+    ['address_line_1', '<input name="address_line_1">'],
+  ])('still resolves %s to the first line', (_label, html) => {
+    expect(valueFor(html)).toBe(persona.streetAddress);
+  });
+
+  it('does not give the two lines the same value', () => {
+    // The failure this whole block exists for: one persona, two lines, and a
+    // form that reads as though the user typed their street twice.
+    expect(valueFor('<input name="address">')).not.toBe(valueFor('<input name="address2">'));
+  });
+
+  it('does not let a city keep its slot be stolen by a placeholder', () => {
+    // `identityOf` joins every source, so a city field suggesting "Stockholm"
+    // carries the letters `stock`. The storey token is therefore anchored: it
+    // has to be the word, not a fragment of a place name. Guards the reordering
+    // above, which is what made this reachable at all.
+    expect(valueFor('<input name="city" placeholder="e.g. Stockholm">')).toBe(persona.locality);
+  });
+
+  it('is not a confirmation field, so a rule on it is not overridden', () => {
+    // `2$` marks a field as confirming another (UC-006), which is right for
+    // `password2` and wrong here: the 2 is an ordinal, not a repetition. Left
+    // as-is, a user rule aimed at `address2` loses to a mirror of a field it
+    // never confirmed (DD-005).
+    expect(mirrorsAnotherField(descriptorFor('<input name="address2">'))).toBe(false);
+    expect(mirrorsAnotherField(descriptorFor('<input name="password2">'))).toBe(true);
   });
 });
 

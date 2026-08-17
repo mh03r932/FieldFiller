@@ -31,13 +31,12 @@
  *   RUNS=…         samples per measurement (default 21)
  *   HEADFUL=1      show the window
  */
-import { spawn } from 'node:child_process';
-import { createRequire } from 'node:module';
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { launchChromium, sleep } from './lib/chromium.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const RUNS = Number(process.env['RUNS'] ?? 21);
@@ -64,77 +63,6 @@ const WIDENED = `${SHIPPED}, [role="combobox"], [role="listbox"], [aria-haspopup
 
 /** NFR-001. The walk is one part of this; the question is what part. */
 const FILL_BUDGET_MS = 500;
-
-const CHROME_CANDIDATES = [
-  '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
-  '/Applications/Chromium.app/Contents/MacOS/Chromium',
-  '/usr/bin/google-chrome',
-  '/usr/bin/chromium',
-  '/usr/bin/chromium-browser',
-];
-
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
-function playwrightChromium() {
-  try {
-    const require = createRequire(import.meta.url);
-    const path = require('playwright').chromium.executablePath();
-    return existsSync(path) ? path : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-function findChrome() {
-  const fromEnv = process.env['CHROME_PATH'];
-  if (fromEnv !== undefined && existsSync(fromEnv)) return fromEnv;
-  const pinned = playwrightChromium();
-  if (pinned !== undefined) return pinned;
-  const found = CHROME_CANDIDATES.find((candidate) => existsSync(candidate));
-  if (found === undefined) {
-    throw new Error(
-      'No Chrome or Chromium found. Run `pnpm exec playwright install chromium`, or set CHROME_PATH.',
-    );
-  }
-  return found;
-}
-
-async function freePort() {
-  const probe = createServer();
-  await new Promise((resolve) => probe.listen(0, '127.0.0.1', resolve));
-  const { port } = probe.address();
-  await new Promise((resolve) => probe.close(resolve));
-  return port;
-}
-
-async function connect(url) {
-  const socket = new WebSocket(url);
-  const pending = new Map();
-  let nextId = 1;
-  await new Promise((resolve, reject) => {
-    socket.addEventListener('open', () => resolve());
-    socket.addEventListener('error', () => reject(new Error(`CDP connection failed: ${url}`)));
-  });
-  socket.addEventListener('message', (event) => {
-    const frame = JSON.parse(event.data);
-    if (frame.id !== undefined) { pending.get(frame.id)?.(frame); pending.delete(frame.id); }
-  });
-  return {
-    send(method, params = {}, sessionId) {
-      const id = nextId++;
-      return new Promise((resolve, reject) => {
-        pending.set(id, (frame) =>
-          frame.error ? reject(new Error(`${method}: ${frame.error.message}`)) : resolve(frame.result));
-        socket.send(JSON.stringify({ id, method, params, ...(sessionId ? { sessionId } : {}) }));
-      });
-    },
-    async attach(targetId) {
-      const { sessionId } = await this.send('Target.attachToTarget', { targetId, flatten: true });
-      return sessionId;
-    },
-    close() { socket.close(); },
-  };
-}
 
 /**
  * A page shaped like an application rather than like a form.
@@ -201,22 +129,9 @@ await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
 const origin = `http://127.0.0.1:${server.address().port}`;
 
 try {
-  const debugPort = await freePort();
-  chrome = spawn(findChrome(), [
-    `--user-data-dir=${profileDir}`,
-    `--remote-debugging-port=${debugPort}`,
-    ...(process.env['HEADFUL'] === '1' ? [] : ['--headless=new']),
-    ...(process.env['CI'] === undefined ? [] : ['--no-sandbox', '--disable-dev-shm-usage']),
-    '--no-first-run', '--no-default-browser-check', 'about:blank',
-  ], { stdio: 'ignore' });
-
-  let wsUrl;
-  for (let attempt = 0; attempt < 100 && wsUrl === undefined; attempt++) {
-    try {
-      wsUrl = (await (await fetch(`http://127.0.0.1:${debugPort}/json/version`)).json()).webSocketDebuggerUrl;
-    } catch { await sleep(150); }
-  }
-  cdp = await connect(wsUrl);
+  // No extension: this spike measures how third-party combobox widgets behave,
+  // not how we fill them, so it wants a plain browser.
+  ({ chrome, cdp } = await launchChromium(undefined, profileDir));
 
   const initial = (await cdp.send('Target.getTargets')).targetInfos.find((t) => t.type === 'page');
   const targetId =

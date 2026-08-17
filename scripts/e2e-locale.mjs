@@ -1,109 +1,37 @@
 #!/usr/bin/env node
 /**
- * UC-002, UC-003 and UC-008 against a real Chromium with the extension loaded.
+ * Both locales end to end, in a real Chromium with the extension loaded.
  *
- * The unit tests in `tests/scope.test.ts` decide whether the DD-008 ladder is
- * *correct*; this decides whether it is *reachable*. Everything between the two
- * lives outside happy-dom: the context menu's `frameId`, `chrome.tabs.get`
- * returning a URL under `activeTab`, the badge, and the fact that the agent has
- * to have seen the right-click itself because Chrome will not tell us which
- * element it was (DD-001).
+ * `tests/corpus.test.ts` checks the data and `tests/persona.test.ts` checks that
+ * a generated record keeps its pairings. Neither can reach the path this covers:
+ * a locale *chosen* — written to `chrome.storage`, read back through the
+ * tolerant parser, resolved past `auto`, used to select a corpus, turned into a
+ * record, and written onto a real page by the real fill.
  *
- * Each case reloads the fixture first. Scope is the thing under test, so a run
- * that inherited another case's writes would be scoring the wrong page — and the
- * failure would read as a scope leak, which is exactly the defect this exists to
- * catch.
+ * The reason it exists is de-CH. Every other harness runs on a headless Chrome
+ * whose UI language resolves to en-US, so until this was written the Swiss
+ * corpus had never produced a value in a browser at all — its phone numbers and
+ * four-digit postcodes were exercised only in unit tests, against the same
+ * tables that generated them.
  *
- * Usage: pnpm run build && pnpm run scopes:chrome
+ * What is asserted is *shape*, never content: `EXPECTED` says what a postcode
+ * has to look like in each country. Asserting the values would mean copying the
+ * corpus into the harness, and a check that restates its subject proves nothing.
+ *
+ * Usage: pnpm run build && pnpm run locale:chrome
+ *   CHROME_PATH=…  override the browser binary
+ *   HEADFUL=1      show the window
  */
-import { spawn } from 'node:child_process';
-import { createRequire } from 'node:module';
-import { createHash } from 'node:crypto';
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, existsSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { attachToWorker, derivedExtensionId, launchChromium, sleep } from './lib/chromium.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const EXTENSION_DIR = join(ROOT, '.output', 'chrome-mv3');
 const FIXTURE = join(ROOT, 'tests', 'fixtures', 'reference.html');
-
-const CHROME_CANDIDATES = [
-  '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
-  '/Applications/Chromium.app/Contents/MacOS/Chromium',
-  '/usr/bin/google-chrome',
-  '/usr/bin/chromium',
-  '/usr/bin/chromium-browser',
-];
-
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
-function playwrightChromium() {
-  try {
-    const require = createRequire(import.meta.url);
-    const path = require('playwright').chromium.executablePath();
-    return existsSync(path) ? path : undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-function findChrome() {
-  const fromEnv = process.env['CHROME_PATH'];
-  if (fromEnv !== undefined && existsSync(fromEnv)) return fromEnv;
-  const pinned = playwrightChromium();
-  if (pinned !== undefined) return pinned;
-  const found = CHROME_CANDIDATES.find((candidate) => existsSync(candidate));
-  if (found === undefined) {
-    throw new Error(
-      'No Chrome or Chromium found. Run `pnpm exec playwright install chromium`, or set CHROME_PATH.',
-    );
-  }
-  return found;
-}
-
-function derivedExtensionId(absolutePath) {
-  const hash = createHash('sha256').update(absolutePath).digest('hex').slice(0, 32);
-  return [...hash].map((digit) => String.fromCharCode(97 + parseInt(digit, 16))).join('');
-}
-
-async function freePort() {
-  const probe = createServer();
-  await new Promise((resolve) => probe.listen(0, '127.0.0.1', resolve));
-  const { port } = probe.address();
-  await new Promise((resolve) => probe.close(resolve));
-  return port;
-}
-
-async function connect(url) {
-  const socket = new WebSocket(url);
-  const pending = new Map();
-  let nextId = 1;
-  await new Promise((resolve, reject) => {
-    socket.addEventListener('open', () => resolve());
-    socket.addEventListener('error', () => reject(new Error(`CDP connection failed: ${url}`)));
-  });
-  socket.addEventListener('message', (event) => {
-    const frame = JSON.parse(event.data);
-    if (frame.id !== undefined) { pending.get(frame.id)?.(frame); pending.delete(frame.id); }
-  });
-  return {
-    send(method, params = {}, sessionId) {
-      const id = nextId++;
-      return new Promise((resolve, reject) => {
-        pending.set(id, (frame) =>
-          frame.error ? reject(new Error(`${method}: ${frame.error.message}`)) : resolve(frame.result));
-        socket.send(JSON.stringify({ id, method, params, ...(sessionId ? { sessionId } : {}) }));
-      });
-    },
-    async attach(targetId) {
-      const { sessionId } = await this.send('Target.attachToTarget', { targetId, flatten: true });
-      return sessionId;
-    },
-    close() { socket.close(); },
-  };
-}
 
 if (!existsSync(join(EXTENSION_DIR, 'manifest.json'))) {
   console.error('✖ no Chromium build found. Run `pnpm run build` first.');
@@ -157,24 +85,7 @@ const EXPECTED = {
 const filledPerLocale = {};
 
 try {
-  const debugPort = await freePort();
-  chrome = spawn(findChrome(), [
-    `--user-data-dir=${profileDir}`,
-    `--remote-debugging-port=${debugPort}`,
-    `--load-extension=${EXTENSION_DIR}`,
-    `--disable-extensions-except=${EXTENSION_DIR}`,
-    ...(process.env['HEADFUL'] === '1' ? [] : ['--headless=new']),
-    ...(process.env['CI'] === undefined ? [] : ['--no-sandbox', '--disable-dev-shm-usage']),
-    '--no-first-run', '--no-default-browser-check', 'about:blank',
-  ], { stdio: 'ignore' });
-
-  let wsUrl;
-  for (let attempt = 0; attempt < 100 && wsUrl === undefined; attempt++) {
-    try {
-      wsUrl = (await (await fetch(`http://127.0.0.1:${debugPort}/json/version`)).json()).webSocketDebuggerUrl;
-    } catch { await sleep(150); }
-  }
-  cdp = await connect(wsUrl);
+  ({ chrome, cdp } = await launchChromium(EXTENSION_DIR, profileDir));
 
   const initial = (await cdp.send('Target.getTargets')).targetInfos.find((t) => t.type === 'page');
   const targetId =
@@ -183,14 +94,7 @@ try {
   await cdp.send('Page.enable', {}, page);
   await cdp.send('Runtime.enable', {}, page);
 
-  let worker;
-  for (let attempt = 0; attempt < 60 && worker === undefined; attempt++) {
-    const { targetInfos } = await cdp.send('Target.getTargets');
-    worker = targetInfos.find((t) => t.type === 'service_worker' && t.url.includes(extensionId));
-    if (worker === undefined) await sleep(100);
-  }
-  if (worker === undefined) throw new Error('the background service worker never started');
-  const workerSession = await cdp.attach(worker.targetId);
+  const workerSession = await attachToWorker(cdp, extensionId);
 
   const inPage = async (expression) => {
     const { result } = await cdp.send(

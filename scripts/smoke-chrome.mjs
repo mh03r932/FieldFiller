@@ -19,153 +19,18 @@
  *   CHROME_PATH=…  override the browser binary
  *   HEADFUL=1      show the window, for debugging this script
  */
-import { spawn } from 'node:child_process';
-import { createRequire } from 'node:module';
-import { createHash } from 'node:crypto';
 import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { derivedExtensionId, launchChromium, sleep } from './lib/chromium.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const EXTENSION_DIR = join(ROOT, '.output', 'chrome-mv3');
 
-const CHROME_CANDIDATES = [
-  '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
-  '/Applications/Chromium.app/Contents/MacOS/Chromium',
-  '/usr/bin/google-chrome',
-  '/usr/bin/chromium',
-  '/usr/bin/chromium-browser',
-];
-
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
 /** One of the ids `registerContextMenus` creates — see the menu probe below. */
 const MENU_PROBE_ID = 'all-inputs';
-
-/**
- * A free port, picked per run rather than fixed — a browser that outlived a
- * previous run would otherwise be found on a fixed port and quietly tested in
- * place of the build on disk.
- */
-async function freePort() {
-  const probe = createServer();
-  await new Promise((resolve) => probe.listen(0, '127.0.0.1', resolve));
-  const { port } = probe.address();
-  await new Promise((resolve) => probe.close(resolve));
-  return port;
-}
-
-/**
- * Playwright's pinned Chromium, if it has been downloaded.
- *
- * Used as a browser *locator* only — the driving below is still plain CDP. It is
- * preferred over whatever Chrome the machine happens to have so that a local run
- * and a CI run exercise the same build: "works on my machine" is otherwise a
- * statement about an unpinned browser.
- */
-function playwrightChromium() {
-  try {
-    const require = createRequire(import.meta.url);
-    const path = require('playwright').chromium.executablePath();
-    return existsSync(path) ? path : undefined;
-  } catch {
-    // Not installed. The candidate list below still applies.
-    return undefined;
-  }
-}
-
-function findChrome() {
-  const fromEnv = process.env['CHROME_PATH'];
-  if (fromEnv !== undefined && existsSync(fromEnv)) return fromEnv;
-
-  const pinned = playwrightChromium();
-  if (pinned !== undefined) return pinned;
-
-  const found = CHROME_CANDIDATES.find((candidate) => existsSync(candidate));
-  if (found === undefined) {
-    throw new Error(
-      'No Chrome or Chromium found. Run `pnpm exec playwright install chromium`, or set CHROME_PATH.',
-    );
-  }
-  return found;
-}
-
-/**
- * Chrome derives an unpacked extension's id from the absolute path it was loaded
- * from: the first 32 hex digits of its SHA-256, with 0–f mapped onto a–p. Knowing
- * the id up front is what lets this script pick our service worker out of the
- * list — Chrome loads its own component extensions regardless of
- * `--disable-extensions-except`, and two of them also have a `background.js`.
- */
-function derivedExtensionId(absolutePath) {
-  const hash = createHash('sha256').update(absolutePath).digest('hex').slice(0, 32);
-  return [...hash].map((digit) => String.fromCharCode(97 + parseInt(digit, 16))).join('');
-}
-
-async function browserWebSocketUrl(port, timeoutMs = 20000) {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    try {
-      const response = await fetch(`http://127.0.0.1:${port}/json/version`);
-      if (response.ok) return (await response.json()).webSocketDebuggerUrl;
-    } catch {
-      // Not listening yet.
-    }
-    await sleep(150);
-  }
-  throw new Error('Chrome did not open a DevTools port in time');
-}
-
-/**
- * Minimal CDP client with flat session support. Sessions are needed because
- * service-worker targets are only reachable through the browser-level endpoint —
- * `/json/list` reports pages and never workers, which is quietly misleading if
- * you use it to decide whether an extension loaded.
- */
-async function connect(url) {
-  const socket = new WebSocket(url);
-  const pending = new Map();
-  const events = [];
-  let nextId = 1;
-
-  await new Promise((resolve, reject) => {
-    socket.addEventListener('open', () => resolve());
-    socket.addEventListener('error', () => reject(new Error(`CDP connection failed: ${url}`)));
-  });
-
-  socket.addEventListener('message', (event) => {
-    const frame = JSON.parse(event.data);
-    if (frame.id !== undefined) {
-      pending.get(frame.id)?.(frame);
-      pending.delete(frame.id);
-    } else {
-      events.push(frame);
-    }
-  });
-
-  return {
-    events,
-    send(method, params = {}, sessionId) {
-      const id = nextId++;
-      return new Promise((resolve, reject) => {
-        pending.set(id, (frame) => {
-          if (frame.error) reject(new Error(`${method}: ${frame.error.message}`));
-          else resolve(frame.result);
-        });
-        socket.send(JSON.stringify({ id, method, params, ...(sessionId ? { sessionId } : {}) }));
-      });
-    },
-    async attach(targetId) {
-      const { sessionId } = await this.send('Target.attachToTarget', { targetId, flatten: true });
-      return sessionId;
-    },
-    close() {
-      socket.close();
-    },
-  };
-}
 
 if (!existsSync(join(EXTENSION_DIR, 'manifest.json'))) {
   console.error('✖ no Chromium build found. Run `pnpm run build` first.');
@@ -190,29 +55,7 @@ await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
 const pageUrl = `http://127.0.0.1:${server.address().port}/`;
 
 try {
-  const debugPort = await freePort();
-  chrome = spawn(
-    findChrome(),
-    [
-      `--user-data-dir=${profileDir}`,
-      `--remote-debugging-port=${debugPort}`,
-      `--load-extension=${EXTENSION_DIR}`,
-      `--disable-extensions-except=${EXTENSION_DIR}`,
-      // Extensions require the new headless mode; the old one ignored them.
-      ...(process.env['HEADFUL'] === '1' ? [] : ['--headless=new']),
-      // CI containers run as root, where Chrome's sandbox refuses to start, and
-      // their /dev/shm is typically too small for the renderer. Applied only
-      // when CI is set, so a developer's machine keeps the sandbox it should
-      // have.
-      ...(process.env['CI'] === undefined ? [] : ['--no-sandbox', '--disable-dev-shm-usage']),
-      '--no-first-run',
-      '--no-default-browser-check',
-      'about:blank',
-    ],
-    { stdio: 'ignore' },
-  );
-
-  cdp = await connect(await browserWebSocketUrl(debugPort));
+  ({ chrome, cdp } = await launchChromium(EXTENSION_DIR, profileDir));
 
   // 1. The background service worker registered. If the manifest had been
   //    rejected — an illegal command key, an unknown permission — there would be
