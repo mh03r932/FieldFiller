@@ -127,7 +127,7 @@ async function mountRules(): Promise<void> {
         // Foreign, and a rule is open. Take their state, carry our draft across,
         // and do not touch the DOM.
         settings = adoptKeepingEdit(stored, settings);
-        forgetUndo();
+        forgetUndo(host);
         announce(message('settingsChangedElsewhere'));
         return;
       }
@@ -136,7 +136,7 @@ async function mountRules(): Promise<void> {
       // The undo offer belongs to the list it was deleted from, and this is a
       // different list — its stored position would land the rule somewhere
       // nobody chose.
-      forgetUndo();
+      forgetUndo(host);
       // The same host object, re-rendered. Building a new one here — or calling
       // `mountRules` again — would register a second copy of this listener on
       // every foreign change, which is a leak that grows for as long as the page

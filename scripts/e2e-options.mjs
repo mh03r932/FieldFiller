@@ -197,6 +197,64 @@ try {
     await sleep(200);
   };
 
+  // ── Structural edits to a rule that is not valid yet ────────────────────────
+  // A new rule has no pattern, so it is invalid from the moment it appears —
+  // which makes "choose the generator first" an ordinary opening move rather
+  // than an edge case. A structural edit rebuilds the list from the last
+  // *committed* state, and an invalid rule was never committed, so the choice
+  // was drawn back to what it had been. The harness only ever changed the
+  // generator on an already-valid rule, which is why it never saw this.
+  const selectedGenerator = async () =>
+    String(await inPage(`(() => {
+      const field = [...document.querySelectorAll('#rules .rule-body label.field')]
+        .find((label) => label.querySelector('span')?.textContent === 'Generates');
+      return field?.querySelector('select')?.value ?? 'none';
+    })()`));
+
+  await choose('Generates', 'date');
+  check('a generator chosen before the pattern is typed stays chosen',
+    (await selectedGenerator()) === 'date',
+    `the select shows ${await selectedGenerator()} — a structural edit was drawn back`);
+  check('and the fields belonging to it are the ones on screen',
+    (await inPage(`[...document.querySelectorAll('#rules .rule-body label.field span')]
+       .some((span) => span.textContent === 'Format')`)) === true,
+    'the new type’s own fields never appeared');
+
+  // The same question for the other structural control, on the same not-yet-
+  // valid rule: unticking "whatever is enabled globally" has to reveal the six.
+  await inPage(`(() => {
+    const box = document.querySelector('#rules .rule-body fieldset.sources input.sources-all');
+    box.checked = false;
+    box.dispatchEvent(new Event('change', { bubbles: true }));
+    return true;
+  })()`);
+  await sleep(250);
+  check('per-rule scoping is reachable before the rule is valid',
+    (await inPage(`document.querySelectorAll('#rules .rule-body fieldset.sources input').length`)) === 7,
+    `${await inPage(`document.querySelectorAll('#rules .rule-body fieldset.sources input').length`)} checkboxes`);
+
+  // And text already typed into the open editor survives a structural edit made
+  // while the rule is invalid — the case that loses work rather than merely
+  // refusing it.
+  await type('Name', 'Typed before valid');
+  await choose('Generates', 'list');
+  check('text typed into an invalid rule survives a structural edit',
+    (await inPage(`(() => {
+      const field = [...document.querySelectorAll('#rules .rule-body label.field')]
+        .find((label) => label.querySelector('span')?.textContent === 'Name');
+      return field?.querySelector('input')?.value ?? '';
+    })()`)) === 'Typed before valid',
+    'the name was redrawn from the last committed version');
+
+  // Back to the shape the rest of the file expects.
+  await inPage(`(() => {
+    const box = document.querySelector('#rules .rule-body fieldset.sources input.sources-all');
+    box.checked = true;
+    box.dispatchEvent(new Event('change', { bubbles: true }));
+    return true;
+  })()`);
+  await sleep(250);
+
   await type('Name', 'Order reference');
   await type('Matches', 'short_code');
   await choose('Generates', 'constant');

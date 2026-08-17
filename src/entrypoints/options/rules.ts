@@ -43,6 +43,34 @@ export type RuleEditorHost = {
 let openRuleId: string | undefined;
 
 /**
+ * The open rule as it has been typed, which is not always what is stored.
+ *
+ * An edit is written only when it validates (BR-009-1), so while a rule is
+ * invalid the stored list still holds the last good version — and a *new* rule
+ * is invalid from the moment it appears, because it has no pattern yet. That is
+ * the ordinary state of a rule being written, not an edge case.
+ *
+ * A structural edit rebuilds the whole list, and the rebuild reads the stored
+ * rules. Without the draft kept here it read the last committed version, so
+ * choosing a generator type before typing a pattern — a natural first move —
+ * drew the choice straight back to what it had been, and unticking "whatever is
+ * enabled globally" on a rule not yet valid revealed nothing, putting FR-067
+ * out of reach until the rule validated. Worse, a rule invalid for an unrelated
+ * reason lost every uncommitted keystroke in the open editor to any structural
+ * edit, which is the discarding UC-009 A3 sanctions only when the page closes.
+ *
+ * Module-level for the same reason `openRuleId` is: it has to survive the
+ * rebuild that destroys the editor holding it. It never reaches storage — the
+ * commit path is still the only writer, and it still refuses invalid rules.
+ */
+let openDraft: Rule | undefined;
+
+/** Forgets the draft. The rule being opened, closed or removed is a new context. */
+function forgetDraft(): void {
+  openDraft = undefined;
+}
+
+/**
  * Whether a rule is open for editing.
  *
  * Exported for the page's storage listener, which adopts another writer's
@@ -66,8 +94,15 @@ let undoable: { readonly rule: Rule; readonly at: number } | undefined;
  * index chosen for a list that no longer exists — `restoreRule` clamps, so it
  * misplaces rather than throws, which is the worse of the two.
  */
-export function forgetUndo(): void {
+export function forgetUndo(list: HTMLElement): void {
   undoable = undefined;
+  // Taken off the screen, not merely out of the state. The caller that needs
+  // this most — adopting another writer's settings while a rule is open —
+  // deliberately does not re-render, so the offer and its handler would stay
+  // live over a list they no longer describe. Clearing the state alone left the
+  // button sitting there, which is the hazard this function's own reason for
+  // existing says must not remain.
+  list.querySelector('.undo')?.remove();
 }
 
 /**
@@ -94,7 +129,12 @@ export function forgetUndo(): void {
 export function adoptKeepingEdit(stored: Settings, mine: Settings): Settings {
   if (openRuleId === undefined) return stored;
 
-  const draft = mine.rules.find((rule) => rule.id === openRuleId);
+  // What was typed, falling back to what was stored. A rule that has not
+  // validated since it was opened exists only as a draft, so taking the stored
+  // copy here would carry across a version the user has already moved past.
+  const draft = openDraft?.id === openRuleId
+    ? openDraft
+    : mine.rules.find((rule) => rule.id === openRuleId);
   if (draft === undefined) return stored;
 
   // They have it too: ours is the newer text, theirs is the position.
@@ -137,7 +177,11 @@ export function renderRules(host: RuleEditorHost, into: HTMLElement): void {
     const list = document.createElement('ol');
     list.className = 'rule-list';
     for (const [index, rule] of rules.entries()) {
-      list.append(ruleRow(host, rule, index, rules.length, into));
+      // The open rule is drawn as typed rather than as stored. They differ
+      // exactly while it is invalid, which is most of the time it is being
+      // written — see `openDraft`.
+      const shown = openDraft?.id === rule.id ? openDraft : rule;
+      list.append(ruleRow(host, shown, index, rules.length, into));
     }
     into.append(list);
   }
@@ -152,6 +196,7 @@ export function renderRules(host: RuleEditorHost, into: HTMLElement): void {
     // change what the existing rules do (BR-009-2).
     commit(host, addRule(host.settings().rules, id));
     openRuleId = id;
+    forgetDraft();
     renderRules(host, into);
     into.querySelector<HTMLInputElement>(`[data-rule="${id}"] input`)?.focus();
   });
@@ -173,6 +218,14 @@ function undoOffer(host: RuleEditorHost, into: HTMLElement): HTMLElement {
   undo.type = 'button';
   undo.textContent = message('ruleUndo');
   undo.addEventListener('click', () => {
+    // The state, not the value captured when this was drawn. If the offer has
+    // been withdrawn since — the list it belonged to was replaced by another
+    // writer's — then this button is a leftover and restoring would insert at a
+    // position chosen for a list that no longer exists.
+    if (undoable === undefined) {
+      bar.remove();
+      return;
+    }
     // Back to the position it held, not to the end: order is meaning, and the
     // user asked to undo rather than to re-add (BR-011-2).
     commit(host, restoreRule(host.settings().rules, removed.rule, removed.at));
@@ -208,6 +261,9 @@ function ruleRow(
   disclose.textContent = nameOf(rule);
   disclose.addEventListener('click', () => {
     openRuleId = openRuleId === rule.id ? undefined : rule.id;
+    // Closing discards what never validated, and opening another rule starts
+    // from what is stored — both the behaviour before the draft existed.
+    forgetDraft();
     renderRules(host, list);
     // Back onto this same button, which the rebuild destroyed. Expanding a rule
     // by keyboard otherwise left the focus on `<body>`, so the next Tab started
@@ -313,7 +369,10 @@ function remove(host: RuleEditorHost, rule: Rule, index: number, list: HTMLEleme
     // (BR-011-1).
     undoable = { rule, at: index };
     commit(host, removeRule(host.settings().rules, rule.id));
-    if (openRuleId === rule.id) openRuleId = undefined;
+    if (openRuleId === rule.id) {
+      openRuleId = undefined;
+      forgetDraft();
+    }
     renderRules(host, list);
     // Onto Undo, not nowhere. The button that was pressed no longer exists, and
     // the offer that replaces it is the thing a person who has just deleted the
@@ -376,6 +435,9 @@ function editor(host: RuleEditorHost, rule: Rule, item: HTMLElement, list: HTMLE
    */
   const update = (next: Rule, refocus?: string): void => {
     current = next;
+    // Kept where a rebuild cannot destroy it. `current` lives in this closure,
+    // and a structural edit replaces the closure along with the editor.
+    openDraft = next;
     const problems = validateRule(next);
     // Written only when valid. An invalid rule in storage is one the engine
     // meets during a fill, on a page the user is not looking at (UC-009 A1).
