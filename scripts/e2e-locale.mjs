@@ -135,20 +135,34 @@ try {
     }).catch((error) => 'threw: ' + error.message)`);
     if (fired !== 'ok') throw new Error(`the toolbar trigger did not fire — ${String(fired)}`);
 
-    let filled;
-    for (let elapsed = 0; elapsed < 6000 && filled === undefined; elapsed += 200) {
-      await sleep(200);
-      const read = await inPage(`(() => {
+    // Every field the checks below read, not a subset of them. A fill writes its
+    // controls in a loop, and this snapshot is taken from outside the page — so
+    // a predicate satisfied by three fields can capture a frame in which the
+    // other two have not been reached yet, and the assertion on *those* then
+    // fails as though the corpus were at fault. The window is small and the
+    // failure direction is safe, but a harness that fails for a reason it does
+    // not name is the thing that gets rerun until it goes green.
+    const read = async () =>
+      JSON.parse(
+        String(
+          await inPage(`(() => {
         const value = (name) => document.querySelector('[name=' + name + ']')?.value ?? '';
         return JSON.stringify({
           given: value('given_name'), phone: value('phone'), postcode: value('postcode'),
           town: value('town'), street: value('street'),
         });
-      })()`);
-      const candidate = JSON.parse(String(read));
-      if (candidate.given !== '' && candidate.phone !== '' && candidate.postcode !== '') filled = candidate;
+      })()`),
+        ),
+      );
+    const complete = (candidate) => Object.values(candidate).every((value) => value !== '');
+
+    let filled;
+    for (let elapsed = 0; elapsed < 6000 && filled === undefined; elapsed += 200) {
+      await sleep(200);
+      const candidate = await read();
+      if (complete(candidate)) filled = candidate;
     }
-    if (filled === undefined) throw new Error(`the ${locale} fill never produced values`);
+    if (filled === undefined) throw new Error(`the ${locale} fill never produced a complete record`);
 
     // Wait for the *operation* to close, not just for values to land. A second
     // invocation while one is running is ignored on purpose (UC-001 A7), so a
@@ -156,13 +170,24 @@ try {
     // engine's correct refusal as a missing fill. The badge is set when the
     // operation completes, which makes it the signal — and this cost an hour to
     // learn, which is why it is written down here.
-    for (let elapsed = 0; elapsed < 8000; elapsed += 200) {
+    let settled = false;
+    for (let elapsed = 0; elapsed < 8000 && !settled; elapsed += 200) {
       const badge = await inWorker(`chrome.tabs.query({}).then((t) =>
         chrome.action.getBadgeText({ tabId: (t.find((x) => x.active) ?? t[0]).id }))`);
-      if (String(badge ?? '') !== '') break;
-      await sleep(200);
+      settled = String(badge ?? '') !== '';
+      if (!settled) await sleep(200);
     }
-    return filled;
+    // Asserted rather than merely waited out. Falling through this loop silently
+    // means the values arrived and the operation never signalled that it had
+    // finished — a real defect, and one whose only other symptom is the *next*
+    // fill being ignored as already running, which reads as an unrelated failure
+    // one locale later.
+    check(`${locale}: the fill signalled that the operation had completed`, settled,
+      'the badge never appeared within 8 s of the values landing');
+
+    // Re-read once the operation has closed, so what is asserted is the settled
+    // page rather than the first frame that satisfied the predicate.
+    return settled ? await read() : filled;
   }
 
   for (const locale of ['en-US', 'de-CH']) {
