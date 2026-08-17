@@ -8,6 +8,7 @@ import {
   identityOf,
   noteDescriptors,
   resultSentence,
+  scopeRuleSentence,
   type FieldNotes,
   type ResultMessageKey,
 } from '@/lib/report/surface';
@@ -50,6 +51,8 @@ function report(overrides: Partial<FillReport> = {}): FillReport {
     capped: undefined,
     stale: 0,
     skippedRules: [],
+    refused: undefined,
+    scopeRule: undefined,
     fields: [],
     ...overrides,
   };
@@ -229,5 +232,90 @@ describe('the result sentence (DD-006)', () => {
     );
     expect(withRules).toContain('resultRulesSkipped:2|');
     expect(withRules).toContain('postcode: invalid pattern; phone: bad template');
+  });
+});
+
+describe('naming the rung that resolved the scope (BR-002-4)', () => {
+  // ND-2's argument applied to scopes: a ladder is only better than a heuristic
+  // if the answer is inspectable. The rung reached the protocol long before it
+  // reached a surface — the agent sent it, the background dropped it, and
+  // UC-002's postcondition went unmet with the field sitting there unread.
+  it.each([
+    ['element-form', 'resultRuleElementForm'],
+    ['role-form', 'resultRuleRoleForm'],
+    ['submit-container', 'resultRuleSubmitContainer'],
+    ['only-unit', 'resultRuleOnlyUnit'],
+    ['whole-page', 'resultRuleWholePage'],
+    ['anchor-control', 'resultRuleAnchorControl'],
+  ] as const)('names %s', (rule, key) => {
+    expect(scopeRuleSentence(report({ scopeRule: rule }), echo)).toBe(
+      `[reportScopeChosenBy:[${key}]]`,
+    );
+  });
+
+  it('says nothing when no rung ran', () => {
+    expect(scopeRuleSentence(report({ scopeRule: undefined }), echo)).toBeUndefined();
+  });
+
+  it('says nothing about a fill that refused', () => {
+    // A refusal has no scope to explain, and its own sentence explains more.
+    expect(
+      scopeRuleSentence(report({ refused: 'no-form-around-anchor', scopeRule: 'whole-page' }), echo),
+    ).toBeUndefined();
+  });
+});
+
+describe('a refusal is not an empty fill, on every surface (DD-006)', () => {
+  // The options page kept a second copy of this sentence that never learned
+  // about refusals, so a fill that refused to guess which form was meant was
+  // reported there as a form with nothing in it. Both surfaces call this now,
+  // and the test is what keeps a third copy from being written.
+  it.each([
+    ['no-anchor', 'resultRefusedNoAnchor'],
+    ['no-form-around-anchor', 'resultRefusedNoForm'],
+  ] as const)('reports %s as a refusal rather than a count', (refusal, key) => {
+    const sentence = resultSentence(report({ refused: refusal, counts: { filled: 0, skipped: 0, failed: 0 } }), echo);
+    expect(sentence).toBe(`[${key}]`);
+    expect(sentence).not.toContain('resultSettled');
+  });
+});
+
+describe('the sentence names the scope that ran (DD-006, UC-002 A2)', () => {
+  it('says "this page" when a form scope widened to the whole document', () => {
+    // A shortcut asking for the form scope, nothing focused, two or more
+    // form-like units: the ladder widens (A2) and the fill covers everything.
+    // Saying "this form" there is the exact ambiguity putting the scope in the
+    // sentence was meant to remove, in the one case the user cannot otherwise
+    // see — the widening is silent by design.
+    const sentence = resultSentence(report({ scope: 'current-form', scopeRule: 'whole-page' }), echo);
+    expect(sentence).toContain('resultScopeAllInputs');
+    expect(sentence).not.toContain('resultScopeCurrentForm');
+  });
+
+  it('agrees with what the options page says about the same fill', () => {
+    // The two surfaces read the same field now. They did not: the options page
+    // took the rung and said "the whole page" under a sentence saying "form".
+    const widened = report({ scope: 'current-form', scopeRule: 'whole-page' });
+    expect(resultSentence(widened, echo)).toContain('resultScopeAllInputs');
+    expect(scopeRuleSentence(widened, echo)).toContain('resultRuleWholePage');
+  });
+
+  it.each([
+    ['element-form', 'resultScopeCurrentForm'],
+    ['role-form', 'resultScopeCurrentForm'],
+    ['submit-container', 'resultScopeCurrentForm'],
+    ['only-unit', 'resultScopeCurrentForm'],
+    ['anchor-control', 'resultScopeSelectedInput'],
+    ['whole-page', 'resultScopeAllInputs'],
+  ] as const)('reads %s as %s', (rule, key) => {
+    expect(resultSentence(report({ scope: 'current-form', scopeRule: rule }), echo)).toContain(key);
+  });
+
+  it('falls back to the requested scope for an agent that sends no rung', () => {
+    // Older than DD-008, and then the requested scope is both the best answer
+    // available and what that agent actually did.
+    expect(resultSentence(report({ scope: 'current-form', scopeRule: undefined }), echo)).toContain(
+      'resultScopeCurrentForm',
+    );
   });
 });

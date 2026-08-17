@@ -5,10 +5,12 @@ import {
   isValuesResponse,
   type FieldDescriptor,
   type FieldValue,
+  type FrameReport,
   type FromAgentMessage,
   type ToAgentMessage,
 } from '@/lib/protocol';
 import { runFill } from '@/lib/page/fill-loop';
+import { resolveScope, watchAnchor } from '@/lib/page/scope';
 
 /**
  * The page agent — persistently injected into every frame of every page
@@ -46,6 +48,16 @@ const writtenByUs = new WeakSet<Element>();
  * keying that on a URL silently drops the second frame's outcomes.
  */
 const FRAME_ID = crypto.randomUUID();
+
+/**
+ * Where the user last pointed, for the life of this page (DD-008).
+ *
+ * Started when the agent loads rather than when a fill begins, because the
+ * pointing happens first: a right-click opens the menu, and only then is the
+ * scope invoked. Element identity only — never a value — so NFR-010 is
+ * untouched (BR-002-5).
+ */
+const anchors = watchAnchor(document);
 
 export default defineContentScript({
   matches: ['<all_urls>'],
@@ -109,29 +121,58 @@ async function fill(request: Extract<ToAgentMessage, { kind: 'fill' }>): Promise
     // the loop reports every control as failed rather than silently stopping.
   }
 
+  // DD-008. Resolved here, in the frame that saw the pointing — the background
+  // knows which frame to ask but not what is inside it.
+  const scope = resolveScope(request.scope, document, anchors.anchor(request.trigger));
+
+  if (!scope.resolved) {
+    // A refusal is a decision, not an empty fill (UC-002 A3, UC-003 A2), and it
+    // is reported as one so the user is told why nothing happened rather than
+    // being shown a count of zero.
+    await report(operationId, { outcomes: [], refused: scope.reason });
+    return;
+  }
+
   const result = await runFill({
     root: document,
+    ...('only' in scope ? { only: scope.only } : { within: scope.within }),
     settings,
     writtenByUs,
     requestValues: (descriptors) => requestValues(operationId, descriptors),
   });
 
+  await report(operationId, {
+    outcomes: result.outcomes,
+    passes: result.passes,
+    scopeRule: scope.rule,
+    ...(result.capped === undefined ? {} : { capped: result.capped, stale: result.stale }),
+  });
+}
+
+/**
+ * Sends this frame's account of the fill.
+ *
+ * One sender for both endings — a fill that ran and a scope that refused —
+ * because a frame that says nothing is indistinguishable from a frame that
+ * died, and the background waits out its deadline for it either way.
+ *
+ * Wrapped, like every boundary here: the report is the last act of the fill, so
+ * there is nothing left to do about a failure to send it, and the background's
+ * own deadline closes an operation whose report never lands. Swallowed
+ * deliberately rather than left to reject unhandled.
+ */
+async function report(
+  operationId: string,
+  parts: Omit<FrameReport, 'frame' | 'frameUrl'>,
+): Promise<void> {
   try {
     await browser.runtime.sendMessage({
       kind: 'report',
       operationId,
-      report: {
-        frame: FRAME_ID,
-        frameUrl: location.href,
-        outcomes: result.outcomes,
-        passes: result.passes,
-        ...(result.capped === undefined ? {} : { capped: result.capped, stale: result.stale }),
-      },
+      report: { frame: FRAME_ID, frameUrl: location.href, ...parts },
     } satisfies FromAgentMessage);
   } catch {
-    // Nothing left to do with this: the report is the last act of the fill, and
-    // the background's own deadline closes an operation whose report never
-    // lands. Swallowed deliberately rather than left to reject unhandled.
+    // See above.
   }
 }
 

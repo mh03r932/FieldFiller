@@ -117,3 +117,12 @@ h2 {
   border-inline-start: 3px solid var(--ff-rule);
   padding-inline-start: 0.75rem;
 }
+
+/* The DD-008 rung that resolved the scope (BR-002-4). Quieter than the summary
+   it sits under: it answers "why that form?", which is a question asked after
+   the fill rather than during it. */
+.report-scope-rule {
+  margin-top: 0.25rem;
+  font-size: 0.875em;
+  opacity: 0.8;
+}

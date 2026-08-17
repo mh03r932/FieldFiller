@@ -8,6 +8,7 @@ import type {
   FrameId,
   FrameReport,
   OutcomeCounts,
+  ScopeRule,
 } from '../protocol';
 
 /**
@@ -148,7 +149,16 @@ export type ResultMessageKey =
   | 'resultCapPassCap'
   | 'resultCapTimeBudget'
   | 'resultCapValuesUnavailable'
-  | 'resultRulesSkipped';
+  | 'resultRulesSkipped'
+  | 'resultRefusedNoForm'
+  | 'resultRefusedNoAnchor'
+  | 'reportScopeChosenBy'
+  | 'resultRuleElementForm'
+  | 'resultRuleRoleForm'
+  | 'resultRuleSubmitContainer'
+  | 'resultRuleOnlyUnit'
+  | 'resultRuleWholePage'
+  | 'resultRuleAnchorControl';
 
 export type Translate = (key: ResultMessageKey, substitutions?: readonly string[]) => string;
 
@@ -165,7 +175,17 @@ export type Translate = (key: ResultMessageKey, substitutions?: readonly string[
  * DD-006 gave the transient surfaces no room for a fourth fact (DD-005).
  */
 export function resultSentence(report: FillReport, translate: Translate): string {
-  const scope = translate(scopeKey(report.scope));
+  // A refusal is not a fill that found nothing (UC-002 A3, UC-003 A2). It gets
+  // its own sentence, because "0 filled in this form" describes a form with
+  // nothing in it — which is a different thing to tell the user than "I could
+  // not work out which form you meant".
+  if (report.refused !== undefined) {
+    return translate(
+      report.refused === 'no-anchor' ? 'resultRefusedNoAnchor' : 'resultRefusedNoForm',
+    );
+  }
+
+  const scope = translate(scopeWordKey(report));
   const filled = String(report.counts.filled);
 
   const sentence =
@@ -183,6 +203,77 @@ export function resultSentence(report: FillReport, translate: Translate): string
     String(report.skippedRules.length),
     report.skippedRules.join('; '),
   ])}`;
+}
+
+/**
+ * Which rung of DD-008's ladder resolved this scope, in the user's language
+ * (BR-002-4, UC-002 postcondition).
+ *
+ * ND-2's argument is that a rule the user cannot predict is a defect; DD-008
+ * applies it to scopes, which is the whole reason the resolution is a ladder
+ * rather than a heuristic. A ladder nobody can see the rung of gives that up
+ * silently, and the rung travelled the protocol for a while doing exactly that —
+ * collected by the agent, dropped by the background, shown nowhere.
+ *
+ * Only the options page shows it. DD-006 gave the badge and tooltip no room for
+ * a fourth fact, and this is the least urgent of them: it answers "why that
+ * form?", which is a question asked after the fill rather than during it.
+ *
+ * `undefined` when there is no rung worth naming — a fill that refused has no
+ * scope to explain, and its own sentence explains more.
+ */
+export function scopeRuleSentence(report: FillReport, translate: Translate): string | undefined {
+  if (report.refused !== undefined || report.scopeRule === undefined) return undefined;
+  return translate('reportScopeChosenBy', [translate(ruleKey(report.scopeRule))]);
+}
+
+function ruleKey(rule: ScopeRule): ResultMessageKey {
+  switch (rule) {
+    case 'element-form':
+      return 'resultRuleElementForm';
+    case 'role-form':
+      return 'resultRuleRoleForm';
+    case 'submit-container':
+      return 'resultRuleSubmitContainer';
+    case 'only-unit':
+      return 'resultRuleOnlyUnit';
+    case 'anchor-control':
+      return 'resultRuleAnchorControl';
+    default:
+      return 'resultRuleWholePage';
+  }
+}
+
+/**
+ * The word for the scope that **ran**, not the one that was asked for.
+ *
+ * These differ exactly where it matters most. A shortcut asking for the form
+ * scope with nothing focused and two or more form-like units on the page widens
+ * to the whole document (UC-002 A2) — and the sentence then read "6 filled in
+ * this form" about a fill that covered everything. DD-006's stated reason for
+ * putting the scope in the sentence at all is that "6 filled" reads identically
+ * for a form and for a page; naming the requested scope reintroduces the
+ * ambiguity in the one case where the user has no other way to notice, since the
+ * widening is silent by design.
+ *
+ * It also made the two surfaces disagree: the options page reads the rung, so it
+ * said "the whole page" under a sentence saying "this form".
+ *
+ * The rung is the authority when there is one. `scopeRule` is absent only for an
+ * agent older than DD-008, and then the requested scope is the best available
+ * answer and also what that agent actually did.
+ */
+function scopeWordKey(report: FillReport): ResultMessageKey {
+  switch (report.scopeRule) {
+    case undefined:
+      return scopeKey(report.scope);
+    case 'anchor-control':
+      return 'resultScopeSelectedInput';
+    case 'whole-page':
+      return 'resultScopeAllInputs';
+    default:
+      return 'resultScopeCurrentForm';
+  }
 }
 
 function scopeKey(scope: FillScope): ResultMessageKey {

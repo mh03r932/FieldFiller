@@ -131,7 +131,23 @@ export const DEFAULT_BOUNDS: Bounds = {
 };
 
 export type FillLoopOptions = {
+  /**
+   * The document being filled. Always the whole document, whatever the scope:
+   * it is what the quiescence observer and the user-input watcher attach to,
+   * because a page reacting to a form fill can change anything (UC-034), and a
+   * user typing outside the scope is still a user typing (FR-079).
+   */
   readonly root: Document;
+  /**
+   * What to fill within it (DD-008). A subtree to walk, or exactly one control.
+   *
+   * Defaults to the whole document, which is the page scope and what every
+   * caller before Phase 3 meant. A form root is *walked*, never a page walked
+   * and filtered — that is ND-5's correction and BR-002-3 restates it.
+   */
+  readonly within?: ParentNode | undefined;
+  /** The single-control scope (UC-003). Mutually exclusive with `within`. */
+  readonly only?: Element | undefined;
   readonly settings: AgentSettings;
   readonly requestValues: ValueSource;
   /**
@@ -172,6 +188,17 @@ type Tracked = {
 
 export async function runFill(options: FillLoopOptions): Promise<FillLoopResult> {
   const { root, settings, requestValues, writtenByUs } = options;
+  // One place decides what the walk covers, so no later code has to remember
+  // which scope it is running under.
+  const candidates = (): readonly Element[] =>
+    options.only === undefined
+      ? collectCandidates(options.within ?? root)
+      : // A radio button is not independently fillable: "fill this input" on one
+        // member can only mean "answer this question", so the group is the unit
+        // (UC-003 A4, BR-005-3).
+        options.only.isConnected
+        ? radioUnit(options.only)
+        : [];
   const bounds = options.bounds ?? DEFAULT_BOUNDS;
   const scheduler = options.scheduler ?? realScheduler;
   const { patterns, invalid } = compilePatterns(settings.ignorePatterns);
@@ -282,7 +309,7 @@ export async function runFill(options: FillLoopOptions): Promise<FillLoopResult>
     }
 
     return {
-      outcomes: report(),
+      outcomes: withVanishedAnchor(report()),
       passes,
       // Recorded without deciding anything, which is why `collect` is asked not
       // to write outcomes here: this is a count of the work a further pass would
@@ -371,7 +398,7 @@ export async function runFill(options: FillLoopOptions): Promise<FillLoopResult>
   function collect(record: boolean): Tracked[] {
     const fillable: Tracked[] = [];
 
-    for (const element of collectCandidates(root)) {
+    for (const element of candidates()) {
       const classification = classifyStructural(element, structural);
       const entry = trackedFor(element, classification.fillable ? classification.kind : 'text');
 
@@ -456,7 +483,22 @@ export async function runFill(options: FillLoopOptions): Promise<FillLoopResult>
     return { ref: entry.ref, status: 'filled', provenance: `${provenance} (${result.rung})` };
   }
 
-  /** Writes one pass's values, and returns how many controls were acted on. */
+  /**
+ * The controls the single-control scope actually covers.
+ *
+ * The anchor alone, unless it is a radio button — in which case the unit is its
+ * group, because one button is not independently answerable and writing the
+ * pointed-at one specifically would mean the user chose the value rather than
+ * the system (UC-003 A4).
+ */
+function radioUnit(anchor: Element): readonly Element[] {
+  if (anchor instanceof HTMLInputElement && anchor.type === 'radio') {
+    return radioGroup(anchor);
+  }
+  return [anchor];
+}
+
+/** Writes one pass's values, and returns how many controls were acted on. */
   async function apply(entries: readonly Tracked[], values: readonly FieldValue[]): Promise<number> {
     const byRef = new Map(entries.map((entry) => [entry.ref, entry]));
     // Spent across the whole pass, not per control: sixty comboboxes at a
@@ -548,6 +590,39 @@ export async function runFill(options: FillLoopOptions): Promise<FillLoopResult>
    * remove; the control that replaced it is reported in its own right, filled
    * with the same value it was given before (UC-034 A7, BR-034-3).
    */
+  /**
+   * UC-003 A5: an anchor the page removed is a failure, not an empty fill.
+   *
+   * `report` drops any control that is no longer connected, deliberately —
+   * claiming a field the user cannot see is the dishonesty write verification
+   * exists to remove, and for a page fill the control that replaced it is
+   * reported in its own right (UC-034 A7). The single-control scope has no such
+   * replacement to report. Dropping the only control it was given leaves an
+   * empty outcome list, which the surfaces render as "0 filled in this field" —
+   * indistinguishable from a scope that resolved and found nothing fillable.
+   *
+   * That is the same conflation this branch refused for scope refusals, and the
+   * spec is explicit about it: A5 requires the control be reported failed, with
+   * the cause. The outcome is synthesised because there may be nothing left to
+   * report on — an anchor removed before the first pass was never tracked, and
+   * one removed during the fill has just been dropped.
+   */
+  function withVanishedAnchor(outcomes: FieldOutcome[]): FieldOutcome[] {
+    const anchor = options.only;
+    if (anchor === undefined || anchor.isConnected || outcomes.length > 0) return outcomes;
+
+    return [
+      {
+        ref: tracked.find((entry) => entry.element === anchor)?.ref ?? tracked.length,
+        status: 'failed',
+        // BR-003-2: the anchor is an element, not a place. Nothing is looked for
+        // in its position, and the sentence says why rather than implying a
+        // search happened.
+        cause: 'the control was removed from the page before it could be filled',
+      },
+    ];
+  }
+
   function report(): FieldOutcome[] {
     const outcomes: FieldOutcome[] = [];
     for (const entry of tracked) {

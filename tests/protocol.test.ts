@@ -12,15 +12,37 @@ describe('isToAgentMessage', () => {
     expect(isToAgentMessage(PING)).toBe(true);
   });
 
-  it('accepts a fill instruction', () => {
+  it.each(['menu', 'shortcut', 'toolbar'])('accepts a fill instruction from %s', (trigger) => {
     expect(
       isToAgentMessage({
         kind: 'fill',
         operationId: 'op-1',
         scope: 'all-inputs',
+        trigger,
         settings: { dispatchEvents: true },
       }),
     ).toBe(true);
+  });
+
+  it.each([
+    ['no trigger at all', undefined],
+    ['a trigger this version does not know', 'telepathy'],
+    ['a trigger of the wrong type', 3],
+  ])('rejects a fill instruction with %s', (_label, trigger) => {
+    // The trigger decides whether the anchor is the element under the pointer or
+    // the one holding focus. Guessing is the defect the field was added to fix,
+    // so an instruction that does not name one is not actionable — the
+    // background's timeout clears it, which is cheaper than a form filled
+    // somewhere the user was not looking.
+    expect(
+      isToAgentMessage({
+        kind: 'fill',
+        operationId: 'op-1',
+        scope: 'all-inputs',
+        trigger,
+        settings: { dispatchEvents: true },
+      }),
+    ).toBe(false);
   });
 
   it.each([
@@ -153,5 +175,41 @@ describe('isValuesResponse', () => {
     expect(isValuesResponse({ kind: 'values' })).toBe(false);
     expect(isValuesResponse({ kind: 'report', values: [] })).toBe(false);
     expect(isValuesResponse(null)).toBe(false);
+  });
+});
+
+describe('validating the DD-008 fields at the boundary', () => {
+  const frame = (extra: Record<string, unknown>): unknown => ({
+    kind: 'report',
+    operationId: 'op-1',
+    report: { frame: 'top', frameUrl: 'https://x.test/', outcomes: [], ...extra },
+  });
+
+  it('accepts a report from an agent that predates the scopes', () => {
+    // Neither field is sent by a build from before DD-008, and a tab open across
+    // the update still runs one. Absent stays valid; that is what makes the
+    // protocol able to grow.
+    expect(isFromAgentMessage(frame({}))).toBe(true);
+  });
+
+  it.each([
+    ['refused', 'no-anchor'],
+    ['refused', 'no-form-around-anchor'],
+    ['scopeRule', 'element-form'],
+    ['scopeRule', 'anchor-control'],
+  ])('accepts a known %s value: %s', (field, value) => {
+    expect(isFromAgentMessage(frame({ [field]: value }))).toBe(true);
+  });
+
+  it.each([
+    ['refused', 'no-idea'],
+    ['refused', 7],
+    ['scopeRule', 'vibes'],
+    ['scopeRule', {}],
+  ])('rejects an unknown %s value: %s', (field, value) => {
+    // Both reach a user-facing surface — `refused` decides which sentence is
+    // shown and `scopeRule` names a rung out loud — so an unrecognised value
+    // would be displayed, or would silently change what is displayed.
+    expect(isFromAgentMessage(frame({ [field]: value }))).toBe(false);
   });
 });

@@ -17,8 +17,29 @@
  * pass, which is exactly what an agent that predates the loop did.
  */
 
-/** The three fill scopes. Only `all-inputs` is implemented (UC-001); the rest are Phase 3. */
+/** The three fill scopes, all built: UC-001, and UC-002 and UC-003 since 2026-08-15. */
 export type FillScope = 'all-inputs' | 'current-form' | 'selected-input';
+
+/**
+ * How the fill was invoked, which decides where the anchor comes from
+ * (UC-002 A1, UC-003 A2).
+ *
+ * The scope alone cannot answer that. "Fill this form" from the context menu
+ * means the form around the element under the pointer; the same scope from a
+ * keyboard shortcut means the form around whatever is focused, and there is no
+ * pointer involved at all. Sending only the scope left the agent guessing, and
+ * it guessed by preferring the last right-clicked element whenever one still
+ * existed — so a single right-click anywhere on a page redirected every later
+ * shortcut on that page for as long as it stayed open.
+ *
+ * `toolbar` shares `shortcut`'s answer rather than having one of its own: a
+ * click on our own toolbar button is not aimed at anything in the page either.
+ * The two are kept apart in the type because they are different channels and
+ * FR-005 and FR-050 are different requirements.
+ */
+export type FillTrigger = 'menu' | 'shortcut' | 'toolbar';
+
+const FILL_TRIGGERS: readonly FillTrigger[] = ['menu', 'shortcut', 'toolbar'];
 
 /**
  * Identifies one fill operation across every message and every frame it touches.
@@ -314,7 +335,36 @@ export type FrameReport = {
    * reached — the "may be stale" figure FR-078 requires. Absent unless `capped`.
    */
   readonly stale?: number;
+  /**
+   * Which rule of DD-008's ladder decided this frame's scope (BR-002-4).
+   *
+   * A Tester surprised by where the boundary fell needs to know why it fell
+   * there, which is the argument provenance makes for values (FR-069) applied
+   * to the scope. Absent from an agent that predates Phase 3, which only ever
+   * filled the page.
+   */
+  readonly scopeRule?: ScopeRule;
+  /**
+   * Set when the frame declined to fill anything, and why (UC-002 A3, UC-003 A2).
+   *
+   * Distinct from an empty `outcomes` list, which means "I looked and found
+   * nothing fillable" — a different sentence, and a different thing to tell the
+   * user. Refusing to widen a scope the user narrowed is a decision, not a
+   * shortage of controls.
+   */
+  readonly refused?: ScopeRefusal;
 };
+
+/** Which rule of DD-008's ladder resolved a fill's scope (UC-002, UC-003). */
+export type ScopeRule =
+  | 'element-form'
+  | 'role-form'
+  | 'submit-container'
+  | 'only-unit'
+  | 'whole-page'
+  | 'anchor-control';
+
+export type ScopeRefusal = 'no-form-around-anchor' | 'no-anchor';
 
 /**
  * One control's line in the fill report (DD-006, FR-009, FR-069).
@@ -353,6 +403,21 @@ export type FillReport = {
   readonly stale: number;
   /** Rules that could not run, by label and reason (DD-005). */
   readonly skippedRules: readonly string[];
+  /**
+   * Set when the scope refused to resolve, and why (UC-002 A3, UC-003 A2).
+   *
+   * Distinct from a fill that found nothing: refusing to widen a scope the user
+   * narrowed is a decision, and it gets its own sentence.
+   */
+  readonly refused: ScopeRefusal | undefined;
+  /**
+   * Which rung of DD-008's ladder resolved the scope (BR-002-4).
+   *
+   * A ladder is only better than a heuristic if its answer is inspectable, which
+   * is ND-2's argument applied to scopes rather than rules. Absent when no
+   * ladder ran — the page scope, and a fill that refused.
+   */
+  readonly scopeRule: ScopeRule | undefined;
   readonly fields: readonly FieldReportEntry[];
 };
 
@@ -362,6 +427,8 @@ export type ToAgentMessage =
       readonly kind: 'fill';
       readonly operationId: OperationId;
       readonly scope: FillScope;
+      /** Which channel invoked this fill, and so where the anchor comes from. */
+      readonly trigger: FillTrigger;
       /** Only the settings this agent's own work requires (BR-024-4). */
       readonly settings: AgentSettings;
     };
@@ -450,8 +517,10 @@ export type ReportResponse = {
  *
  * It is never sent the rule list, the generators or the profiles, because it
  * never uses them: less crosses the boundary, and less is exposed if a page ever
- * compromises the agent. Phase 4 grows this with the exclusion toggles, ignore
- * patterns and domain exclusions.
+ * compromises the agent. Domain exclusions stay out of it for a different
+ * reason than the rest: the agent is never told a domain is excluded, because
+ * BR-008-1 settles that in the background before any frame is contacted, and an
+ * excluded page must not be able to learn the extension exists by being asked.
  */
 export type AgentSettings = {
   /** UC-004 A8: the user may turn the interaction sequence off entirely. */
@@ -479,10 +548,21 @@ export const PING: ToAgentMessage = { kind: 'ping' };
  * agent left over from a previous extension version can — so neither side may
  * assume the other is the same build.
  */
+export function isFillTrigger(value: unknown): value is FillTrigger {
+  return typeof value === 'string' && (FILL_TRIGGERS as readonly string[]).includes(value);
+}
+
 export function isToAgentMessage(value: unknown): value is ToAgentMessage {
   if (typeof value !== 'object' || value === null) return false;
   const kind = (value as { kind?: unknown }).kind;
-  return kind === 'ping' || kind === 'fill';
+  if (kind === 'ping') return true;
+  if (kind !== 'fill') return false;
+  // A fill that does not say how it was invoked cannot be acted on: the trigger
+  // is what decides whether the anchor is the element under the pointer or the
+  // one holding focus, and guessing is the defect this field was added to fix.
+  // Refusing here costs a fill that the background's own timeout will clear;
+  // guessing costs the user a form filled somewhere they were not looking.
+  return isFillTrigger((value as { trigger?: unknown }).trigger);
 }
 
 /**
@@ -520,6 +600,20 @@ function isOutcome(value: unknown): value is FieldOutcome {
 
 const CAP_REASONS = new Set(['pass-cap', 'time-budget', 'user-input', 'values-unavailable']);
 
+const SCOPE_REFUSALS: ReadonlySet<string> = new Set<ScopeRefusal>([
+  'no-form-around-anchor',
+  'no-anchor',
+]);
+
+const SCOPE_RULES: ReadonlySet<string> = new Set<ScopeRule>([
+  'element-form',
+  'role-form',
+  'submit-container',
+  'only-unit',
+  'whole-page',
+  'anchor-control',
+]);
+
 function isFrameReport(value: unknown): value is FrameReport {
   if (typeof value !== 'object' || value === null) return false;
   const candidate = value as Record<string, unknown>;
@@ -538,7 +632,17 @@ function isFrameReport(value: unknown): value is FrameReport {
     (candidate['passes'] === undefined || typeof candidate['passes'] === 'number') &&
     (candidate['capped'] === undefined ||
       (typeof candidate['capped'] === 'string' && CAP_REASONS.has(candidate['capped']))) &&
-    (candidate['stale'] === undefined || typeof candidate['stale'] === 'number')
+    (candidate['stale'] === undefined || typeof candidate['stale'] === 'number') &&
+    // The DD-008 fields, on the same terms as the DD-009 ones above: optional
+    // because an agent from before the scopes existed sends neither, and checked
+    // against their own vocabularies because both reach a user-facing surface.
+    // `refused` picks the sentence the user reads and `scopeRule` names a rung of
+    // the ladder; an unrecognised value in either would be shown, or silently
+    // change which sentence is shown, which is what validating here prevents.
+    (candidate['refused'] === undefined ||
+      (typeof candidate['refused'] === 'string' && SCOPE_REFUSALS.has(candidate['refused']))) &&
+    (candidate['scopeRule'] === undefined ||
+      (typeof candidate['scopeRule'] === 'string' && SCOPE_RULES.has(candidate['scopeRule'])))
   );
 }
 

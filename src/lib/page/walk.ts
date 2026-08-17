@@ -39,6 +39,14 @@ export type FillableElement = HTMLInputElement | HTMLTextAreaElement | HTMLSelec
  * shadow and light content would require a flattened-tree walk, which costs more
  * than it is worth here: the order matters for how the report reads, not for
  * what gets filled.
+ *
+ * **A form root is more than its subtree.** HTML associates a control with a
+ * form by `form="id"` as well as by containment, and DD-008's rule 1 resolves to
+ * the form the page *says* owns the control — deliberately, because that is what
+ * a modal or a sticky footer produces. Walking the subtree alone then found
+ * every field except the one the user pointed at, which is the worst possible
+ * shape for that feature: the flagship case filled everything around the anchor
+ * and left the anchor blank.
  */
 export function collectCandidates(root: ParentNode): FillableElement[] {
   const found: FillableElement[] = [];
@@ -61,5 +69,33 @@ export function collectCandidates(root: ParentNode): FillableElement[] {
   };
 
   visit(root);
+  if (root instanceof HTMLFormElement) found.push(...associatedOutside(root, found));
   return found;
+}
+
+/**
+ * Controls the form owns that do not live inside it.
+ *
+ * `form.elements` is the page's own answer to "what does this form submit", so
+ * it is the right source — but it is only consulted for what the subtree walk
+ * missed. It knows nothing of `contenteditable` or of anything inside a shadow
+ * root, so it cannot replace the walk, only complete it.
+ *
+ * Appended rather than interleaved. These controls are outside the form by
+ * definition, so there is no document order that puts them anywhere obvious, and
+ * nothing downstream depends on the order: confirmation fields resolve against
+ * the record rather than against position (UC-006, BR-006-1), and the order
+ * shows up only in how the report reads.
+ */
+function associatedOutside(form: HTMLFormElement, already: readonly FillableElement[]): FillableElement[] {
+  const seen = new Set<Element>(already);
+  const extra: FillableElement[] = [];
+
+  for (const element of form.elements) {
+    if (seen.has(element)) continue;
+    seen.add(element);
+    if (element instanceof HTMLElement && element.matches(CANDIDATE_SELECTOR)) extra.push(element);
+  }
+
+  return extra;
 }

@@ -1,5 +1,6 @@
 import { browser } from 'wxt/browser';
 import { localise, message } from '@/lib/platform/i18n';
+import { resultSentence, scopeRuleSentence } from '@/lib/report/surface';
 import type { FieldReportEntry, FillReport, ReportResponse } from '@/lib/protocol';
 
 /**
@@ -59,9 +60,29 @@ function reportView(report: FillReport): HTMLElement {
   const summary = document.createElement('p');
   summary.className = 'report-summary';
   // The same sentence the tooltip carries, so the two surfaces cannot disagree
-  // about what happened (DD-006).
-  summary.textContent = sentence(report);
+  // about what happened (DD-006) — the same *function*, now, which is what that
+  // sentence had always claimed. A second copy lived here and drifted: it never
+  // learned about refusals, so a fill that refused to guess which form was meant
+  // was reported here as a form with nothing in it, and it dropped the
+  // skipped-rules clause as well.
+  //
+  // Still built here rather than sent as a finished string: a sentence formatted
+  // in the background would carry the background's locale, which is the same one
+  // today and need not stay so. `resultSentence` is host-free by design and
+  // takes the catalog it should use, so sharing it costs nothing.
+  summary.textContent = resultSentence(report, message);
   fragment.append(summary);
+
+  // BR-002-4: a ladder is only better than a heuristic if you can see which rung
+  // answered. The badge and tooltip have no room for it (DD-006), and this is
+  // the surface that does.
+  const chosenBy = scopeRuleSentence(report, message);
+  if (chosenBy !== undefined) {
+    const rule = document.createElement('p');
+    rule.className = 'report-scope-rule';
+    rule.textContent = chosenBy;
+    fragment.append(rule);
+  }
 
   if (report.fields.length > 0) fragment.append(table(report.fields));
 
@@ -74,37 +95,6 @@ function reportView(report: FillReport): HTMLElement {
   fragment.append(privacy);
 
   return fragment;
-}
-
-/**
- * The summary sentence.
- *
- * Rebuilt here from the catalog rather than sent as a finished string, because
- * a formatted sentence crossing the message boundary would be formatted in the
- * background's locale — which is the same one today and need not stay so.
- */
-function sentence(report: FillReport): string {
-  const scope = message(
-    report.scope === 'current-form'
-      ? 'resultScopeCurrentForm'
-      : report.scope === 'selected-input'
-        ? 'resultScopeSelectedInput'
-        : 'resultScopeAllInputs',
-  );
-  const filled = String(report.counts.filled);
-
-  if (report.capped === undefined) return message('resultSettled', [filled, scope]);
-
-  const reason = message(
-    report.capped === 'user-input'
-      ? 'resultCapUserInput'
-      : report.capped === 'time-budget'
-        ? 'resultCapTimeBudget'
-        : report.capped === 'values-unavailable'
-          ? 'resultCapValuesUnavailable'
-          : 'resultCapPassCap',
-  );
-  return message('resultCapped', [filled, scope, String(report.stale), reason]);
 }
 
 function table(fields: readonly FieldReportEntry[]): HTMLElement {
