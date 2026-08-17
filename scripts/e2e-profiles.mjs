@@ -283,6 +283,46 @@ try {
     (await storedProfiles()).map((p) => p.label).join(',') === 'Second',
     `remaining = ${JSON.stringify((await storedProfiles()).map((p) => p.label))}`);
 
+  /**
+   * Delete a profile that has been edited since its row was drawn.
+   *
+   * The sequence above cannot catch this and did not: it deletes a profile whose
+   * row was rebuilt by the reorder just before, so the object the row captured is
+   * still the one in the list. Every edit inside the editor replaces that object
+   * — deliberately, so the caret survives — and the delete button was finding its
+   * profile by identity, so after any edit it found nothing. `removeAt(list, -1)`
+   * then filtered on a position no entry has: the list was saved unchanged while
+   * the deletion was announced and the editor collapsed, which is the one shape
+   * of failure a user has no way to tell from success.
+   *
+   * So: add, name, delete. No reordering in between, because the reordering was
+   * the accident that hid it.
+   */
+  await inPage(`document.querySelector('#profiles .profile-add').click()`);
+  await sleep(300);
+  await type('#profiles', 'Name', 'Renamed then deleted');
+  await sleep(200);
+
+  check('a profile edited since its row was drawn is still deleted, not just announced',
+    (await storedProfiles()).map((p) => p.label).join(',') === 'Second,Renamed then deleted',
+    `setup failed — profiles are ${JSON.stringify((await storedProfiles()).map((p) => p.label))}`);
+
+  await inPage(`window.__confirmed = []; window.confirm = (text) => {
+    window.__confirmed.push(text); return true;
+  }`);
+  await inPage(`[...document.querySelectorAll('#profiles .profile-delete')][1].click()`);
+  await sleep(300);
+
+  check('deleting it removes it from storage',
+    (await storedProfiles()).map((p) => p.label).join(',') === 'Second',
+    `remaining = ${JSON.stringify((await storedProfiles()).map((p) => p.label))} — the delete was a no-op`);
+  check('and the question names the profile as it stands, not as it was created',
+    (await inPage(`window.__confirmed[0] ?? ''`)).includes('Renamed then deleted'),
+    `asked "${await inPage(`window.__confirmed[0] ?? ''`)}" — the confirmation stated a stale name (BR-016-2)`);
+  check('and the row goes with it',
+    (await inPage(`document.querySelectorAll('#profiles .rule').length`)) === 1,
+    'the list on screen disagrees with storage');
+
   // ── UC-017 / FR-047: the report says which profile applied ────────────────
   await cdp.send('Page.navigate', { url: pageUrl }, page);
   await waitForAgent(cdp, workerSession, TAB);

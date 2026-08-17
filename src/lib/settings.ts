@@ -341,6 +341,26 @@ export const DEFAULT_PASSWORD_POLICY: PasswordPolicy = {
 export const PASSWORD_LENGTH: { readonly min: number; readonly max: number } = { min: 1, max: 256 };
 
 /**
+ * What `parseSettings` will accept from the numeric generator forms, for the
+ * same reason `PASSWORD_LENGTH` is here: the control and the parser must not
+ * hold different answers.
+ *
+ * Bounds only. The parser *also* orders `min` against `max` and `minWords`
+ * against `maxWords`, and that stays where it is — a pair of boxes cannot
+ * express "this one must not exceed the other one" while either is being typed,
+ * and `validateGenerator` is what tells the user when they have crossed
+ * (FR-070). These are the limits each box can state on its own.
+ */
+export const GENERATOR_BOUNDS = {
+  /** Wide enough not to be a policy, finite enough to keep `Infinity` out. */
+  number: { min: -1e15, max: 1e15 },
+  /** `toFixed` throws above 100; ten is past any plausible form field. */
+  decimals: { min: 0, max: 10 },
+  /** A word count, so at least one — and a filler paragraph, not a novel. */
+  words: { min: 1, max: 500 },
+} as const;
+
+/**
  * The shipped consent vocabulary (FR-015).
  *
  * English only, because it is what the reference page and the great majority of
@@ -693,13 +713,18 @@ function parseGenerator(stored: unknown): Generator | undefined {
     }
 
     case 'number': {
-      const min = integer(candidate['min'], 0, -1e15, 1e15);
-      const max = integer(candidate['max'], 100, -1e15, 1e15);
+      const min = integer(candidate['min'], 0, GENERATOR_BOUNDS.number.min, GENERATOR_BOUNDS.number.max);
+      const max = integer(candidate['max'], 100, GENERATOR_BOUNDS.number.min, GENERATOR_BOUNDS.number.max);
       return {
         type,
         min: Math.min(min, max),
         max: Math.max(min, max),
-        decimals: integer(candidate['decimals'], 0, 0, 10),
+        decimals: integer(
+          candidate['decimals'],
+          0,
+          GENERATOR_BOUNDS.decimals.min,
+          GENERATOR_BOUNDS.decimals.max,
+        ),
       };
     }
 
@@ -714,8 +739,8 @@ function parseGenerator(stored: unknown): Generator | undefined {
     }
 
     case 'text': {
-      const minWords = integer(candidate['minWords'], 5, 1, 500);
-      const maxWords = integer(candidate['maxWords'], 20, 1, 500);
+      const minWords = integer(candidate['minWords'], 5, GENERATOR_BOUNDS.words.min, GENERATOR_BOUNDS.words.max);
+      const maxWords = integer(candidate['maxWords'], 20, GENERATOR_BOUNDS.words.min, GENERATOR_BOUNDS.words.max);
       return { type, minWords: Math.min(minWords, maxWords), maxWords: Math.max(minWords, maxWords) };
     }
 

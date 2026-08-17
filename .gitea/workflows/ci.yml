@@ -273,7 +273,30 @@ jobs:
       # those needs a browser here every time. Installed from Mozilla directly
       # rather than through Playwright, whose Firefox is a patched build that
       # does not expose the remote agent the BiDi harness attaches to.
+      - name: Pin the Firefox cache to a week
+        # The download is `firefox-latest-ssl`, which by design answers
+        # differently over time, so it cannot be keyed on a lockfile the way the
+        # Chromium cache above is. Keyed on the ISO week instead: the runner
+        # fetches Firefox once a week rather than once a run, and is never more
+        # than a week behind the release NFR-014 asks us to track. A day key
+        # would cache almost nothing — this job does not run daily — and a fixed
+        # key would pin the browser to whenever the cache was first written,
+        # which is the opposite of what "latest" is here for.
+        id: firefox-week
+        run: echo "week=$(date -u +%G-W%V)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Firefox
+        id: firefox-cache
+        uses: actions/cache@v4
+        with:
+          path: /tmp/firefox
+          # No `restore-keys`. A partial match would restore last week's browser
+          # and then skip the download that was supposed to replace it, so the
+          # pin above would silently stop meaning anything.
+          key: firefox-${{ runner.os }}-${{ steps.firefox-week.outputs.week }}
+
       - name: Install Firefox
+        if: steps.firefox-cache.outputs.cache-hit != 'true'
         run: |
           set -euo pipefail
           # `--fail` because without it curl exits 0 on a 404 and writes the

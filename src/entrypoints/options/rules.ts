@@ -1,5 +1,5 @@
 import { message, type MessageKey } from '@/lib/platform/i18n';
-import { MATCH_SOURCES, type Generator, type MatchSource, type Rule, type Settings } from '@/lib/settings';
+import { GENERATOR_BOUNDS, MATCH_SOURCES, type Generator, type MatchSource, type Rule, type Settings } from '@/lib/settings';
 import {
   addRule,
   changeGeneratorType,
@@ -755,9 +755,9 @@ function generatorFields(live: () => Rule, update: (rule: Rule, refocus?: string
       break;
     case 'number':
       wrapper.append(
-        field(message('genMin'), numberInput(generator.min, (value) => set('number')({ min: value }))),
-        field(message('genMax'), numberInput(generator.max, (value) => set('number')({ max: value }))),
-        field(message('genDecimals'), numberInput(generator.decimals, (value) => set('number')({ decimals: value }))),
+        field(message('genMin'), numberInput(generator.min, (value) => set('number')({ min: value }), GENERATOR_BOUNDS.number)),
+        field(message('genMax'), numberInput(generator.max, (value) => set('number')({ max: value }), GENERATOR_BOUNDS.number)),
+        field(message('genDecimals'), numberInput(generator.decimals, (value) => set('number')({ decimals: value }), GENERATOR_BOUNDS.decimals)),
       );
       break;
     case 'date':
@@ -769,8 +769,8 @@ function generatorFields(live: () => Rule, update: (rule: Rule, refocus?: string
       break;
     case 'text':
       wrapper.append(
-        field(message('genMinWords'), numberInput(generator.minWords, (value) => set('text')({ minWords: value }))),
-        field(message('genMaxWords'), numberInput(generator.maxWords, (value) => set('text')({ maxWords: value }))),
+        field(message('genMinWords'), numberInput(generator.minWords, (value) => set('text')({ minWords: value }), GENERATOR_BOUNDS.words)),
+        field(message('genMaxWords'), numberInput(generator.maxWords, (value) => set('text')({ maxWords: value }), GENERATOR_BOUNDS.words)),
       );
       break;
     case 'alphanumeric':
