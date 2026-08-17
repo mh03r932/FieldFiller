@@ -27,7 +27,7 @@ jobs:
         with:
           api_key: ${{ secrets.ZAI_API_KEY }}
           provider: zai
-          model: glm-5.2
+          model: glm-5.3
           token: ${{ secrets.CL_REPO_TOKEN }}
           debug: "true"
           # Self-hosted-runner only: the runner shares a Docker network with the
