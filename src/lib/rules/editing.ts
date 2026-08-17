@@ -24,7 +24,9 @@ export function newRule(id: string): Rule {
     // pre-matching *something* would mean a rule that starts by doing whatever
     // the default pattern happened to hit.
     match: { mode: 'contains', pattern: '' },
-    generator: { type: 'text', minWords: 3, maxWords: 8 },
+    // `defaultGenerator`, not a second copy of its `text` branch. The two were
+    // written with the same bounds and nothing kept them that way.
+    generator: defaultGenerator('text'),
     // Coherence on by default (DD-005): a rule written without thinking about
     // the flag keeps the record consistent.
     fromPersona: true,

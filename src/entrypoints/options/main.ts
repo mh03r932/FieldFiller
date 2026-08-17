@@ -3,7 +3,7 @@ import { localise, message } from '@/lib/platform/i18n';
 import { getSettings, saveSettings } from '@/lib/platform/settings-store';
 import { DEFAULT_SETTINGS, type Settings } from '@/lib/settings';
 import { resultSentence, scopeRuleSentence } from '@/lib/report/surface';
-import { isEditingRule, renderRules, type RuleEditorHost } from './rules';
+import { forgetUndo, isEditingRule, renderRules, type RuleEditorHost } from './rules';
 import type { FieldReportEntry, FillReport, ReportResponse } from '@/lib/protocol';
 
 /**
@@ -109,6 +109,10 @@ async function mountRules(): Promise<void> {
         return;
       }
       settings = stored;
+      // The undo offer belongs to the list it was deleted from, and this is a
+      // different list — its stored position would land the rule somewhere
+      // nobody chose.
+      forgetUndo();
       // The same host object, re-rendered. Building a new one here — or calling
       // `mountRules` again — would register a second copy of this listener on
       // every foreign change, which is a leak that grows for as long as the page

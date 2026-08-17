@@ -57,6 +57,29 @@ export function isEditingRule(): boolean {
 /** The last deletion, for as long as this page stays open (UC-011). */
 let undoable: { readonly rule: Rule; readonly at: number } | undefined;
 
+/**
+ * Drops the undo offer, for when the list it belonged to is gone (UC-011, UC-024).
+ *
+ * The offer holds a rule *and the position it held*, which only means something
+ * against the list it was deleted from. When this page adopts settings written
+ * elsewhere it is a different list, so restoring would put a rule back at an
+ * index chosen for a list that no longer exists — `restoreRule` clamps, so it
+ * misplaces rather than throws, which is the worse of the two.
+ */
+export function forgetUndo(): void {
+  undoable = undefined;
+}
+
+/**
+ * Builds the list into `into`, which is also what every handler re-renders.
+ *
+ * `into` is threaded down rather than re-found: the handlers used to reach back
+ * up with `item.closest('#rules')`, so this module was handed its container and
+ * then went looking for it by an ID hard-coded in four places. Renaming the host
+ * element would have left the editor rendering once and never again, silently
+ * and with no type error — the coupling was invisible precisely because the
+ * selector kept working.
+ */
 export function renderRules(host: RuleEditorHost, into: HTMLElement): void {
   const rules = host.settings().rules;
   into.replaceChildren();
@@ -72,7 +95,7 @@ export function renderRules(host: RuleEditorHost, into: HTMLElement): void {
     const list = document.createElement('ol');
     list.className = 'rule-list';
     for (const [index, rule] of rules.entries()) {
-      list.append(ruleRow(host, rule, index, rules.length));
+      list.append(ruleRow(host, rule, index, rules.length, into));
     }
     into.append(list);
   }
@@ -119,7 +142,13 @@ function undoOffer(host: RuleEditorHost, into: HTMLElement): HTMLElement {
   return bar;
 }
 
-function ruleRow(host: RuleEditorHost, rule: Rule, index: number, total: number): HTMLElement {
+function ruleRow(
+  host: RuleEditorHost,
+  rule: Rule,
+  index: number,
+  total: number,
+  list: HTMLElement,
+): HTMLElement {
   const item = document.createElement('li');
   item.className = 'rule';
   item.dataset['rule'] = rule.id;
@@ -134,7 +163,7 @@ function ruleRow(host: RuleEditorHost, rule: Rule, index: number, total: number)
   disclose.textContent = nameOf(rule);
   disclose.addEventListener('click', () => {
     openRuleId = openRuleId === rule.id ? undefined : rule.id;
-    rerender(host, item);
+    renderRules(host, list);
   });
 
   const problems = validateRule(rule);
@@ -146,10 +175,10 @@ function ruleRow(host: RuleEditorHost, rule: Rule, index: number, total: number)
     disclose.append(flag);
   }
 
-  header.append(disclose, ordering(host, rule, index, total, item), remove(host, rule, index, item));
+  header.append(disclose, ordering(host, rule, index, total, list), remove(host, rule, index, list));
   item.append(header);
 
-  if (openRuleId === rule.id) item.append(editor(host, rule, item));
+  if (openRuleId === rule.id) item.append(editor(host, rule, item, list));
   return item;
 }
 
@@ -167,7 +196,7 @@ function ordering(
   rule: Rule,
   index: number,
   total: number,
-  item: HTMLElement,
+  list: HTMLElement,
 ): HTMLElement {
   const group = document.createElement('span');
   group.className = 'rule-order';
@@ -194,37 +223,35 @@ function ordering(
       commit(host, moved);
       const position = moved.findIndex((candidate) => candidate.id === rule.id) + 1;
       host.announce(message('ruleMoved', [nameOf(rule), String(position), String(moved.length)]));
-      const list = item.closest('#rules');
-      if (list instanceof HTMLElement) {
-        renderRules(host, list);
-        // The button that was pressed, not the first one still enabled. Those
-        // differ for every rule but the first: `button:not(:disabled)` is the up
-        // arrow, so moving a rule *down* handed the focus to up, and a second
-        // press of the same key moved it straight back — the opposite of what
-        // UC-012 step 3 asks for, and invisible unless you are working by
-        // keyboard.
-        //
-        // The fallback is not a nicety: a rule moved to either end has the
-        // button that moved it disabled, and focus would otherwise be dropped on
-        // the body, which for a keyboard user means starting again from the top
-        // of the page.
-        const rowSelector = `[data-rule="${rule.id}"] .rule-order button`;
-        const pressed = list.querySelector<HTMLButtonElement>(
-          `${rowSelector}[data-direction="${direction === -1 ? 'up' : 'down'}"]`,
-        );
-        const target =
-          pressed !== null && !pressed.disabled
-            ? pressed
-            : list.querySelector<HTMLButtonElement>(`${rowSelector}:not(:disabled)`);
-        target?.focus();
-      }
+
+      renderRules(host, list);
+      // The button that was pressed, not the first one still enabled. Those
+      // differ for every rule but the first: `button:not(:disabled)` is the up
+      // arrow, so moving a rule *down* handed the focus to up, and a second
+      // press of the same key moved it straight back — the opposite of what
+      // UC-012 step 3 asks for, and invisible unless you are working by
+      // keyboard.
+      //
+      // The fallback is not a nicety: a rule moved to either end has the
+      // button that moved it disabled, and focus would otherwise be dropped on
+      // the body, which for a keyboard user means starting again from the top
+      // of the page.
+      const rowSelector = `[data-rule="${rule.id}"] .rule-order button`;
+      const pressed = list.querySelector<HTMLButtonElement>(
+        `${rowSelector}[data-direction="${direction === -1 ? 'up' : 'down'}"]`,
+      );
+      const target =
+        pressed !== null && !pressed.disabled
+          ? pressed
+          : list.querySelector<HTMLButtonElement>(`${rowSelector}:not(:disabled)`);
+      target?.focus();
     });
     group.append(button);
   }
   return group;
 }
 
-function remove(host: RuleEditorHost, rule: Rule, index: number, item: HTMLElement): HTMLElement {
+function remove(host: RuleEditorHost, rule: Rule, index: number, list: HTMLElement): HTMLElement {
   const button = document.createElement('button');
   button.type = 'button';
   button.className = 'rule-delete';
@@ -237,13 +264,12 @@ function remove(host: RuleEditorHost, rule: Rule, index: number, item: HTMLEleme
     undoable = { rule, at: index };
     commit(host, removeRule(host.settings().rules, rule.id));
     if (openRuleId === rule.id) openRuleId = undefined;
-    const list = item.closest('#rules');
-    if (list instanceof HTMLElement) renderRules(host, list);
+    renderRules(host, list);
   });
   return button;
 }
 
-function editor(host: RuleEditorHost, rule: Rule, item: HTMLElement): HTMLElement {
+function editor(host: RuleEditorHost, rule: Rule, item: HTMLElement, list: HTMLElement): HTMLElement {
   const body = document.createElement('div');
   body.className = 'rule-body';
 
@@ -299,11 +325,8 @@ function editor(host: RuleEditorHost, rule: Rule, item: HTMLElement): HTMLElemen
     if (problems.length === 0) commit(host, replaceRule(host.settings().rules, next));
 
     if (refocus !== undefined) {
-      const list = item.closest('#rules');
-      if (list instanceof HTMLElement) {
-        renderRules(host, list);
-        list.querySelector<HTMLElement>(`[data-rule="${next.id}"] ${refocus}`)?.focus();
-      }
+      renderRules(host, list);
+      list.querySelector<HTMLElement>(`[data-rule="${next.id}"] ${refocus}`)?.focus();
       return;
     }
     rerenderBody(host, next, item, problems.length === 0);
@@ -400,13 +423,17 @@ function sources(live: () => Rule, update: (rule: Rule, refocus?: string) => voi
   allBox.className = 'sources-all';
   allBox.checked = rule.sources === undefined;
   allBox.addEventListener('change', () => {
+    // A spread drops the `readonly` modifiers, so the property can simply be
+    // deleted. What was here cast twice — once to `{ sources?: unknown }` to
+    // remove it and once back to the real type to assign it — and the `unknown`
+    // arm meant the compiler stopped checking the one property this handler
+    // exists to change.
     const next = { ...live() };
-    if (allBox.checked) delete (next as { sources?: unknown }).sources;
-    else (next as { sources?: readonly MatchSource[] }).sources = [...MATCH_SOURCES];
+    delete next.sources;
     // Structural: this toggle is what decides whether the six per-source
     // checkboxes exist at all, so the body has to be rebuilt to show or remove
     // them. Focus returns here, to the box the user just operated.
-    update(next, '.sources-all');
+    update(allBox.checked ? next : { ...next, sources: [...MATCH_SOURCES] }, '.sources-all');
   });
   all.append(allBox, document.createTextNode(` ${message('ruleSourcesAll')}`));
   group.append(all);
@@ -425,13 +452,27 @@ function sources(live: () => Rule, update: (rule: Rule, refocus?: string) => voi
   return group;
 }
 
-const GENERATOR_LABELS: ReadonlyArray<readonly [Generator['type'], string]> = [
+/**
+ * The generator types and their catalog keys, in the order they are offered.
+ *
+ * Keys rather than resolved strings, and a function below rather than a
+ * module-level constant: resolving at import time makes loading this module
+ * depend on `browser.i18n` already being live, which is a side effect a list of
+ * pairs has no business having. It also meant nothing could import this file
+ * without a catalog — the first unit test to try had to mock i18n before its
+ * own import, for a constant it never used.
+ */
+const GENERATOR_TYPES: ReadonlyArray<readonly [Generator['type'], MessageKey]> = [
   ['name', 'genName'], ['email', 'genEmail'], ['username', 'genUsername'],
   ['organisation', 'genOrganisation'], ['telephone', 'genTelephone'], ['url', 'genUrl'],
   ['number', 'genNumber'], ['date', 'genDate'], ['text', 'genText'],
   ['alphanumeric', 'genAlphanumeric'], ['regex', 'genRegex'], ['list', 'genList'],
   ['constant', 'genConstant'],
-].map(([type, key]) => [type as Generator['type'], message(key as 'genName')] as const);
+];
+
+function generatorOptions(): ReadonlyArray<readonly [string, string]> {
+  return GENERATOR_TYPES.map(([type, key]) => [type, message(key)] as const);
+}
 
 function generatorFields(live: () => Rule, update: (rule: Rule, refocus?: string) => void): HTMLElement {
   const rule = live();
@@ -441,7 +482,7 @@ function generatorFields(live: () => Rule, update: (rule: Rule, refocus?: string
   wrapper.append(
     select(
       message('ruleGenerator'),
-      GENERATOR_LABELS.map(([type, label]) => [type, label] as const),
+      generatorOptions(),
       rule.generator.type,
       // Keeps the name, matcher, scoping and flag; discards options that mean
       // nothing to the new type (UC-009 A4, ND-9). Structural: the fields the
@@ -696,11 +737,6 @@ function nameOf(rule: Rule): string {
 
 function commit(host: RuleEditorHost, rules: readonly Rule[]): void {
   host.save({ ...host.settings(), rules });
-}
-
-function rerender(host: RuleEditorHost, item: HTMLElement): void {
-  const list = item.closest('#rules');
-  if (list instanceof HTMLElement) renderRules(host, list);
 }
 
 /**
