@@ -15,6 +15,27 @@
 # every one of them is cheap to satisfy now and expensive to retrofit: a
 # reproducible build bolted on at the end means the digests simply differ, with
 # nothing to show for it.
+#
+# Every third-party action is pinned to an exact release tag rather than a
+# floating major. `actions/setup-node@v4` took this runner down on 2026-08-18:
+# act caches actions under `~/.cache/act/<sha256(owner/repo@ref)>`, so the key
+# `actions/setup-node@v4` is a promise the tag itself does not keep — upstream
+# force-moves it on every 4.x release, and the entry ended up holding one ref's
+# file list over another ref's checkout. The step died at 0s with
+# `lstat …/eslint.config.mjs: no such file or directory`, naming a file that
+# exists on that action's `main` and on no v4 tag at all. Nothing in this
+# repository had changed.
+#
+# An exact tag makes a cache key mean one tree forever, which is the property
+# act already assumes it has. It is also the argument NFR-011 makes about the
+# package manager below, applied to the one class of build input this file was
+# still leaving unpinned: an action is a dependency, and `@v4` is a range.
+#
+# Tags rather than commit SHAs because this is Gitea. act_runner fetches a
+# *named ref*, and an arbitrary SHA is not one — a SHA pin is the shape that
+# fails here, which is the trap this comment exists to keep the next reader out
+# of. Each pin below is the commit its floating tag pointed at when this was
+# written, so no behaviour changed; only the tag's freedom to move did.
 name: CI
 
 on:
@@ -32,7 +53,7 @@ jobs:
   quality:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v5.1.0
 
       # No `cache: pnpm` here, though it is the obvious way to write this. That
       # option makes `setup-node` shell out to `pnpm store path` to find the
@@ -48,7 +69,7 @@ jobs:
       # `pnpm store path` reports the configured directory whether or not it
       # exists yet, so a cold runner needs no special case.
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v4.4.0
         with:
           node-version: 24
 
@@ -77,7 +98,7 @@ jobs:
         run: echo "PNPM_STORE=$(pnpm store path --silent)" >> "$GITHUB_ENV"
 
       - name: Cache the pnpm store
-        uses: actions/cache@v4
+        uses: actions/cache@v4.3.0
         with:
           path: ${{ env.PNPM_STORE }}
           key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
@@ -125,12 +146,12 @@ jobs:
   browser:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v5.1.0
 
       # No `cache: pnpm`, and the store cached by hand instead — see the `quality`
       # job, where the reason is written out in full.
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v4.4.0
         with:
           node-version: 24
 
@@ -147,7 +168,7 @@ jobs:
         run: echo "PNPM_STORE=$(pnpm store path --silent)" >> "$GITHUB_ENV"
 
       - name: Cache the pnpm store
-        uses: actions/cache@v4
+        uses: actions/cache@v4.3.0
         with:
           path: ${{ env.PNPM_STORE }}
           key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
@@ -158,7 +179,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Cache browsers
-        uses: actions/cache@v4
+        uses: actions/cache@v4.3.0
         with:
           path: ~/.cache/ms-playwright
           key: browsers-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
@@ -287,7 +308,7 @@ jobs:
 
       - name: Cache Firefox
         id: firefox-cache
-        uses: actions/cache@v4
+        uses: actions/cache@v4.3.0
         with:
           path: /tmp/firefox
           # No `restore-keys`. A partial match would restore last week's browser
@@ -354,12 +375,12 @@ jobs:
   package:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v5.1.0
 
       # No `cache: pnpm`, and the store cached by hand instead — see the `quality`
       # job, where the reason is written out in full.
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v4.4.0
         with:
           node-version: 24
 
@@ -376,7 +397,7 @@ jobs:
         run: echo "PNPM_STORE=$(pnpm store path --silent)" >> "$GITHUB_ENV"
 
       - name: Cache the pnpm store
-        uses: actions/cache@v4
+        uses: actions/cache@v4.3.0
         with:
           path: ${{ env.PNPM_STORE }}
           key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
@@ -422,7 +443,7 @@ jobs:
           ls -l artefacts
 
       - name: Upload packages
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v3.2.1
         with:
           name: fieldfiller-packages
           path: artefacts
