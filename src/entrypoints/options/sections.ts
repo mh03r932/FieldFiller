@@ -24,6 +24,7 @@ import {
 } from './controls';
 import type { OptionsHost } from './host';
 import { renderProfiles } from './profiles-section';
+import { rowAt, rowMovedUnderYou } from './rows';
 
 /**
  * Every options section that is not the rule editor: UC-018..UC-023, plus the
@@ -229,14 +230,29 @@ function fieldExclusionRow(
   row.className = 'exclusion';
   row.dataset['exclusion'] = String(index);
 
-  // The matcher as it is *now*. Every handler below reads through this, so the
-  // second edit to a row is applied to the result of the first: choosing a mode
-  // and then typing a pattern must not discard the mode (the rule editor's
-  // `live()`, at one row's scale).
-  const live = (): Matcher => host.settings().exclusions.fields[index] ?? matcher;
+  // The matcher as it is *now*, and only while the position it was drawn at
+  // still holds it. Every handler below reads through this, so the second edit
+  // to a row is applied to the result of the first: choosing a mode and then
+  // typing a pattern must not discard the mode (the rule editor's `live()`, at
+  // one row's scale).
+  //
+  // The guard is the other half, and the window it covers is narrow but real:
+  // the page skips re-rendering a section that holds the focus, which is
+  // precisely when someone is typing in one of these rows. A foreign write that
+  // shortened or reordered the list in the meantime leaves this index naming
+  // somebody else's exclusion, and the fallback that used to be here — the
+  // matcher this row was drawn from — hid that by answering plausibly while
+  // `replaceAt` wrote over the wrong entry (`rows.ts`).
+  const slot = rowAt(() => host.settings().exclusions.fields, index, matcher);
+  const live = (): Matcher => slot.entry() ?? matcher;
 
   const update = (next: Matcher): void => {
+    if (slot.entry() === undefined) {
+      rowMovedUnderYou(host, into, () => renderFieldExclusions(host, into), 'button.primary');
+      return;
+    }
     saveFields(host, replaceAt(host.settings().exclusions.fields, index, next));
+    slot.wrote(next);
     // Only the problem line, never the fields: rebuilding them on every
     // keystroke takes the caret with it.
     row.querySelector('.problems')?.replaceWith(matcherProblems(next));
@@ -270,6 +286,10 @@ function fieldExclusionRow(
     `${message('exclusionRemove')}: ${matcher.pattern === '' ? message('exclusionUnnamed') : matcher.pattern}`,
   );
   remove.addEventListener('click', () => {
+    if (slot.entry() === undefined) {
+      rowMovedUnderYou(host, into, () => renderFieldExclusions(host, into), 'button.primary');
+      return;
+    }
     saveFields(host, removeAt(host.settings().exclusions.fields, index));
     host.announce(message('exclusionRemoved'));
     renderFieldExclusions(host, into);
@@ -364,8 +384,24 @@ function domainRow(
   row.className = 'exclusion';
   row.dataset['domain'] = String(index);
 
+  // Position-addressed, and guarded for the reason the field exclusions above
+  // are: the section is not redrawn while it holds the focus, so a foreign write
+  // can move this row's entry out from under an index the handlers close over
+  // (`rows.ts`). A domain exclusion is the more dangerous of the two to write
+  // through a stale index — deleting the wrong one is a site that silently
+  // starts getting filled again.
+  const slot = rowAt(() => host.settings().exclusions.domains, index, pattern);
+  const moved = (): void => {
+    rowMovedUnderYou(host, into, () => renderDomainExclusions(host, into), 'button.primary');
+  };
+
   const update = (value: string): void => {
+    if (slot.entry() === undefined) {
+      moved();
+      return;
+    }
     saveDomains(host, replaceAt(host.settings().exclusions.domains, index, value));
+    slot.wrote(value);
     row.querySelector('.problems')?.replaceWith(domainProblem(value));
   };
 
@@ -384,6 +420,10 @@ function domainRow(
     `${message('exclusionRemove')}: ${pattern === '' ? message('exclusionUnnamed') : pattern}`,
   );
   remove.addEventListener('click', () => {
+    if (slot.entry() === undefined) {
+      moved();
+      return;
+    }
     saveDomains(host, removeAt(host.settings().exclusions.domains, index));
     host.announce(message('domainRemoved'));
     renderDomainExclusions(host, into);

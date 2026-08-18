@@ -5,7 +5,8 @@ import { newProfile } from '@/lib/profiles';
 import { validateDomainPattern } from '@/lib/rules/validate';
 import { checkbox, field, focusIn, textInput } from './controls';
 import type { OptionsHost } from './host';
-import { profileRules, renderRules } from './rules';
+import { rowAt, rowMovedUnderYou } from './rows';
+import { closeRuleIn, profileRules, renderRules } from './rules';
 
 /**
  * URL profiles: named rule sets scoped to the pages they belong to
@@ -24,6 +25,29 @@ import { profileRules, renderRules } from './rules';
 
 /** Which profile is expanded. One at a time, as with rules: the list is context. */
 let openProfileId: string | undefined;
+
+/**
+ * Expands one profile, or none, and takes the previous one's rule editor with it.
+ *
+ * The only writer of `openProfileId`, which is the point. A profile's rules are
+ * drawn *inside* that profile, so collapsing it — or replacing it with another —
+ * destroys the rule editor's DOM. It did not destroy the rule editor's memory of
+ * what was open, and that outlived the screen in a way the user could not undo:
+ * `isEditingRule` went on answering yes, so the page's storage listener took the
+ * "adopt into memory, leave the DOM alone" branch for every later foreign write
+ * and the global rule list stopped refreshing for the rest of the session, while
+ * each adoption went on carrying a draft whose editor no longer existed.
+ *
+ * Only the profile that is losing its editor, and only when it is losing it: a
+ * rule open in the global list belongs to nobody here and is not this function's
+ * to close (BR-015-2).
+ */
+function openProfile(id: string | undefined): void {
+  if (openProfileId !== undefined && openProfileId !== id) {
+    closeRuleIn(profileRules(openProfileId).key);
+  }
+  openProfileId = id;
+}
 
 /**
  * Whether a profile is open.
@@ -61,7 +85,7 @@ export function closeIfProfileGone(settings: Settings): boolean {
   if (openProfileId === undefined) return false;
   if (settings.profiles.some((candidate) => candidate.id === openProfileId)) return false;
 
-  openProfileId = undefined;
+  openProfile(undefined);
   return true;
 }
 
@@ -101,7 +125,7 @@ export function renderProfiles(host: OptionsHost, into: HTMLElement): void {
     // position would change which profile governs pages the existing ones
     // already match (BR-014-2).
     save(host, appendAt(host.settings().profiles, newProfile(id)));
-    openProfileId = id;
+    openProfile(id);
     renderProfiles(host, into);
     focusIn(into, `[data-profile="${id}"] input[type="text"]`);
   });
@@ -128,7 +152,7 @@ function profileRow(
   disclose.setAttribute('aria-expanded', String(openProfileId === profile.id));
   disclose.textContent = nameOf(profile);
   disclose.addEventListener('click', () => {
-    openProfileId = openProfileId === profile.id ? undefined : profile.id;
+    openProfile(openProfileId === profile.id ? undefined : profile.id);
     renderProfiles(host, into);
     // Back onto the button the rebuild destroyed, or a keyboard user is
     // returned to the top of the page after every expand (WCAG 2.4.3).
@@ -180,7 +204,22 @@ function ordering(
     button.title = message(key);
     button.disabled = disabled;
     button.addEventListener('click', () => {
-      const moved = moveAt(host.settings().profiles, index, direction);
+      // Found by id, in the list as it stands — the argument the delete button
+      // below makes at length, reached through the other door. This row's index
+      // was chosen when it was drawn, and the page deliberately does not redraw
+      // this section while a profile is open or while it holds the focus, so
+      // another writer deleting or reordering a profile above this one leaves
+      // the captured position naming somebody else. Moving the wrong profile
+      // changes which of two overlapping profiles governs a page (BR-014-2),
+      // silently, in a row the user was not looking at.
+      const profiles = host.settings().profiles;
+      const at = profiles.findIndex((candidate) => candidate.id === profile.id);
+      if (at === -1) {
+        rowMovedUnderYou(host, into, () => renderProfiles(host, into), '.profile-add');
+        return;
+      }
+
+      const moved = moveAt(profiles, at, direction);
       save(host, moved);
       const position = moved.findIndex((candidate) => candidate.id === profile.id) + 1;
       host.announce(
@@ -256,7 +295,7 @@ function remove(host: OptionsHost, profile: Profile, into: HTMLElement): HTMLEle
     // page asserting a state it did not compose. The row goes either way, which
     // is both what the user asked for and where they already are (UC-015 A4).
     if (at !== -1) save(host, removeAt(profiles, at));
-    if (openProfileId === profile.id) openProfileId = undefined;
+    if (openProfileId === profile.id) openProfile(undefined);
     host.announce(message('profileDeleted', [nameOf(current)]));
     renderProfiles(host, into);
     // `.profile-add`, not `button.primary`. An open profile contains the rule
@@ -395,6 +434,22 @@ function urls(
     // because `focusIn` reports a miss and this caller had nothing to report to.
     row.dataset['url'] = String(index);
 
+    // Addressed by position in a list that carries no identifiers of its own, so
+    // the row checks that its position still holds what it was drawn from before
+    // it writes anything. This section is not redrawn while a profile is open,
+    // which is exactly when someone is typing into these boxes, and a foreign
+    // write to the same profile's patterns would otherwise have this row rewrite
+    // or delete a pattern the user never looked at (`rows.ts`).
+    const slot = rowAt(() => live().urls, index, pattern);
+    const moved = (): void => {
+      rowMovedUnderYou(
+        host,
+        into,
+        () => renderProfiles(host, into),
+        `[data-profile="${profile.id}"] .profile-add-url`,
+      );
+    };
+
     const problems = document.createElement('div');
     problems.className = 'problems';
     problems.setAttribute('role', 'alert');
@@ -412,7 +467,12 @@ function urls(
     const input = field(
       message('profileUrlPattern'),
       textInput(pattern, (value) => {
+        if (slot.entry() === undefined) {
+          moved();
+          return;
+        }
         update({ ...live(), urls: replaceAt(live().urls, index, value) });
+        slot.wrote(value);
         showProblem(value);
       }),
       message('domainPatternHint'),
@@ -427,6 +487,10 @@ function urls(
       `${message('exclusionRemove')}: ${pattern === '' ? message('exclusionUnnamed') : pattern}`,
     );
     drop.addEventListener('click', () => {
+      if (slot.entry() === undefined) {
+        moved();
+        return;
+      }
       update({ ...live(), urls: removeAt(live().urls, index) });
       renderProfiles(host, into);
       focusIn(into, `[data-profile="${profile.id}"] .profile-add-url`);
