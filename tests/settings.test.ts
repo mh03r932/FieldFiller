@@ -329,6 +329,7 @@ describe('parseSettings', () => {
               { mode: 'exact' },
               { mode: 'nearby', pattern: 'x' },
               { pattern: 'x' },
+              { mode: 'contains', pattern: '' },
               null,
               42,
               'legacy-source',
