@@ -73,6 +73,34 @@ export function rulesFor(
   return profile === undefined ? global : [...profile.rules, ...global];
 }
 
+/**
+ * What to call a profile, or `undefined` if it has nothing to be called by.
+ *
+ * A label is optional (UC-014 step 2 starts one empty), so every surface that
+ * names a profile needs the same fallback: the first pattern it matches on,
+ * which is worse to read than a name and better than a blank. The wording for
+ * the last resort is left to the caller, because this module is host-free and
+ * has no `browser.i18n` (NFR-015, BR-008-2).
+ *
+ * Here rather than in the options page, which is where it lived until
+ * 2026-08-18. The background had its own answer — `profile.label`, raw — so a
+ * matching profile that had not been named yet reported as the empty string,
+ * and the report folded that into "no profile matched this page" while the
+ * profile's rules were in fact running at top precedence. That is a false
+ * negative on the exact question FR-047 exists to answer, so both callers now
+ * ask the same function.
+ *
+ * `undefined` is unreachable for a profile that *governs* a page: `activeProfile`
+ * only returns one that matched, and `matchesProfile` ignores empty patterns, so
+ * a nameless profile with nothing to fall back on can never be the active one.
+ * It is a real answer for a profile being written, which is what the editor's
+ * list has to render.
+ */
+export function profileName(profile: Profile): string | undefined {
+  if (profile.label !== '') return profile.label;
+  return profile.urls.find((pattern) => pattern !== '');
+}
+
 /** A new profile, in the state UC-014 step 2 describes. */
 export function newProfile(id: string): Profile {
   return {

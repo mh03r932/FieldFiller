@@ -1,7 +1,7 @@
 import { message, type MessageKey } from '@/lib/platform/i18n';
 import type { Profile, Settings } from '@/lib/settings';
 import { appendAt, moveAt, removeAt, replaceAt } from '@/lib/lists';
-import { newProfile } from '@/lib/profiles';
+import { newProfile, profileName } from '@/lib/profiles';
 import { validateDomainPattern } from '@/lib/rules/validate';
 import { checkbox, field, focusIn, textInput } from './controls';
 import type { OptionsHost } from './host';
@@ -539,11 +539,10 @@ function problemOf(profile: Profile): string | undefined {
 }
 
 function nameOf(profile: Profile): string {
-  // Falls back to the first pattern rather than to nothing: worse to read, never
-  // blank, and blank is what makes a list unusable (BR-009-3's argument).
-  return profile.label !== ''
-    ? profile.label
-    : (profile.urls.find((pattern) => pattern !== '') ?? message('profileUnnamed'));
+  // The fallback to the first pattern is `profileName`, shared with the
+  // background so the report cannot name a profile differently from the list
+  // that shows it. Only the last resort is local, because it is a translation.
+  return profileName(profile) ?? message('profileUnnamed');
 }
 
 function save(host: OptionsHost, profiles: readonly Profile[]): void {

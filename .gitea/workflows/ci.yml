@@ -295,6 +295,23 @@ jobs:
           # pin above would silently stop meaning anything.
           key: firefox-${{ runner.os }}-${{ steps.firefox-week.outputs.week }}
 
+      # Firefox's own apt dependencies, which the Chromium install above does not
+      # cover: Playwright's dependency table lists several packages for Firefox
+      # that are absent from Chromium's, `libdbus-glib-1-2` among them. Without
+      # it the Mozilla build dies at exec — "error while loading shared
+      # libraries" — before it can open a port, and the harness waiting for that
+      # port reports a timeout, which names the wrong thing.
+      #
+      # `install-deps` rather than `install --with-deps firefox`: only the apt
+      # packages are wanted here. Playwright's own Firefox is a patched build
+      # with no remote agent for the BiDi harness to attach to, so the browser
+      # still comes from Mozilla directly, below.
+      #
+      # Outside the cache guard on purpose — the cache holds /tmp/firefox, not
+      # anything apt installed, so a cache hit still needs these.
+      - name: Install Firefox's system dependencies
+        run: pnpm exec playwright install-deps firefox
+
       - name: Install Firefox
         if: steps.firefox-cache.outputs.cache-hit != 'true'
         run: |
@@ -305,6 +322,13 @@ jobs:
           curl -fsSL -o /tmp/firefox.tar.xz \
             'https://download.mozilla.org/?product=firefox-latest-ssl&os=linux64&lang=en-US'
           tar -xJf /tmp/firefox.tar.xz -C /tmp
+
+      # Cheap, and it fails in the step that owns the browser rather than inside
+      # a harness: `--version` needs every shared library a real run does, so a
+      # missing dependency is named here instead of surfacing as a fill that
+      # never started.
+      - name: Check Firefox runs
+        run: /tmp/firefox/firefox --version
 
       - name: Extension loads (Firefox)
         if: startsWith(github.ref, 'refs/tags/')

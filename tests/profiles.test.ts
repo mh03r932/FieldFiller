@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { activeProfile, matchesProfile, newProfile, rulesFor } from '@/lib/profiles';
+import { activeProfile, matchesProfile, newProfile, profileName, rulesFor } from '@/lib/profiles';
 import { appendAt, moveAt, removeAt, replaceAt } from '@/lib/lists';
 import { compileRules } from '@/lib/rules/match';
 import { generateBatch } from '@/lib/generators/batch';
@@ -101,6 +101,34 @@ describe('which profile governs a page (UC-017)', () => {
     // One glob matcher for both, so a pattern cannot mean different things in
     // the two places a user types one.
     expect(matchesProfile(profile({ urls: ['localhost/*'] }), 'http://localhost:5173/x')).toBe(true);
+  });
+});
+
+describe('what to call a profile (FR-047, UC-014)', () => {
+  it('uses the label when there is one', () => {
+    expect(profileName(profile({ label: 'Acme staging' }))).toBe('Acme staging');
+  });
+
+  it('falls back to the first pattern for a profile not named yet', () => {
+    // Worse to read than a name, and never blank — blank is what makes a list
+    // unusable (BR-009-3's argument), and what made the report lie: `''` is
+    // folded into "no profile matched this page" by `profileSentence`.
+    expect(profileName(profile({ label: '', urls: ['', '*.example.com/*'] }))).toBe('*.example.com/*');
+  });
+
+  it('has no name for a profile with neither, which is a profile being written', () => {
+    expect(profileName(newProfile('p1'))).toBeUndefined();
+  });
+
+  it('always names a profile that governs a page', () => {
+    // The property the background relies on: `activeProfile` only returns a
+    // profile that matched, and `matchesProfile` ignores empty patterns, so the
+    // fallback above always has something to return. Asserted rather than
+    // argued, because the background reports `undefined` as "no profile".
+    const nameless = profile({ label: '', urls: ['', '*.example.com/*'] });
+    const active = activeProfile([nameless], 'https://app.example.com/checkout');
+    expect(active).toBeDefined();
+    expect(profileName(active!)).toBe('*.example.com/*');
   });
 });
 

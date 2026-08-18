@@ -7,11 +7,13 @@ import {
   fieldsFromReport,
   identityOf,
   noteDescriptors,
+  profileSentence,
   resultSentence,
   scopeRuleSentence,
   type FieldNotes,
   type ResultMessageKey,
 } from '@/lib/report/surface';
+import { newProfile, profileName } from '@/lib/profiles';
 import type { FieldDescriptor, FillReport, FrameReport } from '@/lib/protocol';
 
 /**
@@ -318,5 +320,37 @@ describe('the sentence names the scope that ran (DD-006, UC-002 A2)', () => {
     expect(resultSentence(report({ scope: 'current-form', scopeRule: undefined }), echo)).toContain(
       'resultScopeCurrentForm',
     );
+  });
+});
+
+describe('naming the profile that governed the fill (FR-047, UC-017)', () => {
+  it('names the profile that applied', () => {
+    expect(profileSentence(report({ profile: 'Acme staging' }), echo)).toBe(
+      '[reportProfileApplied:Acme staging]',
+    );
+  });
+
+  it('says so when none matched, rather than staying silent', () => {
+    // Silence reads identically to a build with no profiles in it, and "my
+    // profile did not apply" is the case the indicator exists for.
+    expect(profileSentence(report({ profile: undefined }), echo)).toBe('[reportProfileNone]');
+  });
+
+  it('says nothing at all for a fill that refused', () => {
+    // It ran no rules, so no profile line is true of it; its own sentence
+    // explains more.
+    expect(profileSentence(report({ refused: 'no-anchor', profile: 'Acme' }), echo)).toBeUndefined();
+  });
+
+  it('does not report a profile that governed the page as no profile at all', () => {
+    // The regression this describe exists for. A profile whose URL had been
+    // typed and whose name had not reached here as `''` — the background sent
+    // `profile.label` raw — and `''` folds into "no profile matched this page"
+    // while that profile's rules were running at top precedence. The background
+    // now sends `profileName`, which falls back to the pattern, so the name a
+    // matching profile arrives with is never empty.
+    expect(profileName({ ...newProfile('p1'), urls: ['*.example.com/*'] })).toBe('*.example.com/*');
+    expect(profileSentence(report({ profile: profileName({ ...newProfile('p1'), urls: ['*.example.com/*'] }) }), echo))
+      .toBe('[reportProfileApplied:*.example.com/*]');
   });
 });

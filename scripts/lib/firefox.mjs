@@ -91,19 +91,65 @@ export async function connectBidi(url) {
   };
 }
 
-async function waitForBidi(port, timeoutMs = 30000) {
+/**
+ * How much of the browser's own output to keep for an error message.
+ *
+ * A tail rather than the whole stream: Firefox is chatty on stderr — a headless
+ * run prints GTK and dbus grumbling that means nothing — and the sentence that
+ * explains a failed start is the last thing it says before it stops.
+ */
+const OUTPUT_TAIL = 4000;
+
+/** The browser's last words, folded into an error message, if it said any. */
+function quote(output) {
+  const said = output().trim();
+  return said === '' ? ' It printed nothing.' : `\n\n  Firefox said:\n${said.replace(/^/gm, '    ')}\n`;
+}
+
+/**
+ * Waits for the remote agent, or explains why it never arrived.
+ *
+ * Two failures wear the same symptom — no port — and want different fixes, so
+ * they are told apart here rather than both being reported as a timeout. A
+ * browser that *exited* did so for a reason it already printed: a missing
+ * shared library, typically, on a machine where Firefox's own dependencies were
+ * never installed. Polling on regardless spends the whole timeout on a port
+ * belonging to a process that has been dead since the first few hundred
+ * milliseconds, and then reports the poll — which names the harness rather than
+ * the browser, and leaves the actual sentence in a pipe nobody is reading.
+ */
+async function waitForBidi(port, { exited, output }, timeoutMs = 30_000) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
+    const gone = exited();
+    if (gone !== undefined) {
+      throw new Error(`Firefox exited before opening a BiDi port — ${gone}.${quote(output)}`);
+    }
     try {
       return await connectBidi(`ws://127.0.0.1:${port}/session`);
     } catch {
       await sleep(250);
     }
   }
-  throw new Error('Firefox did not open a BiDi port in time');
+  throw new Error(
+    `Firefox did not open a BiDi port within ${timeoutMs}ms (it is still running).${quote(output)}`,
+  );
 }
 
-/** Starts Firefox with a throwaway profile and an open BiDi session. */
+/**
+ * Starts Firefox with a throwaway profile and an open BiDi session.
+ *
+ * Its output is piped rather than discarded, and read as it arrives. `ignore`
+ * was cheaper to write and is what hid the CI failure described above; piping
+ * without draining would be worse still, since a browser that fills the pipe
+ * buffer then blocks on a write nobody is reading, which looks exactly like a
+ * slow start.
+ *
+ * Nothing survives a failure here, on the same reasoning as `launchChromium`:
+ * the caller's handle comes from destructuring what this returns, so a throw
+ * leaves its `session` undefined and its `closeFirefox(session ?? {})` a no-op —
+ * leaking the temp profile, and the browser too if it got as far as running.
+ */
 export async function launchFirefox() {
   const profileDir = mkdtempSync(join(tmpdir(), 'fieldfiller-ff-'));
   const debugPort = await freePort();
@@ -118,12 +164,35 @@ export async function launchFirefox() {
       ...(process.env['HEADFUL'] === '1' ? [] : ['--headless']),
       '--no-remote',
     ],
-    { stdio: 'ignore' },
+    { stdio: ['ignore', 'pipe', 'pipe'] },
   );
 
-  const bidi = await waitForBidi(debugPort);
-  await bidi.send('session.new', { capabilities: { alwaysMatch: {} } });
-  return { firefox, bidi, profileDir };
+  let output = '';
+  const keep = (chunk) => {
+    output = (output + chunk).slice(-OUTPUT_TAIL);
+  };
+  firefox.stdout.setEncoding('utf8').on('data', keep);
+  firefox.stderr.setEncoding('utf8').on('data', keep);
+
+  // Why a variable rather than a promise raced against the poll: the poll has
+  // to keep running after the browser is up, and a rejected promise nobody is
+  // awaiting by then is an unhandled rejection. `error` covers a binary that
+  // cannot be executed at all, which never reaches `exit`.
+  let gone;
+  firefox.once('error', (error) => (gone ??= `it could not be started (${error.message})`));
+  firefox.once('exit', (code, signal) => (gone ??= `exit ${code ?? 'none'}, signal ${signal ?? 'none'}`));
+
+  // Held outside the `try` so a failed `session.new` takes its socket down with
+  // it: the connection is open by then, and the caller has no handle to close.
+  let bidi;
+  try {
+    bidi = await waitForBidi(debugPort, { exited: () => gone, output: () => output });
+    await bidi.send('session.new', { capabilities: { alwaysMatch: {} } });
+    return { firefox, bidi, profileDir };
+  } catch (error) {
+    await closeFirefox({ firefox, bidi, profileDir });
+    throw error;
+  }
 }
 
 /**
@@ -131,11 +200,16 @@ export async function launchFirefox() {
  *
  * Escalates to SIGKILL rather than trusting SIGTERM: Firefox does not reliably
  * exit on it while headless, and a survivor holds its profile and its port.
+ *
+ * A process that has *already* exited is skipped rather than waited for. Node
+ * does not replay `exit` to a listener attached afterwards, so both escalation
+ * waits ran to their full length on a browser that died on its own — eight
+ * seconds of nothing, appended to the failure this path exists to report.
  */
 export async function closeFirefox({ firefox, bidi, profileDir }) {
   bidi?.close();
 
-  if (firefox !== undefined) {
+  if (firefox !== undefined && firefox.exitCode === null && firefox.signalCode === null) {
     firefox.kill();
     const exited = await Promise.race([
       new Promise((resolve) => firefox.once('exit', () => resolve(true))),

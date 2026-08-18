@@ -2,6 +2,7 @@ import type {
   CapReason,
   ControlKind,
   FieldDescriptor,
+  FieldOutcome,
   FieldReportEntry,
   FillReport,
   FillScope,
@@ -112,22 +113,35 @@ function first(...candidates: ReadonlyArray<string | undefined>): string | undef
 export function fieldsFromReport(notes: FieldNotes, report: FrameReport): FieldReportEntry[] {
   return report.outcomes.map((outcome) => {
     const note = notes.get(noteKey(report.frame, outcome.ref));
-    const detail =
-      outcome.status === 'filled'
-        ? outcome.provenance
-        : outcome.status === 'skipped'
-          ? outcome.reason
-          : outcome.cause;
-
     return {
       frame: report.frame,
       ref: outcome.ref,
       identity: note?.identity ?? 'unknown field',
       kind: note?.kind ?? 'text',
       status: outcome.status,
-      detail,
+      detail: detailOf(outcome),
     };
   });
+}
+
+/**
+ * The one thing an outcome carries that explains it (FR-069).
+ *
+ * Each status names it differently — a filled control has provenance, a skipped
+ * one a reason, a failed one a cause — and the row shows exactly one of them.
+ * Written as a `switch` over the union rather than a chain of conditionals: with
+ * no `default`, a fourth status added to the protocol stops compiling here,
+ * where a chain would silently give it the last branch's field.
+ */
+function detailOf(outcome: FieldOutcome): string {
+  switch (outcome.status) {
+    case 'filled':
+      return outcome.provenance;
+    case 'skipped':
+      return outcome.reason;
+    case 'failed':
+      return outcome.cause;
+  }
 }
 
 /**
@@ -245,6 +259,15 @@ export function scopeRuleSentence(report: FillReport, translate: Translate): str
  * Shown on the options page and not on the badge, on DD-006's terms: the badge
  * and tooltip have no room for a fourth fact, and this one answers "were my
  * rules in effect?", which is asked after a fill rather than during it.
+ *
+ * The empty string is treated as no profile only as a last defence. It used to
+ * be the normal path for a profile the user had not named yet — the background
+ * sent `profile.label` raw — and folding it in here is what turned that into
+ * the wrong sentence rather than an ugly one. The background now sends
+ * `profileName`, which falls back to a pattern and is never empty for a profile
+ * that matched, so this branch should be unreachable; it stays because "no
+ * profile" is still a better reading of `''` than a sentence naming one with a
+ * blank where its name goes.
  */
 export function profileSentence(report: FillReport, translate: Translate): string | undefined {
   if (report.refused !== undefined) return undefined;

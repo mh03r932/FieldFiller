@@ -14,7 +14,7 @@ import {
 import { generateBatch, tokenRandom } from '@/lib/generators/batch';
 import type { BehaviourDefaults } from '@/lib/generators/default-generator';
 import { compileRules, type CompiledRule } from '@/lib/rules/match';
-import { activeProfile, rulesFor } from '@/lib/profiles';
+import { activeProfile, profileName, rulesFor } from '@/lib/profiles';
 import { excludedBy } from '@/lib/page/scope';
 import {
   badgeFor,
@@ -366,7 +366,8 @@ async function startFill(target: Target, scope: FillScope, trigger: FillTrigger)
      * that applied, so "none" is visible rather than assumed.
      */
     const profile = url === undefined ? undefined : activeProfile(settings.profiles, url);
-    if (profile !== undefined) trace(`fill in tab ${tabId} using profile "${profile.label}"`);
+    const reportedProfile = profile === undefined ? undefined : profileName(profile);
+    if (profile !== undefined) trace(`fill in tab ${tabId} using profile "${reportedProfile}"`);
 
     const seed = Math.floor(Math.random() * 2 ** 32);
     const random = seededRandom(seed);
@@ -396,10 +397,17 @@ async function startFill(target: Target, scope: FillScope, trigger: FillTrigger)
       // doing the rest (FR-031). One ordered list and no second precedence
       // concept, which is what `compileRules` has documented since Phase 2.
       rules: compileRules(rulesFor(profile, settings.rules), settings.sources),
-      // The label rather than the profile, because this is what the report
+      // The name rather than the profile, because this is what the report
       // shows and nothing downstream needs the rules again (NFR-030's habit:
       // carry the narrowest thing that answers the question).
-      profile: profile?.label,
+      //
+      // `profileName`, not `profile.label`: a label is optional, and the raw
+      // one is `''` for a profile whose URL has been typed and whose name has
+      // not. The report folds an empty name into "no profile matched this
+      // page" — so until 2026-08-18 a nameless profile ran its rules at top
+      // precedence while the report denied it had applied at all. Same
+      // fallback the profile list shows, so the two agree.
+      profile: reportedProfile,
       defaults: {
         consentKeywords: settings.behaviour.consentKeywords,
         confirmationKeywords: settings.behaviour.confirmationKeywords,
