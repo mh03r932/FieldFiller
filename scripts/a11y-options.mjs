@@ -113,10 +113,40 @@ const SEED = {
     },
   ],
   profiles: [],
-  exclusions: { fields: [], domains: [] },
-  behaviour: { dispatchEvents: true, skipHidden: true, skipPreFilled: false, maxLengths: {} },
+  // Populated rather than empty, because an empty list renders one paragraph and
+  // the markup worth auditing is the row: a select, a text box, a remove button
+  // and a `role="alert"` problem line sharing one grid cell. One of each is
+  // deliberately invalid, for the same reason the broken rule above is — the
+  // problem line is where this page speaks in colour and in prose (UC-020,
+  // UC-021).
+  exclusions: {
+    fields: [
+      { mode: 'contains', pattern: 'captcha' },
+      { mode: 'regex', pattern: '(a+)+$' },
+    ],
+    // Empty, and it has to be. Any non-empty domain list makes the background
+    // read the tab's address before every fill — which a synthesised toolbar
+    // click cannot grant (`activeTab` follows a real gesture), so every fill in
+    // this harness would be refused and the report section below would have
+    // nothing to audit. The domain row is built from the same `.exclusion`,
+    // `.row`, `.problems` and `.exclusion-delete` markup as the field rows above
+    // it, minus the mode select, so what is skipped here is a subset of what is
+    // audited. `scripts/e2e-settings.mjs` is where the domain list is driven.
+    domains: [],
+  },
+  behaviour: {
+    dispatchEvents: true,
+    skipHidden: true,
+    skipPreFilled: false,
+    // A cap set, so the optional number box is audited holding a value as well
+    // as empty (UC-022).
+    maxLengths: { textarea: 120 },
+    consentKeywords: ['terms', 'privacy'],
+    confirmationKeywords: ['confirm', 'repeat'],
+  },
   passwords: { length: 16, upper: true, lower: true, digits: true, symbols: true },
   sources: { name: true, id: true, className: false, label: true, placeholder: true, ariaLabel: true },
+  triggers: { contextMenu: true },
 };
 
 try {
@@ -342,14 +372,20 @@ try {
       features: [{ name: 'prefers-color-scheme', value: scheme }],
     }, page);
     await sleep(200);
-    return JSON.parse(String(await inPage(`(() => {
+    // `String.raw`, so the source below is the source that runs. This template is
+    // JavaScript for another context to evaluate, and a plain template literal
+    // makes every backslash in it mean something twice — the regex had to be
+    // written `\\d` to arrive as `\d`, which is a transcription step between
+    // what is written here and what the browser sees. Substitution still works;
+    // raw only stops escape sequences being interpreted on the way out.
+    return JSON.parse(String(await inPage(String.raw`(() => {
       const styles = getComputedStyle(document.documentElement);
       const value = (name) => styles.getPropertyValue(name).trim();
       const parse = (colour) => {
         const probe = document.createElement('span');
         probe.style.color = colour;
         document.body.append(probe);
-        const rgb = getComputedStyle(probe).color.match(/\\d+(\\.\\d+)?/g).slice(0, 3).map(Number);
+        const rgb = getComputedStyle(probe).color.match(/\d+(\.\d+)?/g).slice(0, 3).map(Number);
         probe.remove();
         return rgb;
       };

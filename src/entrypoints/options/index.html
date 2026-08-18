@@ -20,14 +20,66 @@
       <h1 data-i18n="optionsTitle"></h1>
 
       <!--
-        The rule editor. Sections on one scrolling page rather than tabs: every
-        setting stays findable with the browser's own find-in-page, deep links
-        work, and there is no navigation state to keep accessible.
+        Sections on one scrolling page rather than tabs: every setting stays
+        findable with the browser's own find-in-page, deep links work, and there
+        is no navigation state to keep accessible.
+
+        Every heading is in the markup rather than built at runtime, so a screen
+        reader has the page's outline before any script has run and before the
+        background has answered anything. The empty <div> under each is what the
+        section renders into.
       -->
+      <section aria-labelledby="general-heading">
+        <h2 id="general-heading" data-i18n="generalHeading"></h2>
+        <div id="general"></div>
+      </section>
+
       <section aria-labelledby="rules-heading">
         <h2 id="rules-heading" data-i18n="rulesHeading"></h2>
         <p data-i18n="rulesIntro"></p>
         <div id="rules"></div>
+      </section>
+
+      <!-- UC-018. The bound on every rule's effective sources (FR-028). -->
+      <section aria-labelledby="sources-heading">
+        <h2 id="sources-heading" data-i18n="sourcesHeading"></h2>
+        <p data-i18n="sourcesIntro"></p>
+        <div id="sources"></div>
+      </section>
+
+      <!-- UC-020. Fields never to fill, plus the two structural skips. -->
+      <section aria-labelledby="field-exclusions-heading">
+        <h2 id="field-exclusions-heading" data-i18n="fieldExclusionsHeading"></h2>
+        <p data-i18n="fieldExclusionsIntro"></p>
+        <div id="field-exclusions"></div>
+      </section>
+
+      <!-- UC-021. Domains where the extension is loaded and never asked to act. -->
+      <section aria-labelledby="domain-exclusions-heading">
+        <h2 id="domain-exclusions-heading" data-i18n="domainExclusionsHeading"></h2>
+        <p data-i18n="domainExclusionsIntro"></p>
+        <div id="domain-exclusions"></div>
+      </section>
+
+      <!-- UC-022. What a fill does to a control it has decided to fill. -->
+      <section aria-labelledby="behaviour-heading">
+        <h2 id="behaviour-heading" data-i18n="behaviourHeading"></h2>
+        <p data-i18n="behaviourIntro"></p>
+        <div id="behaviour"></div>
+      </section>
+
+      <!-- UC-019. Policy, which the page's own constraints still override. -->
+      <section aria-labelledby="passwords-heading">
+        <h2 id="passwords-heading" data-i18n="passwordsHeading"></h2>
+        <p data-i18n="passwordsIntro"></p>
+        <div id="passwords"></div>
+      </section>
+
+      <!-- UC-023. Which ways of invoking a fill are available. -->
+      <section aria-labelledby="triggers-heading">
+        <h2 id="triggers-heading" data-i18n="triggersHeading"></h2>
+        <p data-i18n="triggersIntro"></p>
+        <div id="triggers"></div>
       </section>
 
       <!--

@@ -606,5 +606,307 @@
   "genValue": {
     "message": "Value",
     "description": "Constant generator: the value to write."
+  },
+  "generalHeading": {
+    "message": "General",
+    "description": "Options page section heading: settings that are not specific to one screen."
+  },
+  "localeLabel": {
+    "message": "Data locale",
+    "description": "Label for the corpus locale control (ND-1). \"Locale\" as in which country's names, addresses and phone numbers a fill draws from."
+  },
+  "localeAuto": {
+    "message": "Follow the browser",
+    "description": "The default locale option: resolve against the browser's own UI language."
+  },
+  "localeHint": {
+    "message": "Which country's names, addresses and phone numbers a fill draws from. Following the browser is right for most people; choose a locale explicitly if you test forms for a market your browser is not set to.",
+    "description": "Hint under the locale control."
+  },
+  "localeChanged": {
+    "message": "Data locale set to $LOCALE$.",
+    "description": "Announced politely after the locale changes.",
+    "placeholders": {
+      "locale": {
+        "content": "$1",
+        "example": "de-CH"
+      }
+    }
+  },
+  "sourcesHeading": {
+    "message": "Matching sources",
+    "description": "Options page section heading for UC-018."
+  },
+  "sourcesIntro": {
+    "message": "Which parts of a field's markup rules are allowed to match against. A source switched off here is off for every rule, including rules that name it.",
+    "description": "Intro paragraph for the matching sources section (FR-028). States that the setting is a bound, not a default."
+  },
+  "sourcesLegend": {
+    "message": "Sources rules may match against",
+    "description": "Fieldset legend grouping the six source checkboxes."
+  },
+  "sourcesEnabledCount": {
+    "message": "$ENABLED$ of $TOTAL$ sources enabled.",
+    "description": "Count shown beneath the source checkboxes.",
+    "placeholders": {
+      "enabled": {
+        "content": "$1",
+        "example": "5"
+      },
+      "total": {
+        "content": "$2",
+        "example": "6"
+      }
+    }
+  },
+  "sourcesNoneEnabled": {
+    "message": "No sources are enabled, so no rule can match anything. Fields are still filled by the built-in generator.",
+    "description": "Shown instead of the count when every source is off. Says what still works, so the state reads as configured rather than broken."
+  },
+  "sourceEnabled": {
+    "message": "$SOURCE$ enabled.",
+    "description": "Announced politely when a matching source is switched on.",
+    "placeholders": {
+      "source": {
+        "content": "$1",
+        "example": "CSS class"
+      }
+    }
+  },
+  "sourceDisabled": {
+    "message": "$SOURCE$ disabled.",
+    "description": "Announced politely when a matching source is switched off.",
+    "placeholders": {
+      "source": {
+        "content": "$1",
+        "example": "CSS class"
+      }
+    }
+  },
+  "fieldExclusionsHeading": {
+    "message": "Fields never to fill",
+    "description": "Options page section heading for UC-020."
+  },
+  "fieldExclusionsIntro": {
+    "message": "Controls matching any of these are left exactly as they are. CAPTCHAs, coupon codes and anything else a generated value would spoil.",
+    "description": "Intro paragraph for the field exclusions section (FR-036)."
+  },
+  "exclusionsEmpty": {
+    "message": "No field exclusions. Every fillable control is a candidate.",
+    "description": "Empty state for the field exclusion list. An empty list is a working configuration, not a missing one."
+  },
+  "exclusionAdd": {
+    "message": "Add an exclusion",
+    "description": "Button that appends a blank field exclusion."
+  },
+  "exclusionPattern": {
+    "message": "Pattern",
+    "description": "Label for a field exclusion's pattern box."
+  },
+  "exclusionPatternHint": {
+    "message": "Matched against the same sources rules use, case-insensitively.",
+    "description": "Hint under a field exclusion's pattern box."
+  },
+  "exclusionRemove": {
+    "message": "Remove",
+    "description": "Button that deletes one exclusion from a list."
+  },
+  "exclusionUnnamed": {
+    "message": "this blank exclusion",
+    "description": "Stands in for an exclusion's pattern in a button's accessible name while the pattern is still empty."
+  },
+  "exclusionRemoved": {
+    "message": "Field exclusion removed.",
+    "description": "Announced politely after a field exclusion is deleted."
+  },
+  "domainExclusionsHeading": {
+    "message": "Sites never to fill",
+    "description": "Options page section heading for UC-021."
+  },
+  "domainExclusionsIntro": {
+    "message": "On these sites the extension does nothing at all — every way of asking for a fill is refused, and the toolbar badge says so. Production and banking sites belong here.",
+    "description": "Intro paragraph for the domain exclusions section (FR-037, FR-074, BR-008-4)."
+  },
+  "domainsEmpty": {
+    "message": "No sites excluded. Fills are available everywhere.",
+    "description": "Empty state for the domain exclusion list."
+  },
+  "domainAdd": {
+    "message": "Add a site",
+    "description": "Button that appends a blank domain exclusion."
+  },
+  "domainPattern": {
+    "message": "Address pattern",
+    "description": "Label for a domain exclusion's pattern box."
+  },
+  "domainPatternHint": {
+    "message": "* stands for any run of characters; everything else is literal. The port is ignored. For example: *.example.com/* or localhost/*",
+    "description": "Hint under a domain exclusion's pattern box. Names the vocabulary rather than calling it a regular expression, which it is not."
+  },
+  "domainRemoved": {
+    "message": "Site exclusion removed.",
+    "description": "Announced politely after a domain exclusion is deleted."
+  },
+  "domainProblemEmpty": {
+    "message": "Not in force: this pattern is empty.",
+    "description": "Validation message for a blank domain pattern (UC-021)."
+  },
+  "domainProblemWhitespace": {
+    "message": "Not in force: an address contains no spaces, so this pattern matches nothing.",
+    "description": "Validation message for a domain pattern containing whitespace. Says it matches nothing, because an exclusion that matches nothing fails open."
+  },
+  "behaviourHeading": {
+    "message": "Fill behaviour",
+    "description": "Options page section heading for UC-022."
+  },
+  "behaviourIntro": {
+    "message": "What a fill does to the controls it decides to fill.",
+    "description": "Intro paragraph for the behaviour section."
+  },
+  "behaviourDispatchEvents": {
+    "message": "Tell the page about each value",
+    "description": "Label for the event dispatch toggle (FR-014). Says what it does rather than naming the DOM events."
+  },
+  "behaviourDispatchEventsHint": {
+    "message": "Sends the same input and change events a person typing would. Turn this off only for pages whose handlers misbehave — React, Vue and Angular forms need it to notice the value at all.",
+    "description": "Hint under the event dispatch toggle. Names the cost of turning it off."
+  },
+  "behaviourSkipHidden": {
+    "message": "Skip controls that are not visible",
+    "description": "Label for the hidden-control toggle (FR-034)."
+  },
+  "behaviourSkipHiddenHint": {
+    "message": "On by default. Filling an invisible field is how a honeypot catches a bot, and the field is invisible precisely so that a person would not fill it.",
+    "description": "Hint under the hidden-control toggle (FR-071)."
+  },
+  "behaviourSkipPreFilled": {
+    "message": "Skip controls that already hold a value",
+    "description": "Label for the pre-filled toggle (FR-035)."
+  },
+  "behaviourSkipPreFilledHint": {
+    "message": "Off by default, so filling the same form twice gives fresh data each time. Our own earlier writes never count as content either way.",
+    "description": "Hint under the pre-filled toggle (FR-075, BR-005-7)."
+  },
+  "behaviourLengthsLegend": {
+    "message": "Default length limits",
+    "description": "Fieldset legend for the per-kind length caps (FR-065)."
+  },
+  "behaviourLengthHint": {
+    "message": "Leave empty for no limit. A control declaring its own maxlength is bound by that instead.",
+    "description": "Hint under each length cap box. States that the page wins (ND-11)."
+  },
+  "behaviourConsentKeywords": {
+    "message": "Consent keywords",
+    "description": "Label for the consent keyword list (FR-015)."
+  },
+  "behaviourConsentKeywordsHint": {
+    "message": "One per line. A checkbox whose markup contains any of these is always ticked, so a terms gate never blocks a test submission. Required checkboxes are ticked regardless.",
+    "description": "Hint under the consent keyword list. Names the rule that is not configurable."
+  },
+  "behaviourConfirmationKeywords": {
+    "message": "Confirmation keywords",
+    "description": "Label for the confirmation keyword list (FR-024)."
+  },
+  "behaviourConfirmationKeywordsHint": {
+    "message": "One per line. A field whose markup contains any of these repeats the value of the field it confirms. A trailing 2 — password2 beside password — also counts, and is built in.",
+    "description": "Hint under the confirmation keyword list. States the part that is not configurable (UC-022)."
+  },
+  "kindText": {
+    "message": "Text input",
+    "description": "Control kind name, for the length limit boxes."
+  },
+  "kindSearch": {
+    "message": "Search input",
+    "description": "Control kind name, for the length limit boxes."
+  },
+  "kindTextarea": {
+    "message": "Text area",
+    "description": "Control kind name, for the length limit boxes."
+  },
+  "kindContenteditable": {
+    "message": "Rich text area",
+    "description": "Control kind name for a contenteditable element, for the length limit boxes."
+  },
+  "passwordsHeading": {
+    "message": "Passwords",
+    "description": "Options page section heading for UC-019."
+  },
+  "passwordsIntro": {
+    "message": "The policy a generated password starts from. A field's own pattern, minlength and maxlength are applied on top, and the field always wins.",
+    "description": "Intro paragraph for the password section (FR-025, FR-072)."
+  },
+  "passwordLength": {
+    "message": "Length",
+    "description": "Label for the password length box."
+  },
+  "passwordLengthHint": {
+    "message": "How long a generated password is before the field's own limits are applied.",
+    "description": "Hint under the password length box."
+  },
+  "passwordClassesLegend": {
+    "message": "Must include",
+    "description": "Fieldset legend for the four character-class checkboxes."
+  },
+  "passwordUpper": {
+    "message": "Uppercase letters",
+    "description": "Password policy class checkbox."
+  },
+  "passwordLower": {
+    "message": "Lowercase letters",
+    "description": "Password policy class checkbox."
+  },
+  "passwordDigits": {
+    "message": "Digits",
+    "description": "Password policy class checkbox."
+  },
+  "passwordSymbols": {
+    "message": "Symbols",
+    "description": "Password policy class checkbox."
+  },
+  "passwordSample": {
+    "message": "Example",
+    "description": "Heading above the sample password."
+  },
+  "passwordNoClasses": {
+    "message": "With nothing ticked there is nothing to build a password from, so lowercase letters are used.",
+    "description": "Shown above the sample when every character class is off (UC-019 A1). States the fallback rather than leaving it to be inferred."
+  },
+  "triggersHeading": {
+    "message": "How fills are invoked",
+    "description": "Options page section heading for UC-023."
+  },
+  "triggersIntro": {
+    "message": "Three ways to ask for a fill. Which one you use changes only which scopes it can offer, never what a fill does.",
+    "description": "Intro paragraph for the triggers section (BR-001-6, BR-023-3)."
+  },
+  "triggerToolbarAlways": {
+    "message": "The toolbar button always fills the whole page. It has no setting: it is the one route that needs no setup.",
+    "description": "Statement that the toolbar trigger carries no control (BR-023-2)."
+  },
+  "triggerContextMenu": {
+    "message": "Show the right-click menu entries",
+    "description": "Label for the context menu toggle (FR-050)."
+  },
+  "triggerContextMenuHint": {
+    "message": "The only way to fill just one form or just one field, because it is the only one that knows where you were pointing.",
+    "description": "Hint under the context menu toggle (BR-001-6). Says what turning it off costs."
+  },
+  "triggerContextMenuOn": {
+    "message": "Right-click menu entries enabled.",
+    "description": "Announced politely when the context menu is switched on."
+  },
+  "triggerContextMenuOff": {
+    "message": "Right-click menu entries removed.",
+    "description": "Announced politely when the context menu is switched off."
+  },
+  "triggerShortcutsRoute": {
+    "message": "Keyboard shortcuts are assigned by the browser, not here. Open $ADDRESS$ to see or change them.",
+    "description": "Route to the browser's own shortcut settings (BR-023-1). Worded as an address to visit rather than a control that rebinds anything.",
+    "placeholders": {
+      "address": {
+        "content": "$1",
+        "example": "chrome://extensions/shortcuts"
+      }
+    }
   }
 }

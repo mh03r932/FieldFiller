@@ -1,5 +1,10 @@
-import type { ControlOption, FieldDescriptor, FieldValue } from '../protocol';
+import type { ControlKind, ControlOption, FieldDescriptor, FieldValue } from '../protocol';
 import type { Persona, Random } from '../persona/persona';
+import {
+  DEFAULT_CONFIRMATION_KEYWORDS,
+  DEFAULT_CONSENT_KEYWORDS,
+  escapeRegex,
+} from '../settings';
 
 /**
  * Chooses a value for one descriptor (UC-004 steps 5–7).
@@ -58,14 +63,69 @@ const KIND_ATTRIBUTES: Partial<Record<FieldDescriptor['kind'], keyof Persona>> =
 };
 
 /**
- * Words that mark a field as confirming another (UC-006, D2).
+ * The configurable half of UC-022, as one value (FR-015, FR-024, FR-049).
+ *
+ * Optional at every call site, defaulting to what the extension ships. That is
+ * not laziness about threading it: `generateValue`, `mirrorsAnotherField` and
+ * `constrain` are all exported and all called from tests that care about one
+ * control's behaviour and nothing about settings, and a required parameter would
+ * have made every one of them state a policy it has no opinion on.
+ */
+export type BehaviourDefaults = {
+  readonly consentKeywords: readonly string[];
+  readonly confirmationKeywords: readonly string[];
+  /** Per-kind caps, used only where the control declares no `maxlength`. */
+  readonly maxLengths: Partial<Record<ControlKind, number>>;
+};
+
+const SHIPPED_DEFAULTS: BehaviourDefaults = {
+  consentKeywords: DEFAULT_CONSENT_KEYWORDS,
+  confirmationKeywords: DEFAULT_CONFIRMATION_KEYWORDS,
+  maxLengths: {},
+};
+
+/**
+ * A keyword list as one case-insensitive alternation.
+ *
+ * Every keyword is escaped, so the list is literal substrings and nothing else:
+ * a user typing `c++` into the consent keywords gets a keyword rather than a
+ * syntax error, and no configured word can introduce the backtracking NFR-009
+ * keeps off this path. Built once per call rather than once per keyword per
+ * field, which is ND-15's argument at a smaller scale.
+ *
+ * An empty list compiles to `undefined` rather than to an empty pattern — `//`
+ * matches everything, so an emptied consent list would tick every checkbox on
+ * the page, which is the exact opposite of what emptying it asks for.
+ */
+function keywordPattern(keywords: readonly string[]): RegExp | undefined {
+  const usable = keywords.filter((keyword) => keyword !== '');
+  return usable.length === 0
+    ? undefined
+    : new RegExp(usable.map(escapeRegex).join('|'), 'i');
+}
+
+/**
+ * Whether a trailing ordinal marks a confirmation, independent of any keyword.
+ *
+ * `password2` beside `password` is a confirmation, and that is a convention
+ * about shape rather than a word — so it stays here instead of appearing in the
+ * configurable list, where it could only be expressed with the anchors that list
+ * deliberately escapes away. UC-022 states the split, because a screen offering
+ * "confirmation keywords" would otherwise be read as offering all of it.
+ */
+const ORDINAL_CONFIRMATION = /_2$|2$/;
+
+/**
+ * Whether a field's identity marks it as confirming another (UC-006, D2).
  *
  * Tested against every matching source, not just `element.name`. The reference
  * tests `name` alone, so a "Confirm password" field identified only by its `id`
  * or its `<label>` never mirrors the original — even though matching for
  * everything else uses all sources (D2).
  */
-const CONFIRMATION_MARKERS = /confirm|verify|repeat|retype|again|_2$|2$/i;
+function confirmationMarked(identity: string, keywords: readonly string[]): boolean {
+  return ORDINAL_CONFIRMATION.test(identity) || (keywordPattern(keywords)?.test(identity) ?? false);
+}
 
 /**
  * Identity words that suggest a persona attribute when no `autocomplete` is
@@ -119,10 +179,11 @@ export function generateValue(
   descriptor: FieldDescriptor,
   persona: Persona,
   random: Random,
+  defaults: BehaviourDefaults = SHIPPED_DEFAULTS,
 ): FieldValue {
   switch (descriptor.kind) {
     case 'checkbox':
-      return toggle(descriptor, random);
+      return toggle(descriptor, random, defaults);
     case 'radio':
     case 'select-one':
     case 'select-multiple':
@@ -130,7 +191,7 @@ export function generateValue(
     case 'combobox':
       return offeredPosition(descriptor, random);
     default:
-      return text(descriptor, persona, random);
+      return text(descriptor, persona, random, defaults);
   }
 }
 
@@ -168,9 +229,16 @@ function offeredPosition(descriptor: FieldDescriptor, random: Random): FieldValu
  * and leaving that box unticked makes the fill useless for the thing testers do
  * with it. Required checkboxes are ticked for the same reason.
  */
-function toggle(descriptor: FieldDescriptor, random: Random): FieldValue {
+function toggle(
+  descriptor: FieldDescriptor,
+  random: Random,
+  defaults: BehaviourDefaults,
+): FieldValue {
   const identity = identityOf(descriptor);
-  const consent = /terms|conditions|privacy|policy|agree|accept|consent|gdpr/i.test(identity);
+  const consent = keywordPattern(defaults.consentKeywords)?.test(identity) ?? false;
+  // Not configurable, and deliberately: an unticked required box blocks the
+  // submission the fill exists to reach, so this one is a property of the form
+  // rather than a preference (UC-022, BR-022-3).
   const required = descriptor.constraints.required === true;
 
   return {
@@ -229,15 +297,20 @@ function choose(descriptor: FieldDescriptor, random: Random): FieldValue {
   };
 }
 
-function text(descriptor: FieldDescriptor, persona: Persona, random: Random): FieldValue {
-  const { value, provenance } = select(descriptor, persona, random);
+function text(
+  descriptor: FieldDescriptor,
+  persona: Persona,
+  random: Random,
+  defaults: BehaviourDefaults,
+): FieldValue {
+  const { value, provenance } = select(descriptor, persona, random, defaults);
   return {
     ref: descriptor.ref,
     as: 'text',
     // BR-004-7: the control's own constraints are a ceiling. A value the page's
     // own validation would reject is a defect, not a choice — and the reference
     // computes an effective maxLength and then discards it (D4).
-    value: constrain(value, descriptor),
+    value: constrain(value, descriptor, defaults.maxLengths),
     provenance,
   };
 }
@@ -246,13 +319,14 @@ function select(
   descriptor: FieldDescriptor,
   persona: Persona,
   random: Random,
+  defaults: BehaviourDefaults,
 ): { value: string; provenance: string } {
   // Scalar kinds are decided by what the control accepts, not by identity: a
   // date field wants a date whatever it is called.
   const scalar = scalarValue(descriptor, random);
   if (scalar !== undefined) return scalar;
 
-  const attribute = personaAttribute(descriptor);
+  const attribute = personaAttribute(descriptor, defaults.confirmationKeywords);
   if (attribute !== undefined) {
     const value = persona[attribute.key];
     // An empty slot means this locale has no such thing — a US persona has no
@@ -284,23 +358,27 @@ function select(
  * field called `repeat_order_reference` matches the marker and resolves to no
  * slot, so it is not mirroring anything and a rule applies to it normally.
  */
-export function mirrorsAnotherField(descriptor: FieldDescriptor): boolean {
-  const attribute = personaAttribute(descriptor);
-  return attribute !== undefined && confirms(identityOf(descriptor), attribute.key);
+export function mirrorsAnotherField(
+  descriptor: FieldDescriptor,
+  defaults: BehaviourDefaults = SHIPPED_DEFAULTS,
+): boolean {
+  const keywords = defaults.confirmationKeywords;
+  const attribute = personaAttribute(descriptor, keywords);
+  return attribute !== undefined && confirms(identityOf(descriptor), attribute.key, keywords);
 }
 
 /**
  * Whether a trailing ordinal means "again" or "the next one".
  *
- * `2$` earns its place in the markers because `password2` beside `password` is
- * a confirmation, and that is much the commonest shape. The second address line
- * is the exception, and the only one: `address2` is the *next* line, not the
- * same line said twice. Treated as a confirmation it drags the street address
- * onto both lines — and, through `mirrorsAnotherField`, silently overrides a
- * user rule aimed at a field that confirms nothing (DD-005).
+ * The ordinal earns its place beside the keywords because `password2` beside
+ * `password` is a confirmation, and that is much the commonest shape. The second
+ * address line is the exception, and the only one: `address2` is the *next*
+ * line, not the same line said twice. Treated as a confirmation it drags the
+ * street address onto both lines — and, through `mirrorsAnotherField`, silently
+ * overrides a user rule aimed at a field that confirms nothing (DD-005).
  */
-function confirms(identity: string, key: keyof Persona): boolean {
-  return key !== 'addressLine2' && CONFIRMATION_MARKERS.test(identity);
+function confirms(identity: string, key: keyof Persona, keywords: readonly string[]): boolean {
+  return key !== 'addressLine2' && confirmationMarked(identity, keywords);
 }
 
 /**
@@ -315,6 +393,7 @@ function confirms(identity: string, key: keyof Persona): boolean {
  */
 function personaAttribute(
   descriptor: FieldDescriptor,
+  keywords: readonly string[],
 ): { key: keyof Persona; provenance: string } | undefined {
   const purpose = descriptor.autocomplete;
   if (purpose !== undefined) {
@@ -330,7 +409,7 @@ function personaAttribute(
     if (pattern.test(identity)) {
       return {
         key,
-        provenance: confirms(identity, key)
+        provenance: confirms(identity, key, keywords)
           ? `confirms persona.${key} → same value`
           : `identity /${pattern.source}/ → persona.${key}`,
       };
@@ -426,8 +505,18 @@ function isoTime(random: Random): string {
  * supplies policy, the page supplies the ceiling, and the page wins. A rule that
  * could bypass the fitter would reintroduce ND-11 through the settings screen.
  */
-export function constrain(value: string, descriptor: FieldDescriptor): string {
-  const { maxLength, minLength } = descriptor.constraints;
+export function constrain(
+  value: string,
+  descriptor: FieldDescriptor,
+  maxLengths: Partial<Record<ControlKind, number>> = {},
+): string {
+  const { minLength } = descriptor.constraints;
+  // The page first, the user's per-kind cap only where the page declares none
+  // (FR-065, ND-10, UC-022). That order is the whole of the setting's meaning: a
+  // configured cap that overrode a declared `maxlength` would produce values the
+  // form's own validation rejects, which is ND-11 arriving through the settings
+  // screen instead of through the generator.
+  const maxLength = descriptor.constraints.maxLength ?? maxLengths[descriptor.kind];
   let result = value;
 
   if (minLength !== undefined && result.length < minLength) {
@@ -510,12 +599,26 @@ function fitPasswordPattern(password: string, descriptor: FieldDescriptor): stri
   return password;
 }
 
+/** The four composition classes, in the order a shortened password keeps them. */
+const PASSWORD_CLASSES = [/[A-Z]/, /[a-z]/, /[0-9]/, /[^A-Za-z0-9]/] as const;
+
 /**
- * Shortens a password while keeping one of each character class.
+ * Shortens a password while keeping one of each character class it uses.
  *
  * Rebuilt from the original's own characters rather than generated afresh, so
  * two fields with the same ceiling still agree — which is what keeps "confirm
  * password" mirroring correctly (UC-006) when both carry a `maxlength`.
+ *
+ * **Only the classes actually present.** What was here defaulted each missing
+ * class to a literal — `'A'`, `'7'`, `'!'` — which was harmless while every
+ * password came from one hard-coded recipe and became wrong the moment FR-025's
+ * policy was configurable: a user who switched symbols off got one back from the
+ * fitter, on exactly the fields whose `maxlength` made them likeliest to have a
+ * character-set restriction too. It is also wrong for a rule-generated value,
+ * where the composition is the user's and not ours to top up.
+ *
+ * Everything else is filled from the password's own remaining characters, in
+ * their original order, so the result is a subsequence of what came in.
  *
  * Below four characters no policy of this kind can be met. The control's own
  * limit still wins, because a value the page rejects for length is worse than
@@ -524,12 +627,18 @@ function fitPasswordPattern(password: string, descriptor: FieldDescriptor): stri
 function fitPassword(password: string, maxLength: number): string {
   if (maxLength < 4) return password.slice(0, maxLength);
 
-  const upper = /[A-Z]/.exec(password)?.[0] ?? 'A';
-  const digit = /[0-9]/.exec(password)?.[0] ?? '7';
-  const symbol = /[^A-Za-z0-9]/.exec(password)?.[0] ?? '!';
-  const lower = password.replace(/[^a-z]/g, '');
+  const keep = new Set<number>();
+  for (const characterClass of PASSWORD_CLASSES) {
+    const at = password.search(characterClass);
+    if (at !== -1) keep.add(at);
+  }
+  // At most four, and `maxLength` is at least four, so the classes always fit
+  // and this loop always has room to run.
+  for (let index = 0; index < password.length && keep.size < maxLength; index++) {
+    keep.add(index);
+  }
 
-  return `${upper}${lower.slice(0, maxLength - 3)}${digit}${symbol}`.slice(0, maxLength);
+  return [...password].filter((_, index) => keep.has(index)).join('');
 }
 
 /** Every matching source as one lower-cased haystack, for the hint patterns. */

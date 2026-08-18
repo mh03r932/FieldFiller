@@ -10,15 +10,16 @@ import {
   renderRules,
   type RuleEditorHost,
 } from './rules';
+import { SECTIONS } from './sections';
 import type { FieldReportEntry, FillReport, ReportResponse } from '@/lib/protocol';
 
 /**
- * Options page. Two sections so far: the rule editor (UC-009..UC-013) and the
- * per-control report DD-006 put here.
+ * Options page. Every settings surface the extension has, plus the per-control
+ * report DD-006 put here.
  *
  * Sections on one scrolling page rather than tabs, so every setting stays
  * findable with the browser's own find-in-page and there is no navigation state
- * to keep accessible. The remaining Phase 4 screens land as more sections.
+ * to keep accessible.
  *
  * Every user-facing string comes from the i18n catalog (NFR-018), and every
  * value that came from a page is written with `textContent` rather than any form
@@ -30,17 +31,23 @@ document.title = message('extName');
 localise(document);
 
 void render();
-void mountRules();
+void mountSettings();
 
 /**
- * The rule editor, and the settings state it edits (UC-009..UC-013).
+ * Every settings section, and the state they all edit (UC-009..UC-013,
+ * UC-018..UC-023).
  *
  * Held here in memory and written through on every valid change. The write goes
  * to the same store the background reads, and the background drops its cache on
- * a storage change — so a rule edited here applies to the next fill in every
+ * a storage change — so a setting edited here applies to the next fill in every
  * open tab with nothing pushed anywhere (UC-024, BR-024-6).
+ *
+ * One state and one writer for the whole page. Each section could have loaded
+ * and saved its own slice, and that is the shape that loses configuration: two
+ * sections holding two snapshots means whichever saves second reverts the other,
+ * within a single page, with no error anywhere.
  */
-async function mountRules(): Promise<void> {
+async function mountSettings(): Promise<void> {
   const host = document.querySelector('#rules');
   const live = document.querySelector('#announcements');
   if (!(host instanceof HTMLElement)) return;
@@ -80,6 +87,7 @@ async function mountRules(): Promise<void> {
   };
 
   renderRules(editor, host);
+  renderSections(editor);
 
   /**
    * Adopts settings written by anyone else (UC-024, BR-024-3).
@@ -123,28 +131,58 @@ async function mountRules(): Promise<void> {
       // does storage hold something this page did not put there?
       if (JSON.stringify(stored) === JSON.stringify(parseSettings(settings))) return;
 
-      if (isEditingRule()) {
-        // Foreign, and a rule is open. Take their state, carry our draft across,
-        // and do not touch the DOM.
-        settings = adoptKeepingEdit(stored, settings);
-        forgetUndo(host);
-        announce(message('settingsChangedElsewhere'));
-        return;
-      }
-
-      settings = stored;
       // The undo offer belongs to the list it was deleted from, and this is a
       // different list — its stored position would land the rule somewhere
       // nobody chose.
       forgetUndo(host);
-      // The same host object, re-rendered. Building a new one here — or calling
-      // `mountRules` again — would register a second copy of this listener on
-      // every foreign change, which is a leak that grows for as long as the page
-      // stays open.
-      renderRules(editor, host);
-      announce(message('settingsAdoptedFromElsewhere'));
+
+      if (isEditingRule()) {
+        // Foreign, and a rule is open. Take their state, carry our draft across,
+        // and leave the rule list alone.
+        settings = adoptKeepingEdit(stored, settings);
+        announce(message('settingsChangedElsewhere'));
+      } else {
+        settings = stored;
+        // The same host object, re-rendered. Building a new one here — or
+        // calling `mountSettings` again — would register a second copy of this
+        // listener on every foreign change, which is a leak that grows for as
+        // long as the page stays open.
+        renderRules(editor, host);
+        announce(message('settingsAdoptedFromElsewhere'));
+      }
+
+      // The other sections either way: none of them holds a draft the way an
+      // open rule does, so there is nothing for a rebuild to discard — except
+      // the caret, which is why `renderSections` skips whatever is focused.
+      renderSections(editor);
     });
   });
+}
+
+/**
+ * Draws every section except the one the user is working in.
+ *
+ * The exception is the whole reason this is not a loop at the call site.
+ * Replacing a section's children destroys the control that has the focus and
+ * takes the caret with it, so a settings change arriving from another tab while
+ * someone is halfway through typing a domain pattern would eat the rest of their
+ * keystrokes — the same hazard the rule editor's draft exists for, reached
+ * through a different door.
+ *
+ * The skipped section is left showing the older state until the next render.
+ * That is the lesser fault by some distance: it is stale rather than lost, the
+ * user is told a change arrived, and this page's memory is level with storage
+ * either way — so the next thing they type saves against *their* state and not
+ * over it.
+ */
+function renderSections(editor: RuleEditorHost): void {
+  const focused = document.activeElement;
+  for (const section of SECTIONS) {
+    const into = document.querySelector(`#${section.id}`);
+    if (!(into instanceof HTMLElement)) continue;
+    if (focused !== null && into.contains(focused)) continue;
+    section.render(editor, into);
+  }
 }
 
 async function render(): Promise<void> {

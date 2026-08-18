@@ -12,6 +12,7 @@ import {
   type Random,
 } from '@/lib/persona/persona';
 import { generateBatch, tokenRandom } from '@/lib/generators/batch';
+import type { BehaviourDefaults } from '@/lib/generators/default-generator';
 import { compileRules, type CompiledRule } from '@/lib/rules/match';
 import { excludedBy } from '@/lib/page/scope';
 import {
@@ -117,6 +118,17 @@ type Operation = {
    * on every pass of every frame, which is the cost ND-15 names.
    */
   readonly rules: readonly CompiledRule[];
+  /**
+   * The behaviour defaults this fill runs with (UC-022).
+   *
+   * Captured when the fill begins, for the same reason the persona and the
+   * compiled rules are: settings are read once per operation, so every batch of
+   * every frame is generated against one configuration. Reading them per batch
+   * would let a fill that spans a settings change tick a consent box in one
+   * frame and not in the next, which is the incoherence ND-1 exists to prevent
+   * wearing a different hat.
+   */
+  readonly defaults: BehaviourDefaults;
   /** Rules that could not run, by label, so the user is told (DD-005). */
   readonly skippedRules: Set<string>;
   /** Set when the frame refused to resolve a scope (UC-002 A3, UC-003 A2). */
@@ -201,24 +213,65 @@ function trace(text: string): void {
   if (import.meta.env.COMMAND === 'serve') console.debug(`[fieldfiller] ${text}`);
 }
 
-async function registerContextMenus(): Promise<void> {
+/**
+ * Brings the context menu into agreement with the setting (UC-023, FR-050).
+ *
+ * Always `removeAll` first, whichever way the setting went. The menu is browser
+ * state that outlives this context, so "create the three entries" is only
+ * idempotent if what was there is cleared — and an MV3 worker is restarted by
+ * events often enough that a second registration is the ordinary case rather
+ * than the exception. Duplicating them is not a cosmetic fault: `create` fails
+ * on a duplicate id — silently, since it neither throws nor rejects — which
+ * would leave the menu half-built with nothing to say so.
+ *
+ * Called from `onInstalled`, from a settings change, and on every worker start,
+ * so the menu matches the setting at the first right-click after any of them —
+ * which is BR-023-4's "without a reload" as it actually presents to a user.
+ */
+async function syncContextMenus(): Promise<void> {
   try {
+    const { triggers } = await getSettings();
     await browser.contextMenus.removeAll();
+    if (!triggers.contextMenu) {
+      trace('context menu disabled by settings; entries removed');
+      return;
+    }
     for (const item of MENU_ITEMS) {
-      browser.contextMenus.create({
-        id: item.id,
-        title: message(item.titleMessage),
-        contexts: ['page', 'editable'],
-      });
+      // Not awaited, and not because it was forgotten: `create` is the one
+      // method in this namespace that returns the new id rather than a promise,
+      // in both browsers. There is no rejection for the `catch` below to
+      // receive, so a failure is reported the only way this call reports one —
+      // through `runtime.lastError`, read in the callback, where the call that
+      // set it is still identifiable. Unread, a failed entry is simply absent
+      // from the menu with nothing said anywhere.
+      browser.contextMenus.create(
+        {
+          id: item.id,
+          title: message(item.titleMessage),
+          contexts: ['page', 'editable'],
+        },
+        () => {
+          const failure = browser.runtime.lastError;
+          if (failure === undefined) return;
+          trace(`context menu entry "${item.id}" was not created: ${failure.message ?? 'no reason given'}`);
+        },
+      );
     }
     trace(`registered ${MENU_ITEMS.length} context menu entries`);
   } catch (error) {
     // `onInstalled` has no error path, and an unhandled rejection here would be
-    // reported as an extension error naming no channel. Awaited rather than
-    // given a callback because Firefox's `browser.*` is promise-only and
-    // validates arguments strictly — the callback form risks leaving every menu
-    // silently absent there (NFR-017).
-    trace(`context menu registration failed: ${String(error)}`);
+    // reported as an extension error naming no channel. It covers what actually
+    // rejects: `getSettings` and `removeAll`, both promise-returning in both
+    // browsers. `create` is not one of them — it returns an id and reports
+    // through `runtime.lastError`, which is why it is handled at the call rather
+    // than here (NFR-017).
+    //
+    // A failure here leaves the menu as it was, which is UC-023 A2's failure
+    // postcondition: the previous trigger configuration remains in force. The
+    // options page reports the *storage* write, which is the half of the change
+    // the user can be told about honestly — this half has no surface, and
+    // `docs/use_cases/UC-023.md` A2 says so rather than claiming otherwise.
+    trace(`context menu sync failed: ${String(error)}`);
   }
 }
 
@@ -279,7 +332,10 @@ async function startFill(target: Target, scope: FillScope, trigger: FillTrigger)
     const random = seededRandom(seed);
 
     operations.set(operationId, {
-      persona: createPersona(random, resolveLocale(settings.locale)),
+      // The password policy reaches generation here and nowhere else: the
+      // persona holds one password for the whole fill, so a policy applied per
+      // field would break UC-006's mirroring rather than configure anything.
+      persona: createPersona(random, resolveLocale(settings.locale), settings.passwords),
       random,
       seed,
       tabId,
@@ -300,6 +356,11 @@ async function startFill(target: Target, scope: FillScope, trigger: FillTrigger)
       // first-match-wins does the rest (FR-031). Profiles are Phase 5, so today
       // this is the global list alone.
       rules: compileRules(settings.rules, settings.sources),
+      defaults: {
+        consentKeywords: settings.behaviour.consentKeywords,
+        confirmationKeywords: settings.behaviour.confirmationKeywords,
+        maxLengths: settings.behaviour.maxLengths,
+      },
       skippedRules: new Set(),
       timeout: setTimeout(() => {
         trace(`fill ${operationId} timed out with no report; abandoning`);
@@ -677,7 +738,21 @@ function summarise(report: FrameReport, counts: FieldOutcomeCounts): void {
 
 export default defineBackground(() => {
   browser.runtime.onInstalled.addListener(() => {
-    void registerContextMenus();
+    void syncContextMenus();
+  });
+
+  // Every start, not only installation. The menu is browser state and the
+  // setting is ours, so the two can only be relied on to agree if something
+  // reconciles them — and an MV3 worker that was evicted while the user turned
+  // the menu off in another window has no other moment to learn of it.
+  void syncContextMenus();
+
+  // UC-023 step 5: the change takes effect in pages already open. Nothing is
+  // pushed to a tab — `contextMenus` is per-browser rather than per-page, so
+  // rebuilding the entries *is* the propagation, and a page that was loaded
+  // before the change shows the new menu on its next right-click (BR-023-4).
+  browser.storage.onChanged.addListener((changes, areaName) => {
+    if (areaName === 'local' && 'settings' in changes) void syncContextMenus();
   });
 
   browser.contextMenus.onClicked.addListener((info, tab) => {
@@ -781,6 +856,7 @@ export default defineBackground(() => {
       const batch = generateBatch(raw.descriptors, {
         persona: operation.persona,
         rules: operation.rules,
+        defaults: operation.defaults,
         // Per control, derived from the operation's seed and the control's
         // token, so a control the page makes us write twice gets the same value
         // both times (FR-080). An agent from a build before DD-009 sends no
