@@ -367,6 +367,10 @@
     "message": "Your settings were changed somewhere else. The rule you are editing is safe and your next change will not overwrite theirs; the rest of the list is out of date on screen and refreshes when you close this rule.",
     "description": "UC-024: another options page wrote settings while a rule was open here. Memory adopts their state with the draft carried across, so the next write cannot revert them; only the rendered list is left stale, because replacing it would take the caret out of the open editor."
   },
+  "listChangedElsewhere": {
+    "message": "This list was changed somewhere else, so it has been redrawn here. Your last change to it was not applied \u2014 the entry it was aimed at had already moved.",
+    "description": "UC-024, BR-024-3: exclusion rows and a profile's address patterns are addressed by position in lists that carry no identifiers, and this page skips re-rendering a section the user is working in. A row whose entry has moved refuses to write and redraws instead, because editing or deleting the wrong entry is worse than losing a keystroke."
+  },
   "settingsAdoptedFromElsewhere": {
     "message": "Your settings were changed somewhere else, and this page has been updated to match.",
     "description": "UC-024, BR-024-3: another writer changed settings while nothing was being edited here, so the page adopted them rather than going on to overwrite them."
@@ -906,6 +910,136 @@
       "address": {
         "content": "$1",
         "example": "chrome://extensions/shortcuts"
+      }
+    }
+  },
+  "reportProfileApplied": {
+    "message": "Profile applied: $PROFILE$",
+    "description": "Options-page report line naming the profile that governed the fill (FR-047, UC-017).",
+    "placeholders": {
+      "profile": {
+        "content": "$1",
+        "example": "Staging checkout"
+      }
+    }
+  },
+  "reportProfileNone": {
+    "message": "No profile matched this page, so your global rules ran on their own.",
+    "description": "Options-page report line when no profile applied. Stated rather than left silent: a tester checking whether their scoped rules were in effect cannot read that from an absent line (FR-047)."
+  },
+  "profilesHeading": {
+    "message": "Profiles",
+    "description": "Options page section heading for UC-014..UC-016."
+  },
+  "profilesIntro": {
+    "message": "A named set of rules that applies only to the pages you scope it to. Its rules are tried before your global ones; the first profile whose address pattern matches the page is the one that governs it.",
+    "description": "Intro paragraph for the profiles section. States both precedence rules (FR-031, BR-014-2) because neither is guessable from the list."
+  },
+  "profilesEmpty": {
+    "message": "No profiles. Your global rules run on every page.",
+    "description": "Empty state for the profile list. An empty list is a working configuration."
+  },
+  "profileAdd": {
+    "message": "Add a profile",
+    "description": "Button that appends a blank profile."
+  },
+  "profileLabel": {
+    "message": "Name",
+    "description": "Label for a profile's name box."
+  },
+  "profileLabelHint": {
+    "message": "Shown in the fill report, so you can tell which profile ran.",
+    "description": "Hint under a profile's name box (FR-047)."
+  },
+  "profileEnabled": {
+    "message": "Enabled",
+    "description": "Checkbox turning a profile off without deleting it."
+  },
+  "profileUrls": {
+    "message": "Applies to",
+    "description": "Fieldset legend for a profile's URL patterns."
+  },
+  "profileUrlPattern": {
+    "message": "Address pattern",
+    "description": "Label for one of a profile's URL pattern boxes."
+  },
+  "profileAddUrl": {
+    "message": "Add an address pattern",
+    "description": "Button that appends a blank URL pattern to a profile."
+  },
+  "profileNoUrls": {
+    "message": "This profile matches no page, because it has no address patterns. Add one to make it apply.",
+    "description": "Shown when a profile has no URL patterns (UC-014 A2). A profile with none matches nothing rather than everything, which is inert and would otherwise be invisible."
+  },
+  "profileRulesHeading": {
+    "message": "Rules in this profile",
+    "description": "Heading above a profile's own rule list."
+  },
+  "profileRulesHint": {
+    "message": "Tried before your global rules on a page this profile matches. Everything else about a rule works exactly as it does below.",
+    "description": "Hint above a profile's rule editor, distinguishing it from the global list on the same page (FR-031)."
+  },
+  "profileUnnamed": {
+    "message": "this unnamed profile",
+    "description": "Stands in for a profile's name in a button's accessible name while it is still blank."
+  },
+  "profileDelete": {
+    "message": "Delete",
+    "description": "Button that deletes a whole profile."
+  },
+  "profileDeleteConfirm": {
+    "message": "Delete the profile \"$PROFILE$\" and the $COUNT$ rules in it? This cannot be undone.",
+    "description": "Confirmation before deleting a profile that contains rules (UC-016). The count is in the question because deleting a profile with rules is a different act from deleting an empty one.",
+    "placeholders": {
+      "profile": {
+        "content": "$1",
+        "example": "Staging checkout"
+      },
+      "count": {
+        "content": "$2",
+        "example": "14"
+      }
+    }
+  },
+  "profileDeleteConfirmEmpty": {
+    "message": "Delete the profile \"$PROFILE$\"?",
+    "description": "Confirmation before deleting a profile with no rules in it.",
+    "placeholders": {
+      "profile": {
+        "content": "$1",
+        "example": "Staging checkout"
+      }
+    }
+  },
+  "profileDeleted": {
+    "message": "Profile \"$PROFILE$\" deleted.",
+    "description": "Announced politely after a profile is deleted.",
+    "placeholders": {
+      "profile": {
+        "content": "$1",
+        "example": "Staging checkout"
+      }
+    }
+  },
+  "profileRemovedElsewhere": {
+    "message": "The profile you were editing was deleted somewhere else, so its editor has closed. Anything you were writing inside it is gone with it.",
+    "description": "UC-015 A4: another options page deleted the profile open here. The editor is closed rather than left over a profile that no longer exists, and the rule draft inside it is dropped — said plainly, because the editor disappearing on its own would otherwise look like a fault."
+  },
+  "profileMoved": {
+    "message": "$PROFILE$ moved to position $POSITION$ of $TOTAL$.",
+    "description": "Announced politely after a profile is reordered (BR-014-2).",
+    "placeholders": {
+      "profile": {
+        "content": "$1",
+        "example": "Staging checkout"
+      },
+      "position": {
+        "content": "$2",
+        "example": "2"
+      },
+      "total": {
+        "content": "$3",
+        "example": "3"
       }
     }
   }

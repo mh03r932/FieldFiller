@@ -112,7 +112,25 @@ const SEED = {
       fromPersona: false,
     },
   ],
-  profiles: [],
+  // One valid and one inert, so the profile row is audited both with and without
+  // its `!` flag and its `role="alert"` problem line (UC-014 A2). Neither is
+  // expanded — the audit opens rules, not profiles — so what is covered here is
+  // the collapsed row, which is the state the list is in when it is read.
+  profiles: [
+    {
+      id: 'a11y-p1', label: 'Staging', enabled: true,
+      urls: ['*.staging.example.com/*'],
+      rules: [
+        {
+          id: 'a11y-p1-r1', label: 'Scoped reference', enabled: true,
+          match: { mode: 'contains', pattern: 'short_code' },
+          generator: { type: 'constant', value: 'SCOPED' },
+          fromPersona: true,
+        },
+      ],
+    },
+    { id: 'a11y-p2', label: 'Matches nothing', enabled: true, urls: [], rules: [] },
+  ],
   // Populated rather than empty, because an empty list renders one paragraph and
   // the markup worth auditing is the row: a select, a text box, a remove button
   // and a `role="alert"` problem line sharing one grid cell. One of each is

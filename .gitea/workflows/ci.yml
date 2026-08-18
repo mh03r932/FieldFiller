@@ -15,6 +15,27 @@
 # every one of them is cheap to satisfy now and expensive to retrofit: a
 # reproducible build bolted on at the end means the digests simply differ, with
 # nothing to show for it.
+#
+# Every third-party action is pinned to an exact release tag rather than a
+# floating major. `actions/setup-node@v4` took this runner down on 2026-08-18:
+# act caches actions under `~/.cache/act/<sha256(owner/repo@ref)>`, so the key
+# `actions/setup-node@v4` is a promise the tag itself does not keep — upstream
+# force-moves it on every 4.x release, and the entry ended up holding one ref's
+# file list over another ref's checkout. The step died at 0s with
+# `lstat …/eslint.config.mjs: no such file or directory`, naming a file that
+# exists on that action's `main` and on no v4 tag at all. Nothing in this
+# repository had changed.
+#
+# An exact tag makes a cache key mean one tree forever, which is the property
+# act already assumes it has. It is also the argument NFR-011 makes about the
+# package manager below, applied to the one class of build input this file was
+# still leaving unpinned: an action is a dependency, and `@v4` is a range.
+#
+# Tags rather than commit SHAs because this is Gitea. act_runner fetches a
+# *named ref*, and an arbitrary SHA is not one — a SHA pin is the shape that
+# fails here, which is the trap this comment exists to keep the next reader out
+# of. Each pin below is the commit its floating tag pointed at when this was
+# written, so no behaviour changed; only the tag's freedom to move did.
 name: CI
 
 on:
@@ -32,7 +53,7 @@ jobs:
   quality:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v5.1.0
 
       # No `cache: pnpm` here, though it is the obvious way to write this. That
       # option makes `setup-node` shell out to `pnpm store path` to find the
@@ -48,7 +69,7 @@ jobs:
       # `pnpm store path` reports the configured directory whether or not it
       # exists yet, so a cold runner needs no special case.
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v4.4.0
         with:
           node-version: 24
 
@@ -77,7 +98,7 @@ jobs:
         run: echo "PNPM_STORE=$(pnpm store path --silent)" >> "$GITHUB_ENV"
 
       - name: Cache the pnpm store
-        uses: actions/cache@v4
+        uses: actions/cache@v4.3.0
         with:
           path: ${{ env.PNPM_STORE }}
           key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
@@ -125,12 +146,12 @@ jobs:
   browser:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v5.1.0
 
       # No `cache: pnpm`, and the store cached by hand instead — see the `quality`
       # job, where the reason is written out in full.
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v4.4.0
         with:
           node-version: 24
 
@@ -147,7 +168,7 @@ jobs:
         run: echo "PNPM_STORE=$(pnpm store path --silent)" >> "$GITHUB_ENV"
 
       - name: Cache the pnpm store
-        uses: actions/cache@v4
+        uses: actions/cache@v4.3.0
         with:
           path: ${{ env.PNPM_STORE }}
           key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
@@ -158,7 +179,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Cache browsers
-        uses: actions/cache@v4
+        uses: actions/cache@v4.3.0
         with:
           path: ~/.cache/ms-playwright
           key: browsers-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
@@ -239,6 +260,15 @@ jobs:
         # running, which is the failure mode a green build is least able to see.
         run: pnpm run settings:chrome
 
+      - name: Profiles (Chromium)
+        # UC-014..UC-017. The rule editor runs over a profile's rules through a
+        # lens, so the failure worth catching is it writing to the wrong list —
+        # which storage shows and a rendered page does not. It found two things
+        # on its first run: a profile's "matches nothing" flag that never cleared
+        # when the pattern fixing it was typed, and an Add button indistinguishable
+        # from the rule editor's own.
+        run: pnpm run profiles:chrome
+
       - name: Corpus per locale (Chromium)
         # The path a unit test cannot reach: a locale written to storage, parsed
         # back, resolved, and turned into a record on a real page. Until this
@@ -258,11 +288,53 @@ jobs:
         # that quietly starts passing is a claim nobody wrote down.
         run: pnpm run cascade:chrome
 
-      # Firefox on release candidates only, per NFR-014. Installed from Mozilla
-      # directly rather than through Playwright, whose Firefox is a patched build
-      # that does not expose the remote agent the BiDi harness attaches to.
+      # Installed on every run, not only on tags. NFR-014 asks for the *packaged
+      # add-on* to be exercised in Firefox on release candidates and for the
+      # *engine* to run against both targets on every change, and the second of
+      # those needs a browser here every time. Installed from Mozilla directly
+      # rather than through Playwright, whose Firefox is a patched build that
+      # does not expose the remote agent the BiDi harness attaches to.
+      - name: Pin the Firefox cache to a week
+        # The download is `firefox-latest-ssl`, which by design answers
+        # differently over time, so it cannot be keyed on a lockfile the way the
+        # Chromium cache above is. Keyed on the ISO week instead: the runner
+        # fetches Firefox once a week rather than once a run, and is never more
+        # than a week behind the release NFR-014 asks us to track. A day key
+        # would cache almost nothing — this job does not run daily — and a fixed
+        # key would pin the browser to whenever the cache was first written,
+        # which is the opposite of what "latest" is here for.
+        id: firefox-week
+        run: echo "week=$(date -u +%G-W%V)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Firefox
+        id: firefox-cache
+        uses: actions/cache@v4.3.0
+        with:
+          path: /tmp/firefox
+          # No `restore-keys`. A partial match would restore last week's browser
+          # and then skip the download that was supposed to replace it, so the
+          # pin above would silently stop meaning anything.
+          key: firefox-${{ runner.os }}-${{ steps.firefox-week.outputs.week }}
+
+      # Firefox's own apt dependencies, which the Chromium install above does not
+      # cover: Playwright's dependency table lists several packages for Firefox
+      # that are absent from Chromium's, `libdbus-glib-1-2` among them. Without
+      # it the Mozilla build dies at exec — "error while loading shared
+      # libraries" — before it can open a port, and the harness waiting for that
+      # port reports a timeout, which names the wrong thing.
+      #
+      # `install-deps` rather than `install --with-deps firefox`: only the apt
+      # packages are wanted here. Playwright's own Firefox is a patched build
+      # with no remote agent for the BiDi harness to attach to, so the browser
+      # still comes from Mozilla directly, below.
+      #
+      # Outside the cache guard on purpose — the cache holds /tmp/firefox, not
+      # anything apt installed, so a cache hit still needs these.
+      - name: Install Firefox's system dependencies
+        run: pnpm exec playwright install-deps firefox
+
       - name: Install Firefox
-        if: startsWith(github.ref, 'refs/tags/')
+        if: steps.firefox-cache.outputs.cache-hit != 'true'
         run: |
           set -euo pipefail
           # `--fail` because without it curl exits 0 on a 404 and writes the
@@ -272,21 +344,43 @@ jobs:
             'https://download.mozilla.org/?product=firefox-latest-ssl&os=linux64&lang=en-US'
           tar -xJf /tmp/firefox.tar.xz -C /tmp
 
+      # Cheap, and it fails in the step that owns the browser rather than inside
+      # a harness: `--version` needs every shared library a real run does, so a
+      # missing dependency is named here instead of surfacing as a fill that
+      # never started.
+      - name: Check Firefox runs
+        run: /tmp/firefox/firefox --version
+
       - name: Extension loads (Firefox)
         if: startsWith(github.ref, 'refs/tags/')
         run: |
           pnpm run build:firefox
           FIREFOX_PATH=/tmp/firefox/firefox pnpm run smoke:firefox
 
+      # The other half of NFR-014, and it runs on *every* change rather than on
+      # tags: it needs no extension package, only a browser. Until it existed the
+      # engine had never executed in Gecko at all — the unit suite runs once,
+      # under happy-dom, which is neither of the engines we ship to, and
+      # `smoke:firefox` proved the add-on installs and filled nothing.
+      #
+      # It cannot be moved into the Chromium job's position of "the whole product
+      # end to end": the extension's own trigger cannot be synthesised in
+      # Firefox, because WebDriver input goes to the content area and
+      # browser-level shortcut handling is deliberately out of its reach. So this
+      # covers the engine and `smoke:firefox` covers the packaging, and the join
+      # between them is stated against NFR-014 rather than implied.
+      - name: Engine against the reference page (Firefox)
+        run: FIREFOX_PATH=/tmp/firefox/firefox pnpm run engine:firefox
+
   package:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v5.1.0
 
       # No `cache: pnpm`, and the store cached by hand instead — see the `quality`
       # job, where the reason is written out in full.
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v4.4.0
         with:
           node-version: 24
 
@@ -303,7 +397,7 @@ jobs:
         run: echo "PNPM_STORE=$(pnpm store path --silent)" >> "$GITHUB_ENV"
 
       - name: Cache the pnpm store
-        uses: actions/cache@v4
+        uses: actions/cache@v4.3.0
         with:
           path: ${{ env.PNPM_STORE }}
           key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
@@ -349,7 +443,7 @@ jobs:
           ls -l artefacts
 
       - name: Upload packages
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v3.2.1
         with:
           name: fieldfiller-packages
           path: artefacts

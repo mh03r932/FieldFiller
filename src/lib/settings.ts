@@ -324,6 +324,43 @@ export const DEFAULT_PASSWORD_POLICY: PasswordPolicy = {
 };
 
 /**
+ * What `parseSettings` will accept as a password length.
+ *
+ * Named here so the screen that edits it and the parser that stores it cannot
+ * hold different bounds. They did: the control had none at all, so a length of 0
+ * lived happily in the options page's memory while storage held the clamped
+ * value — and because this page decides whose write a change was by comparing
+ * `parseSettings(memory)` with storage, the clamp came back looking like its own
+ * work and was never adopted. The screen's sample and the next fill then
+ * disagreed until a reload.
+ *
+ * The floor is 1 because a zero-length password is the empty string, which no
+ * field wants and every `required` field rejects. The ceiling is arbitrary and
+ * generous: it is a bound against nonsense, not a policy.
+ */
+export const PASSWORD_LENGTH: { readonly min: number; readonly max: number } = { min: 1, max: 256 };
+
+/**
+ * What `parseSettings` will accept from the numeric generator forms, for the
+ * same reason `PASSWORD_LENGTH` is here: the control and the parser must not
+ * hold different answers.
+ *
+ * Bounds only. The parser *also* orders `min` against `max` and `minWords`
+ * against `maxWords`, and that stays where it is — a pair of boxes cannot
+ * express "this one must not exceed the other one" while either is being typed,
+ * and `validateGenerator` is what tells the user when they have crossed
+ * (FR-070). These are the limits each box can state on its own.
+ */
+export const GENERATOR_BOUNDS = {
+  /** Wide enough not to be a policy, finite enough to keep `Infinity` out. */
+  number: { min: -1e15, max: 1e15 },
+  /** `toFixed` throws above 100; ten is past any plausible form field. */
+  decimals: { min: 0, max: 10 },
+  /** A word count, so at least one — and a filler paragraph, not a novel. */
+  words: { min: 1, max: 500 },
+} as const;
+
+/**
  * The shipped consent vocabulary (FR-015).
  *
  * English only, because it is what the reference page and the great majority of
@@ -456,7 +493,7 @@ export function parseSettings(stored: unknown): Settings {
     profiles: parseProfiles(candidate['profiles']),
     exclusions: {
       fields: parseMatchers(exclusions['fields'] ?? candidate['ignorePatterns']),
-      domains: strings(exclusions['domains'], DEFAULT_SETTINGS.exclusions.domains),
+      domains: globs(exclusions['domains'], DEFAULT_SETTINGS.exclusions.domains),
     },
     behaviour: {
       // `?? candidate[...]` reads the pre-DD-005 flat shape, where these three
@@ -488,7 +525,12 @@ export function parseSettings(stored: unknown): Settings {
       ),
     },
     passwords: {
-      length: integer(passwords['length'], DEFAULT_PASSWORD_POLICY.length, 1, 256),
+      length: integer(
+        passwords['length'],
+        DEFAULT_PASSWORD_POLICY.length,
+        PASSWORD_LENGTH.min,
+        PASSWORD_LENGTH.max,
+      ),
       upper: boolean(passwords['upper'], DEFAULT_PASSWORD_POLICY.upper),
       lower: boolean(passwords['lower'], DEFAULT_PASSWORD_POLICY.lower),
       digits: boolean(passwords['digits'], DEFAULT_PASSWORD_POLICY.digits),
@@ -637,7 +679,7 @@ function parseProfiles(stored: unknown): readonly Profile[] {
       id,
       label: typeof candidate['label'] === 'string' ? candidate['label'] : id,
       enabled: boolean(candidate['enabled'], true),
-      urls: strings(candidate['urls'], []),
+      urls: globs(candidate['urls'], []),
       rules: parseRules(candidate['rules']),
     });
   }
@@ -671,13 +713,18 @@ function parseGenerator(stored: unknown): Generator | undefined {
     }
 
     case 'number': {
-      const min = integer(candidate['min'], 0, -1e15, 1e15);
-      const max = integer(candidate['max'], 100, -1e15, 1e15);
+      const min = integer(candidate['min'], 0, GENERATOR_BOUNDS.number.min, GENERATOR_BOUNDS.number.max);
+      const max = integer(candidate['max'], 100, GENERATOR_BOUNDS.number.min, GENERATOR_BOUNDS.number.max);
       return {
         type,
         min: Math.min(min, max),
         max: Math.max(min, max),
-        decimals: integer(candidate['decimals'], 0, 0, 10),
+        decimals: integer(
+          candidate['decimals'],
+          0,
+          GENERATOR_BOUNDS.decimals.min,
+          GENERATOR_BOUNDS.decimals.max,
+        ),
       };
     }
 
@@ -692,8 +739,8 @@ function parseGenerator(stored: unknown): Generator | undefined {
     }
 
     case 'text': {
-      const minWords = integer(candidate['minWords'], 5, 1, 500);
-      const maxWords = integer(candidate['maxWords'], 20, 1, 500);
+      const minWords = integer(candidate['minWords'], 5, GENERATOR_BOUNDS.words.min, GENERATOR_BOUNDS.words.max);
+      const maxWords = integer(candidate['maxWords'], 20, GENERATOR_BOUNDS.words.min, GENERATOR_BOUNDS.words.max);
       return { type, minWords: Math.min(minWords, maxWords), maxWords: Math.max(minWords, maxWords) };
     }
 
@@ -738,6 +785,36 @@ function strings(value: unknown, fallback: readonly string[]): readonly string[]
   return Array.isArray(value)
     ? value.filter((entry): entry is string => typeof entry === 'string')
     : fallback;
+}
+
+/**
+ * A list of glob patterns, with blank entries dropped.
+ *
+ * `parseMatcher` has always refused a blank field pattern. The two glob lists —
+ * the excluded domains and a profile's addresses — went through `strings`
+ * instead and kept theirs, so "Add a site" and then thinking better of it left a
+ * blank entry in storage that survived every reload.
+ *
+ * UC-020 A1 did not say which of the two was right: it listed "the pattern is
+ * empty" beside a malformed regex and said both were stored anyway, which was
+ * never true of the empty one. It now separates them, because the argument it
+ * gives — that refusing to store would discard a pattern half-way through being
+ * typed — is about a pattern being written, and a blank one is not being
+ * written. It is not there.
+ *
+ * That is not only untidy. `exclusionFor` treats an empty list as "the user
+ * excluded nothing" and skips the check, which is what keeps a tab whose address
+ * cannot be read fillable on a fresh install; one abandoned blank row makes the
+ * list non-empty, and every unreadable tab is refused from then on. The user
+ * sees a fill stop working and has an empty-looking row to explain it.
+ *
+ * Blank only. An *invalid* pattern is stored and flagged, exactly as an invalid
+ * field pattern is (see `matcherProblems`): refusing to store it would discard a
+ * half-typed pattern on every keystroke that made it briefly wrong. The rule is
+ * that a blank is an absent entry, while a bad one is an entry with a problem.
+ */
+function globs(value: unknown, fallback: readonly string[]): readonly string[] {
+  return strings(value, fallback).filter((pattern) => pattern !== '');
 }
 
 function record(value: unknown): Record<string, unknown> {

@@ -1,5 +1,5 @@
 import { message, type MessageKey } from '@/lib/platform/i18n';
-import { MATCH_SOURCES, type Generator, type MatchSource, type Rule, type Settings } from '@/lib/settings';
+import { GENERATOR_BOUNDS, MATCH_SOURCES, type Generator, type MatchSource, type Rule, type Settings } from '@/lib/settings';
 import {
   addRule,
   changeGeneratorType,
@@ -42,36 +42,102 @@ import type { Locale } from '@/lib/persona/persona';
  */
 export type RuleEditorHost = OptionsHost;
 
-/** Which rule is expanded. One at a time: the list is the context (UC-009). */
-let openRuleId: string | undefined;
+/**
+ * Where a rule list lives inside the settings (UC-015).
+ *
+ * The editor was written against `settings.rules` directly, which was right
+ * while that was the only rule list there was. Profiles give each their own, and
+ * the whole of this file — create, edit, delete, reorder, preview, undo,
+ * validation, the draft — applies to a profile's rules unchanged. Duplicating
+ * 700 lines to change one property access would guarantee the two drifted, and
+ * the first divergence would be a profile rule that could be written but not
+ * validated the same way.
+ *
+ * `key` is what keeps two lists apart where the editor holds state outside the
+ * DOM: an undo offer belongs to the list it was deleted from, and restoring a
+ * rule into a different list would put it at a position chosen for another one.
+ * Rule ids are UUIDs, so nothing else needs the distinction — one rule is open
+ * at a time across the whole page, which is the existing design and stays true.
+ */
+export type RuleLens = {
+  readonly key: string;
+  readonly read: (settings: Settings) => readonly Rule[];
+  readonly write: (settings: Settings, rules: readonly Rule[]) => Settings;
+};
+
+/** The global rule list — the one that existed before profiles. */
+export const GLOBAL_RULES: RuleLens = {
+  key: 'global',
+  read: (settings) => settings.rules,
+  write: (settings, rules) => ({ ...settings, rules }),
+};
+
+/** The rule list of one profile, by id. */
+export function profileRules(profileId: string): RuleLens {
+  return {
+    key: `profile:${profileId}`,
+    read: (settings) => settings.profiles.find((p) => p.id === profileId)?.rules ?? [],
+    write: (settings, rules) => ({
+      ...settings,
+      profiles: settings.profiles.map((p) => (p.id === profileId ? { ...p, rules } : p)),
+    }),
+  };
+}
 
 /**
- * The open rule as it has been typed, which is not always what is stored.
+ * The rule being edited, and everything about it that has to outlive a render.
  *
- * An edit is written only when it validates (BR-009-1), so while a rule is
- * invalid the stored list still holds the last good version — and a *new* rule
- * is invalid from the moment it appears, because it has no pattern yet. That is
- * the ordinary state of a rule being written, not an edge case.
- *
- * A structural edit rebuilds the whole list, and the rebuild reads the stored
- * rules. Without the draft kept here it read the last committed version, so
- * choosing a generator type before typing a pattern — a natural first move —
- * drew the choice straight back to what it had been, and unticking "whatever is
- * enabled globally" on a rule not yet valid revealed nothing, putting FR-067
- * out of reach until the rule validated. Worse, a rule invalid for an unrelated
- * reason lost every uncommitted keystroke in the open editor to any structural
- * edit, which is the discarding UC-009 A3 sanctions only when the page closes.
- *
- * Module-level for the same reason `openRuleId` is: it has to survive the
- * rebuild that destroys the editor holding it. It never reaches storage — the
- * commit path is still the only writer, and it still refuses invalid rules.
+ * One record rather than three variables, because the three have to agree and
+ * nothing made them. The lens used to be assigned on *every render* while the id
+ * and the draft were assigned on every *open*, and a render is not an open:
+ * expanding a profile draws that profile's rule list, so merely looking at a
+ * profile while a global rule was open repointed the lens at the profile — and
+ * the next foreign write then carried the global draft into the profile's rules
+ * at top precedence. The global list's own reorder and delete handlers did the
+ * same to a rule open inside a profile. Written together and cleared together,
+ * that disagreement is not reachable (BR-015-2).
  */
-let openDraft: Rule | undefined;
+type OpenRule = {
+  /** Which rule is expanded. One at a time: the list is the context (UC-009). */
+  readonly id: string;
 
-/** Forgets the draft. The rule being opened, closed or removed is a new context. */
-function forgetDraft(): void {
-  openDraft = undefined;
-}
+  /**
+   * The list it was opened from (BR-015-2).
+   *
+   * The page's storage listener adopts another writer's settings and has to
+   * carry the draft across, but it is one listener for the whole page and cannot
+   * know which of several lists is being edited. A lens is a plain value over an
+   * id, so it survives the rebuild that destroys every closure a render made —
+   * which is what the per-render assignment was for, and did not need to be.
+   */
+  readonly lens: RuleLens;
+
+  /**
+   * The rule as it has been typed, which is not always what is stored.
+   *
+   * An edit is written only when it validates (BR-009-1), so while a rule is
+   * invalid the stored list still holds the last good version — and a *new* rule
+   * is invalid from the moment it appears, because it has no pattern yet. That
+   * is the ordinary state of a rule being written, not an edge case.
+   *
+   * A structural edit rebuilds the whole list, and the rebuild reads the stored
+   * rules. Without the draft kept here it read the last committed version, so
+   * choosing a generator type before typing a pattern — a natural first move —
+   * drew the choice straight back to what it had been, and unticking "whatever
+   * is enabled globally" on a rule not yet valid revealed nothing, putting
+   * FR-067 out of reach until the rule validated. Worse, a rule invalid for an
+   * unrelated reason lost every uncommitted keystroke in the open editor to any
+   * structural edit, which is the discarding UC-009 A3 sanctions only when the
+   * page closes.
+   *
+   * Outside the DOM for the same reason the id is: it has to survive the rebuild
+   * that destroys the editor holding it. It never reaches storage — the commit
+   * path is still the only writer, and it still refuses invalid rules.
+   */
+  readonly draft?: Rule;
+};
+
+let editing: OpenRule | undefined;
 
 /**
  * Whether a rule is open for editing.
@@ -82,11 +148,30 @@ function forgetDraft(): void {
  * worse outcome than the staleness it fixes.
  */
 export function isEditingRule(): boolean {
-  return openRuleId !== undefined;
+  return editing !== undefined;
+}
+
+/**
+ * Closes the open rule when it belongs to a list that is going away (UC-015).
+ *
+ * A profile's rules are drawn inside the profile's own editor, so collapsing the
+ * profile — or deleting it — destroys the rule editor's DOM. Nothing destroyed
+ * this state with it, and the consequences outlived the screen: `isEditingRule`
+ * went on answering yes forever, so the page's storage listener took the "adopt
+ * into memory, do not re-render" branch for the rest of the session and the
+ * global list stopped refreshing on foreign writes altogether — while every
+ * adoption kept carrying a draft whose editor no longer existed.
+ *
+ * Keyed by lens rather than by rule id, because the caller knows which list it
+ * is dismantling and not what happens to be open inside it. A rule open in some
+ * *other* list is left alone, which is the whole point of asking.
+ */
+export function closeRuleIn(key: string): void {
+  if (editing?.lens.key === key) editing = undefined;
 }
 
 /** The last deletion, for as long as this page stays open (UC-011). */
-let undoable: { readonly rule: Rule; readonly at: number } | undefined;
+let undoable: { readonly rule: Rule; readonly at: number; readonly key: string } | undefined;
 
 /**
  * Drops the undo offer, for when the list it belonged to is gone (UC-011, UC-024).
@@ -130,29 +215,43 @@ export function forgetUndo(list: HTMLElement): void {
  * under an open editor without taking the caret with it.
  */
 export function adoptKeepingEdit(stored: Settings, mine: Settings): Settings {
-  if (openRuleId === undefined) return stored;
+  if (editing === undefined) return stored;
+
+  // Through the lens the open rule was *opened from*, which is not always the
+  // global list now that a profile has one of its own (UC-015), and is never
+  // whichever list happened to be drawn last. Reading `.rules` here while the
+  // user edits a profile rule would carry the draft into the wrong list —
+  // creating a duplicate global rule and losing the profile edit, which is both
+  // halves of what this function exists to prevent.
+  const { id, lens } = editing;
+  const theirs = lens.read(stored);
+  const ours = lens.read(mine);
 
   // What was typed, falling back to what was stored. A rule that has not
   // validated since it was opened exists only as a draft, so taking the stored
   // copy here would carry across a version the user has already moved past.
-  const draft = openDraft?.id === openRuleId
-    ? openDraft
-    : mine.rules.find((rule) => rule.id === openRuleId);
+  const draft = editing.draft ?? ours.find((rule) => rule.id === id);
   if (draft === undefined) return stored;
 
   // They have it too: ours is the newer text, theirs is the position.
-  if (stored.rules.some((rule) => rule.id === openRuleId)) {
-    return {
-      ...stored,
-      rules: stored.rules.map((rule) => (rule.id === openRuleId ? draft : rule)),
-    };
+  if (theirs.some((rule) => rule.id === id)) {
+    return lens.write(
+      stored,
+      theirs.map((rule) => (rule.id === id ? draft : rule)),
+    );
   }
 
   // They do not: it is new here, or they deleted it. Either way it is what the
   // user is looking at, and dropping it would lose an edit in progress — where
   // keeping it costs them a rule reappearing, which they can delete again.
-  const at = mine.rules.findIndex((rule) => rule.id === openRuleId);
-  return { ...stored, rules: restoreRule(stored.rules, draft, at) };
+  //
+  // A profile the other writer deleted outright is the one case with nothing to
+  // write back to: `lens.write` finds no profile with that id and returns their
+  // state unchanged, so the draft is dropped. That is the right outcome — the
+  // list it belonged to is gone, and resurrecting a profile because someone had
+  // one of its rules open would undo a deletion nobody asked to undo.
+  const at = ours.findIndex((rule) => rule.id === id);
+  return lens.write(stored, restoreRule(theirs, draft, at));
 }
 
 /**
@@ -165,8 +264,12 @@ export function adoptKeepingEdit(stored: Settings, mine: Settings): Settings {
  * and with no type error — the coupling was invisible precisely because the
  * selector kept working.
  */
-export function renderRules(host: RuleEditorHost, into: HTMLElement): void {
-  const rules = host.settings().rules;
+export function renderRules(
+  host: RuleEditorHost,
+  into: HTMLElement,
+  lens: RuleLens = GLOBAL_RULES,
+): void {
+  const rules = lens.read(host.settings());
   into.replaceChildren();
 
   if (rules.length === 0) {
@@ -182,9 +285,9 @@ export function renderRules(host: RuleEditorHost, into: HTMLElement): void {
     for (const [index, rule] of rules.entries()) {
       // The open rule is drawn as typed rather than as stored. They differ
       // exactly while it is invalid, which is most of the time it is being
-      // written — see `openDraft`.
-      const shown = openDraft?.id === rule.id ? openDraft : rule;
-      list.append(ruleRow(host, shown, index, rules.length, into));
+      // written — see `OpenRule.draft`.
+      const shown = editing?.id === rule.id ? (editing.draft ?? rule) : rule;
+      list.append(ruleRow(host, shown, index, rules.length, into, lens));
     }
     into.append(list);
   }
@@ -197,18 +300,22 @@ export function renderRules(host: RuleEditorHost, into: HTMLElement): void {
     const id = crypto.randomUUID();
     // Appended, never inserted: first match wins, so any other position would
     // change what the existing rules do (BR-009-2).
-    commit(host, addRule(host.settings().rules, id));
-    openRuleId = id;
-    forgetDraft();
-    renderRules(host, into);
+    commit(host, lens, addRule(lens.read(host.settings()), id));
+    editing = { id, lens };
+    renderRules(host, into, lens);
     into.querySelector<HTMLInputElement>(`[data-rule="${id}"] input`)?.focus();
   });
   into.append(add);
 
-  if (undoable !== undefined) into.append(undoOffer(host, into));
+  // Only the list it was deleted from. An offer rendered under a different list
+  // would restore a rule into a list it never belonged to, at a position chosen
+  // for another one.
+  if (undoable !== undefined && undoable.key === lens.key) {
+    into.append(undoOffer(host, into, lens));
+  }
 }
 
-function undoOffer(host: RuleEditorHost, into: HTMLElement): HTMLElement {
+function undoOffer(host: RuleEditorHost, into: HTMLElement, lens: RuleLens): HTMLElement {
   const removed = undoable!;
   const bar = document.createElement('p');
   bar.className = 'undo';
@@ -231,9 +338,9 @@ function undoOffer(host: RuleEditorHost, into: HTMLElement): HTMLElement {
     }
     // Back to the position it held, not to the end: order is meaning, and the
     // user asked to undo rather than to re-add (BR-011-2).
-    commit(host, restoreRule(host.settings().rules, removed.rule, removed.at));
+    commit(host, lens, restoreRule(lens.read(host.settings()), removed.rule, removed.at));
     undoable = undefined;
-    renderRules(host, into);
+    renderRules(host, into, lens);
     // Onto the rule that came back, which is both where the user was looking and
     // the only way to confirm by keyboard that it returned to the right place.
     focusIn(into, `[data-rule="${removed.rule.id}"] .rule-name`);
@@ -249,6 +356,7 @@ function ruleRow(
   index: number,
   total: number,
   list: HTMLElement,
+  lens: RuleLens,
 ): HTMLElement {
   const item = document.createElement('li');
   item.className = 'rule';
@@ -260,14 +368,15 @@ function ruleRow(
   const disclose = document.createElement('button');
   disclose.type = 'button';
   disclose.className = 'rule-name';
-  disclose.setAttribute('aria-expanded', String(openRuleId === rule.id));
+  disclose.setAttribute('aria-expanded', String(editing?.id === rule.id));
   disclose.textContent = nameOf(rule);
   disclose.addEventListener('click', () => {
-    openRuleId = openRuleId === rule.id ? undefined : rule.id;
     // Closing discards what never validated, and opening another rule starts
-    // from what is stored — both the behaviour before the draft existed.
-    forgetDraft();
-    renderRules(host, list);
+    // from what is stored — both the behaviour before the draft existed. The
+    // lens is recorded here, at the one moment that knows which list the user
+    // reached this rule through (BR-015-2).
+    editing = editing?.id === rule.id ? undefined : { id: rule.id, lens };
+    renderRules(host, list, lens);
     // Back onto this same button, which the rebuild destroyed. Expanding a rule
     // by keyboard otherwise left the focus on `<body>`, so the next Tab started
     // again from the top of the page — and the editor that just opened was below
@@ -284,10 +393,14 @@ function ruleRow(
     disclose.append(flag);
   }
 
-  header.append(disclose, ordering(host, rule, index, total, list), remove(host, rule, index, list));
+  header.append(
+    disclose,
+    ordering(host, rule, index, total, list, lens),
+    remove(host, rule, index, list, lens),
+  );
   item.append(header);
 
-  if (openRuleId === rule.id) item.append(editor(host, rule, item, list));
+  if (editing?.id === rule.id) item.append(editor(host, rule, item, list, lens));
   return item;
 }
 
@@ -306,6 +419,7 @@ function ordering(
   index: number,
   total: number,
   list: HTMLElement,
+  lens: RuleLens,
 ): HTMLElement {
   const group = document.createElement('span');
   group.className = 'rule-order';
@@ -328,12 +442,12 @@ function ordering(
     // reached (UC-012 A1).
     button.disabled = disabled;
     button.addEventListener('click', () => {
-      const moved = moveRule(host.settings().rules, rule.id, direction);
-      commit(host, moved);
+      const moved = moveRule(lens.read(host.settings()), rule.id, direction);
+      commit(host, lens, moved);
       const position = moved.findIndex((candidate) => candidate.id === rule.id) + 1;
       host.announce(message('ruleMoved', [nameOf(rule), String(position), String(moved.length)]));
 
-      renderRules(host, list);
+      renderRules(host, list, lens);
       // The button that was pressed, not the first one still enabled. Those
       // differ for every rule but the first: `button:not(:disabled)` is the up
       // arrow, so moving a rule *down* handed the focus to up, and a second
@@ -360,7 +474,13 @@ function ordering(
   return group;
 }
 
-function remove(host: RuleEditorHost, rule: Rule, index: number, list: HTMLElement): HTMLElement {
+function remove(
+  host: RuleEditorHost,
+  rule: Rule,
+  index: number,
+  list: HTMLElement,
+  lens: RuleLens,
+): HTMLElement {
   const button = document.createElement('button');
   button.type = 'button';
   button.className = 'rule-delete';
@@ -370,13 +490,10 @@ function remove(host: RuleEditorHost, rule: Rule, index: number, list: HTMLEleme
     // Immediate and reversible rather than confirmed and permanent: a
     // confirmation taxes every user to protect the one who misclicked
     // (BR-011-1).
-    undoable = { rule, at: index };
-    commit(host, removeRule(host.settings().rules, rule.id));
-    if (openRuleId === rule.id) {
-      openRuleId = undefined;
-      forgetDraft();
-    }
-    renderRules(host, list);
+    undoable = { rule, at: index, key: lens.key };
+    commit(host, lens, removeRule(lens.read(host.settings()), rule.id));
+    if (editing?.id === rule.id) editing = undefined;
+    renderRules(host, list, lens);
     // Onto Undo, not nowhere. The button that was pressed no longer exists, and
     // the offer that replaces it is the thing a person who has just deleted the
     // wrong rule wants — but it renders at the end of the list, so a keyboard
@@ -388,7 +505,13 @@ function remove(host: RuleEditorHost, rule: Rule, index: number, list: HTMLEleme
   return button;
 }
 
-function editor(host: RuleEditorHost, rule: Rule, item: HTMLElement, list: HTMLElement): HTMLElement {
+function editor(
+  host: RuleEditorHost,
+  rule: Rule,
+  item: HTMLElement,
+  list: HTMLElement,
+  lens: RuleLens,
+): HTMLElement {
   const body = document.createElement('div');
   body.className = 'rule-body';
 
@@ -440,14 +563,14 @@ function editor(host: RuleEditorHost, rule: Rule, item: HTMLElement, list: HTMLE
     current = next;
     // Kept where a rebuild cannot destroy it. `current` lives in this closure,
     // and a structural edit replaces the closure along with the editor.
-    openDraft = next;
+    if (editing?.id === next.id) editing = { ...editing, draft: next };
     const problems = validateRule(next);
     // Written only when valid. An invalid rule in storage is one the engine
     // meets during a fill, on a page the user is not looking at (UC-009 A1).
-    if (problems.length === 0) commit(host, replaceRule(host.settings().rules, next));
+    if (problems.length === 0) commit(host, lens, replaceRule(lens.read(host.settings()), next));
 
     if (refocus !== undefined) {
-      renderRules(host, list);
+      renderRules(host, list, lens);
       list.querySelector<HTMLElement>(`[data-rule="${next.id}"] ${refocus}`)?.focus();
       return;
     }
@@ -655,9 +778,9 @@ function generatorFields(live: () => Rule, update: (rule: Rule, refocus?: string
       break;
     case 'number':
       wrapper.append(
-        field(message('genMin'), numberInput(generator.min, (value) => set('number')({ min: value }))),
-        field(message('genMax'), numberInput(generator.max, (value) => set('number')({ max: value }))),
-        field(message('genDecimals'), numberInput(generator.decimals, (value) => set('number')({ decimals: value }))),
+        field(message('genMin'), numberInput(generator.min, (value) => set('number')({ min: value }), GENERATOR_BOUNDS.number)),
+        field(message('genMax'), numberInput(generator.max, (value) => set('number')({ max: value }), GENERATOR_BOUNDS.number)),
+        field(message('genDecimals'), numberInput(generator.decimals, (value) => set('number')({ decimals: value }), GENERATOR_BOUNDS.decimals)),
       );
       break;
     case 'date':
@@ -669,8 +792,8 @@ function generatorFields(live: () => Rule, update: (rule: Rule, refocus?: string
       break;
     case 'text':
       wrapper.append(
-        field(message('genMinWords'), numberInput(generator.minWords, (value) => set('text')({ minWords: value }))),
-        field(message('genMaxWords'), numberInput(generator.maxWords, (value) => set('text')({ maxWords: value }))),
+        field(message('genMinWords'), numberInput(generator.minWords, (value) => set('text')({ minWords: value }), GENERATOR_BOUNDS.words)),
+        field(message('genMaxWords'), numberInput(generator.maxWords, (value) => set('text')({ maxWords: value }), GENERATOR_BOUNDS.words)),
       );
       break;
     case 'alphanumeric':
@@ -780,8 +903,8 @@ function nameOf(rule: Rule): string {
   return rule.label !== '' ? rule.label : rule.match.pattern !== '' ? rule.match.pattern : message('ruleUnnamed');
 }
 
-function commit(host: RuleEditorHost, rules: readonly Rule[]): void {
-  host.save({ ...host.settings(), rules });
+function commit(host: RuleEditorHost, lens: RuleLens, rules: readonly Rule[]): void {
+  host.save(lens.write(host.settings(), rules));
 }
 
 /**

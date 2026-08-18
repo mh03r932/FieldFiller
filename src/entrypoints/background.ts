@@ -14,6 +14,7 @@ import {
 import { generateBatch, tokenRandom } from '@/lib/generators/batch';
 import type { BehaviourDefaults } from '@/lib/generators/default-generator';
 import { compileRules, type CompiledRule } from '@/lib/rules/match';
+import { activeProfile, profileName, rulesFor } from '@/lib/profiles';
 import { excludedBy } from '@/lib/page/scope';
 import {
   badgeFor,
@@ -129,6 +130,14 @@ type Operation = {
    * wearing a different hat.
    */
   readonly defaults: BehaviourDefaults;
+  /**
+   * The label of the profile governing this fill, if any (UC-017, FR-047).
+   *
+   * Resolved once when the fill begins, from the address read at that moment.
+   * It cannot be resolved later — the tab may have navigated, and we would have
+   * no right to read the new address anyway.
+   */
+  readonly profile: string | undefined;
   /** Rules that could not run, by label, so the user is told (DD-005). */
   readonly skippedRules: Set<string>;
   /** Set when the frame refused to resolve a scope (UC-002 A3, UC-003 A2). */
@@ -317,16 +326,48 @@ async function startFill(target: Target, scope: FillScope, trigger: FillTrigger)
   try {
     const settings = await getSettings();
 
+    /**
+     * The tab's address, read once for the two things that need it.
+     *
+     * Read *here* and nowhere else, at the moment the user asks for a fill —
+     * which is what `activeTab` grants and what keeps the `tabs` permission off
+     * the manifest (BR-008-2, NFR-008). The extension does not watch the user
+     * browse, and cannot: without a fill it never learns a single URL. That is
+     * the constraint UC-017's indicator is shaped by, not an implementation
+     * detail of this line.
+     *
+     * Hoisted out of `exclusionFor` when profiles arrived, because two readers
+     * of one fact must not be two reads: `tabs.get` between them could return
+     * different addresses if the tab navigated, and a fill excluded by one page
+     * while profiled by another is a state with no correct behaviour.
+     */
+    const url = await tabUrl(tabId);
+
     // BR-008-1: before the persona exists and before any frame is contacted. An
     // excluded domain must not be able to observe that the extension exists by
     // being asked a question.
-    const exclusion = await exclusionFor(tabId, settings.exclusions.domains);
+    const exclusion = exclusionFor(url, settings.exclusions.domains);
     if (exclusion !== undefined) {
       trace(`fill in tab ${tabId} refused: ${exclusion.kind === 'pattern' ? exclusion.pattern : 'address unreadable'}`);
       await showExcluded(tabId, exclusion);
       filling.delete(tabId);
       return;
     }
+
+    /**
+     * The profile governing this page, if any (UC-007, UC-017).
+     *
+     * An unreadable address resolves to no profile, and that is the safe
+     * direction: the fill runs with the global rules alone. The alternative —
+     * refusing to fill because the profile could not be determined — would make
+     * every page whose address we cannot read unfillable the moment a user
+     * created their first profile, which is a much larger failure than a fill
+     * that used fewer rules than it might have. The report names the profile
+     * that applied, so "none" is visible rather than assumed.
+     */
+    const profile = url === undefined ? undefined : activeProfile(settings.profiles, url);
+    const reportedProfile = profile === undefined ? undefined : profileName(profile);
+    if (profile !== undefined) trace(`fill in tab ${tabId} using profile "${reportedProfile}"`);
 
     const seed = Math.floor(Math.random() * 2 ** 32);
     const random = seededRandom(seed);
@@ -352,10 +393,21 @@ async function startFill(target: Target, scope: FillScope, trigger: FillTrigger)
       fields: [],
       refused: undefined,
       scopeRule: undefined,
-      // Profile rules would be concatenated ahead of the global list here, and
-      // first-match-wins does the rest (FR-031). Profiles are Phase 5, so today
-      // this is the global list alone.
-      rules: compileRules(settings.rules, settings.sources),
+      // The active profile's rules ahead of the global list, first-match-wins
+      // doing the rest (FR-031). One ordered list and no second precedence
+      // concept, which is what `compileRules` has documented since Phase 2.
+      rules: compileRules(rulesFor(profile, settings.rules), settings.sources),
+      // The name rather than the profile, because this is what the report
+      // shows and nothing downstream needs the rules again (NFR-030's habit:
+      // carry the narrowest thing that answers the question).
+      //
+      // `profileName`, not `profile.label`: a label is optional, and the raw
+      // one is `''` for a profile whose URL has been typed and whose name has
+      // not. The report folds an empty name into "no profile matched this
+      // page" — so until 2026-08-18 a nameless profile ran its rules at top
+      // precedence while the report denied it had applied at all. Same
+      // fallback the profile list shows, so the two agree.
+      profile: reportedProfile,
       defaults: {
         consentKeywords: settings.behaviour.consentKeywords,
         confirmationKeywords: settings.behaviour.confirmationKeywords,
@@ -460,20 +512,28 @@ type Exclusion =
   /** UC-008 A1: the address could not be read, so the list could not be checked. */
   | { readonly kind: 'unreadable' };
 
-async function exclusionFor(tabId: number, patterns: readonly string[]): Promise<Exclusion | undefined> {
+/**
+ * The tab's address, or `undefined` when it cannot be read.
+ *
+ * Unreadable is the ordinary case rather than an error: `activeTab` is granted
+ * by a real user gesture on the tab, so a browser-internal page, a tab the
+ * gesture did not reach, or a synthesised trigger all land here.
+ */
+async function tabUrl(tabId: number): Promise<string | undefined> {
+  try {
+    return (await browser.tabs.get(tabId)).url;
+  } catch {
+    return undefined;
+  }
+}
+
+function exclusionFor(url: string | undefined, patterns: readonly string[]): Exclusion | undefined {
   if (patterns.length === 0) {
     // An empty list is the default state of a new install and means the user has
     // excluded nothing — the opposite direction to A1, and deliberately so
     // (UC-008 A2). Checked first so a tab whose URL is unreadable is still
     // fillable when nothing was ever excluded.
     return undefined;
-  }
-
-  let url: string | undefined;
-  try {
-    url = (await browser.tabs.get(tabId)).url;
-  } catch {
-    url = undefined;
   }
 
   // Kept apart from a real match rather than dressed as one. Substituting a
@@ -608,6 +668,7 @@ function complete(operationId: OperationId): void {
     skippedRules: [...operation.skippedRules],
     refused: operation.refused,
     scopeRule: operation.scopeRule,
+    profile: operation.profile,
     fields: operation.fields,
   };
 

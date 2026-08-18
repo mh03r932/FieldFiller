@@ -126,6 +126,12 @@ count reads **79 Done, 9 Partial, 43 Open and 1 Deferred — and nothing Blocked
 Deferred, still nothing Blocked, across 128 status-bearing rows.** Six requirements moved:
 FR-014, FR-025, FR-028 and FR-036 from `Partial`, and FR-049 and FR-050 from `Open`.
 
+**Recounted again 2026-08-17 after Phase 5: 86 Done, 6 Partial, 35 Open, 1 Deferred over the
+same 128.** Three moved, all from `Open`: FR-045, FR-046 and FR-047.
+
+**And again the same day, after the Firefox engine harness: 87 Done, 5 Partial, 35 Open, 1
+Deferred.** NFR-014 moved from `Partial`, having been the longest-standing one in the table.
+
 The denominator moved too, from 132 to 128, and that is a *counting* correction rather than
 four requirements disappearing. Four rows in the "Guarantees held by construction" table begin
 with `FR-` or `NFR-` and carry a description of the check that would enforce them, not a status
@@ -380,11 +386,86 @@ rather than a default.
 
 *Goal: per-application rule sets.*
 
-- **UC-014**, **UC-015**, **UC-016** — profile create / edit / delete
-- **UC-017** Identify the Active Profile for a Page — resolution and badge
-- **UC-007** Apply a URL Profile — precedence over global rules in the engine
+- ~~**UC-014**, **UC-015**, **UC-016**~~ — **built 2026-08-17.** Profile create / edit / delete,
+  with reordering, because order is the only tiebreak between two profiles that match one page
+- ~~**UC-017** Identify the Active Profile for a Page~~ — **built 2026-08-17**, as a fill
+  *result* rather than a badge. See below
+- ~~**UC-007** Apply a URL Profile~~ — **built 2026-08-17**, three lines: resolve, concatenate,
+  compile
 
-This is the last change to the settings schema. Phase 6 depends on that being true.
+~~This is the last change to the settings schema. Phase 6 depends on that being true.~~
+**It changed the schema not at all**, which is the stronger version of the same claim. DD-005
+defined `Profile` in Phase 2 with exactly the shape this needed — `id`, `label`, `enabled`,
+`urls`, `rules` — and the tolerant parser has been reading it since. Phase 6 inherits a schema
+that has been stable through two phases of screens rather than one that stopped changing
+because this phase was careful.
+
+**What building it changed.**
+
+- **UC-017 could not be what FR-047 asks for, and the reason is a guarantee rather than a
+  limitation of effort.** The requirement wants a Tester to see which profile applies to the
+  *current page*; the extension learns a page's address only when a fill is invoked, because
+  that is what `activeTab` grants and what keeps `tabs` off the manifest (NFR-008, BR-008-2).
+  An indicator answering the question before a fill would require watching the user browse.
+  So the answer is given where it can be given truthfully — in the fill report, naming the
+  profile that governed the fill that just ran, and saying so in words when none did. BR-017-3
+  and BR-017-4 record both halves. This is the second requirement in the project whose
+  *honest* form is narrower than its written form, after FR-074.
+- **The rule editor was pointed at a second list rather than copied.** A profile's rules are
+  edited by the same 700 lines through a lens (`read`/`write`/`key`). Copying would have
+  guaranteed the two drifted, and the first divergence would be a profile rule that could be
+  written but not validated the same way. The state the editor holds outside the DOM — the
+  open rule's draft, and the undo offer — had to learn which list it belongs to; an undo
+  restoring a rule into the wrong list is the defect that shape invites (BR-015-2).
+- **The profile harness found two things on its first run**, both invisible to the 22 unit
+  tests over the same code. A profile's "matches nothing" flag never cleared when the address
+  pattern that fixed it was typed — so the one state the flag exists to report was the one
+  state in which it lied. And the section's Add button was indistinguishable from the rule
+  editor's own `.primary` button nested inside an open profile, which comes *first* in document
+  order: the harness added a rule where it meant to add a profile, and a person would have been
+  saved only by the labels. Both are the same shape as every other defect this project has
+  found — correct in isolation, wrong in sequence.
+
+**One assertion in that harness was wrong rather than the code**, and it is worth recording
+because the correction is the more useful statement. It asserted that focus returns to the
+button that was pressed after a reorder; with two profiles, moving the second up puts it at the
+top, where its own up button is disabled and focus falls to the sibling by design. The
+requirement is that focus follows the profile that moved, not that it lands on a particular
+control — asserting the mechanism instead of the requirement is how a test comes to fail on
+correct behaviour.
+
+### The Firefox gap, closed 2026-08-17
+
+Not a phase — it was listed under "two things remain unscheduled" and stayed there through four
+phases, which is long enough that closing it deserves the record.
+
+**What it was.** NFR-014 has two sentences and neither held for Firefox. `smoke:firefox` proved
+the add-on installs and filled nothing; the unit suite ran once, under happy-dom, which is
+neither engine we ship to. So every DOM-facing behaviour the engine relies on — `element.labels`
+resolving implicit labels, the prototype value setter frameworks patch, `InputEvent` being a
+distinct type from `Event`, shadow roots, the event order a real user's typing produces — had
+been verified in one engine and asserted for two.
+
+**What closed it.** `engine:firefox` runs the real engine against the real reference fixture in
+Gecko, with no extension installed at all: 27 controls across 12 kinds, settling in two passes,
+nothing failing verification. **NFR-015 is what made that a day's work rather than a project** —
+`runFill` takes a `Document` and a `requestValues` callback and touches no extension API, so the
+code under test is exactly the code the page agent runs, with the background's half supplied by
+calling the real generators in the page. The isolation requirement was written to keep the
+engine testable without a browser host; it turned out to also make it testable in *any* browser
+host, which is the more valuable of the two.
+
+**What is still not covered, and why it is not a matter of effort.** The extension's own trigger
+in Firefox. A fill starts from a toolbar click, a context-menu item or a keyboard shortcut, and
+none can be synthesised: WebDriver input is dispatched into the content area, and browser-level
+shortcut handling is deliberately out of its reach. That was measured rather than assumed —
+headless and headful, with the correct BiDi modifier codepoints — before concluding it.
+
+Chromium has the mirror-image limitation: `activeTab` follows a real user gesture, so its
+harnesses can dispatch a toolbar click but can never read a tab's address, which is why UC-017's
+and FR-037's matching paths have no end-to-end cover there. **Neither browser can be driven
+through the whole product**, and the two gaps are in different places — which is the strongest
+argument available for keeping both harnesses rather than picking one.
 
 ---
 

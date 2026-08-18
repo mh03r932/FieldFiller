@@ -32,6 +32,7 @@
     "gate:all": "pnpm run gate:size && pnpm run gate:imports && pnpm run gate:network && pnpm run gate:permissions && pnpm run gate:coverage-scope",
     "smoke:chrome": "node scripts/smoke-chrome.mjs",
     "smoke:firefox": "node scripts/smoke-firefox.mjs",
+    "engine:firefox": "node scripts/e2e-firefox.mjs",
     "smoke": "pnpm run smoke:chrome && pnpm run smoke:firefox",
     "digest": "node scripts/digest.mjs",
     "verify:reproducible": "node scripts/check-reproducible.mjs",
@@ -42,6 +43,7 @@
     "locale:chrome": "node scripts/e2e-locale.mjs",
     "options:chrome": "node scripts/e2e-options.mjs",
     "settings:chrome": "node scripts/e2e-settings.mjs",
+    "profiles:chrome": "node scripts/e2e-profiles.mjs",
     "spike:combobox": "node scripts/spike-combobox.mjs",
     "spike:coldstart": "node scripts/spike-coldstart.mjs",
     "spike:rulescale": "node scripts/spike-rule-scale.mjs",
@@ -57,6 +59,7 @@
     "playwright": "^1.62.1",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.46.4",
+    "vite": "^8.2.1",
     "vitest": "^4.1.10",
     "wxt": "^0.21.4"
   }

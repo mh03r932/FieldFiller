@@ -17,7 +17,11 @@ jobs:
     name: Pi Review
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      # Pinned to an exact tag, not `@v5` — see `ci.yml`, where the runner
+      # failure that motivated it is written out. `pi-review@v11` below is our
+      # own tag and carries the same hazard: moving it in place leaves this
+      # runner's action cache holding a key that no longer means one tree.
+      - uses: actions/checkout@v5.1.0
         with:
           fetch-depth: 0
           token: ${{ secrets.CL_REPO_TOKEN }}
