@@ -215,6 +215,7 @@ h2 {
 .rule-order button,
 .rule-delete,
 .exclusion-delete,
+.export-clipboard,
 button.primary {
   font: inherit;
   border: 1px solid var(--ff-rule);
@@ -392,4 +393,23 @@ p.samples {
   display: flex;
   align-items: center;
   gap: 0.75rem;
+}
+
+/*
+ * UC-025's two routes, side by side and wrapping rather than shrinking.
+ *
+ * Both are export buttons and neither is a fallback the user should have to
+ * discover, so they sit on one line where there is room and stack where there is
+ * not — the same behaviour the rest of this page gives a pair of controls at
+ * 320 px (WCAG 1.4.10).
+ */
+.export-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-block-end: 0.75rem;
+}
+
+.export-privacy {
+  margin-block-end: 0;
 }

@@ -1042,5 +1042,63 @@
         "example": "3"
       }
     }
+  },
+  "exportHeading": {
+    "message": "Export your settings",
+    "description": "Options page section heading for UC-025."
+  },
+  "exportIntro": {
+    "message": "Your whole configuration as a JSON file — readable, diffable, and safe to keep in version control alongside the rest of your team’s setup.",
+    "description": "Intro paragraph for the export section (ND-12: plain JSON, chosen so a backup can be read)."
+  },
+  "exportButton": {
+    "message": "Export to a file",
+    "description": "Primary action of the export section (FR-052)."
+  },
+  "exportClipboardButton": {
+    "message": "Copy to the clipboard",
+    "description": "Second export route (UC-025 A2). Offered always, because a download the browser refuses never reports back to the page."
+  },
+  "exportStoredNote": {
+    "message": "The file holds your saved settings. A rule you are still writing is not in it until it is valid enough to save.",
+    "description": "Note under the export buttons: the file holds what was saved, not what is on screen. Said on the surface so the difference is not discovered on the machine the file was imported onto (UC-025 A1)."
+  },
+  "exportPrivacyNote": {
+    "message": "Nothing in the file is a secret. It carries your password policy — how long, which characters — and never a password: those are generated for each fill and never stored. No page content and no addresses you have visited are in it.",
+    "description": "Note under the export buttons, answering the first question the feature raises: is this safe to commit to a shared repository? (BR-025-5)."
+  },
+  "exportOffered": {
+    "message": "Your saved settings were handed to the browser as $FILE$. If no file appeared, use “Copy to the clipboard” instead.",
+    "description": "Announced politely after the file export. Worded as offered rather than saved: the browser decides what happens to a download and never tells the page, so a message claiming the file was written would be a guess (UC-025 step 4).",
+    "placeholders": {
+      "file": {
+        "content": "$1",
+        "example": "fieldfiller-settings-v1.json"
+      }
+    }
+  },
+  "exportFailed": {
+    "message": "The export did not happen: $REASON$. Your settings are unchanged — an export only reads them. Try “Copy to the clipboard”.",
+    "description": "Announced politely when the export could not be started at all. $REASON$ is the browser’s own wording and is not translated; nothing is added to diagnose it (UC-025 A2).",
+    "placeholders": {
+      "reason": {
+        "content": "$1",
+        "example": "settings could not be read"
+      }
+    }
+  },
+  "exportCopied": {
+    "message": "Your saved settings were copied to the clipboard as JSON.",
+    "description": "Announced politely when the clipboard route succeeded (UC-025 A2)."
+  },
+  "exportCopyFailed": {
+    "message": "The clipboard could not be written: $REASON$. Your settings are unchanged.",
+    "description": "Announced politely when the clipboard write was refused — unlike a download, that failure does report itself, so the user is told which route is unavailable rather than guessing that both are (UC-025 A2).",
+    "placeholders": {
+      "reason": {
+        "content": "$1",
+        "example": "the document is not focused"
+      }
+    }
   }
 }

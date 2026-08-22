@@ -44,6 +44,7 @@
     "options:chrome": "node scripts/e2e-options.mjs",
     "settings:chrome": "node scripts/e2e-settings.mjs",
     "profiles:chrome": "node scripts/e2e-profiles.mjs",
+    "export:chrome": "node scripts/e2e-export.mjs",
     "spike:combobox": "node scripts/spike-combobox.mjs",
     "spike:coldstart": "node scripts/spike-coldstart.mjs",
     "spike:rulescale": "node scripts/spike-rule-scale.mjs",

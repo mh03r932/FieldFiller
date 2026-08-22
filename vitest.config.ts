@@ -61,6 +61,13 @@ export default defineConfig({
         // error anywhere. The message guards decide what the background is
         // allowed to believe about a page agent that may be a previous build.
         'src/lib/settings.ts': { lines: 90, functions: 90 },
+        // The export file's shape (UC-025), added 2026-08-22. Held to the same
+        // floor as the schema it serialises and for a sharper version of the
+        // same argument: this module's failure is a file that looks right. A
+        // key emitted in the wrong order costs nothing but a meaningless diff;
+        // a generator whose configuration is dropped exports as a valid rule of
+        // the wrong kind, and neither end reports anything.
+        'src/lib/settings-file.ts': { lines: 90, functions: 90 },
         'src/lib/protocol.ts': { lines: 90, functions: 90 },
         // The exclusion list operations (UC-020, UC-021), added 2026-08-17 with
         // the screens that author them. Same floor and the same argument as the

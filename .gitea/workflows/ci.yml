@@ -269,6 +269,19 @@ jobs:
         # from the rule editor's own.
         run: pnpm run profiles:chrome
 
+      - name: Export to a file (Chromium)
+        # UC-025, and it is here rather than folded into the options step for the
+        # reason BR-025-2 exists: the file leaves through an anchor and an object
+        # URL because `downloads` is a permission this project refuses, and that
+        # path fails silently in ways an API call would not — a URL revoked
+        # before the download reads it, a click the browser declines to act on.
+        # So the assertion is a file appearing on disk, twice, with the same
+        # bytes, and the manifest checked in the same run to still lack the
+        # permission. Writing it found neither of those: what it found was that
+        # storage hands settings back with its keys alphabetised, which is the
+        # thing BR-025-3's serialiser exists to undo.
+        run: pnpm run export:chrome
+
       - name: Corpus per locale (Chromium)
         # The path a unit test cannot reach: a locale written to storage, parsed
         # back, resolved, and turned into a record on a real page. Until this

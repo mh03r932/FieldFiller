@@ -23,6 +23,7 @@ import {
   textInput,
 } from './controls';
 import type { OptionsHost } from './host';
+import { renderExport } from './export-section';
 import { renderProfiles } from './profiles-section';
 import { rowAt, rowMovedUnderYou } from './rows';
 
@@ -743,4 +744,8 @@ export const SECTIONS: ReadonlyArray<{
   { id: 'behaviour', render: renderBehaviour },
   { id: 'passwords', render: renderPasswords },
   { id: 'triggers', render: renderTriggers },
+  // UC-025. Last, and after the settings it serialises rather than among
+  // them: it configures nothing, and a reader working down the page has seen
+  // everything the file will contain by the time they reach it.
+  { id: 'export', render: renderExport },
 ];

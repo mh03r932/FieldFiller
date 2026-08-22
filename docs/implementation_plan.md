@@ -132,6 +132,10 @@ same 128.** Three moved, all from `Open`: FR-045, FR-046 and FR-047.
 **And again the same day, after the Firefox engine harness: 87 Done, 5 Partial, 35 Open, 1
 Deferred.** NFR-014 moved from `Partial`, having been the longest-standing one in the table.
 
+**Recounted 2026-08-22 after UC-025: 88 Done, 5 Partial, 34 Open, 1 Deferred, over the same
+128.** One row moved — FR-052, the export — and it is recorded here rather than left to be
+inferred because the denominator is the part of this tally that has been wrong before.
+
 The denominator moved too, from 132 to 128, and that is a *counting* correction rather than
 four requirements disappearing. Four rows in the "Guarantees held by construction" table begin
 with `FR-` or `NFR-` and carry a description of the check that would enforce them, not a status
@@ -473,7 +477,7 @@ argument available for keeping both harnesses rather than picking one.
 
 *Goal: configuration can leave, arrive, and travel between devices.*
 
-- **UC-025** Export Settings — plain JSON (ND-12)
+- ~~**UC-025** Export Settings — plain JSON (ND-12)~~ **Built 2026-08-22.** `lib/settings-file.ts` and the options page's export section, with `scripts/e2e-export.mjs` watching a file land on disk. FR-052 `Done`
 - **UC-026** Import Settings — validation plus the migration ladder, no bypass (ND-13)
 - **UC-028** Restore Default Settings
 - **UC-027** Migrate Settings from Fake Filler — with an unmapped-items report
