@@ -86,6 +86,18 @@ export default defineConfig({
               // before — change it here while that is still true.
               id: 'fieldfiller@dividbzero',
               strict_min_version: '128.0',
+
+              // AMO has required this key on new extensions since 2025-11-03,
+              // and rejects a first submission without it. `none` is the literal
+              // AMO value for "collects nothing", not a summary of a longer
+              // list: it is mutually exclusive with every other entry, which is
+              // why it is the whole array. The claim is the same one NFR-033 and
+              // `gate:network` already enforce in code — no outbound request is
+              // reachable from the bundle — so the manifest now states to the
+              // reviewer what CI states to us. C-011.
+              data_collection_permissions: {
+                required: ['none'],
+              },
             },
           },
         }
