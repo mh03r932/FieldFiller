@@ -89,8 +89,9 @@ what caused the question to be reopened on each design in turn.
 
 ## 4. Non-Goals
 
-- **No paid tier, accounts, or backend.** Decided; see Section 9 (DD-002) for the sync
-  approach that replaces it.
+- **No paid tier, accounts, or backend.** Decided; see Section 9 (DD-002, resolved 2026-08-22)
+  for the sync approach that replaces it — the browser's own sync, sharded, with the bound it
+  carries stated rather than hidden.
 - **No autofill of real personal data.** This is a *fake* data tool. It will not store or
   emit real names, addresses, or card numbers. Adjacent, but a different product with a
   very different threat model.
@@ -495,8 +496,8 @@ blocks.
 >
 > **DD-005 was resolved the same day**, by being brought forward rather than by redefining the
 > phase around it: the schema is fixed in full, the rule model is built on it, and the eight
-> requirements it blocked are unblocked. **DD-002 is the only decision still open**, and it
-> blocks nothing before Phase 6.
+> requirements it blocked are unblocked. **DD-002 was then the only decision still open**, and
+> it blocked nothing before Phase 6; it was resolved on 2026-08-22, leaving none.
 >
 > **Phase 3 followed on 2026-08-15**, then the data corpus and the rule editor: DD-008's ladder
 > is built as UC-002 and UC-003, UC-008 makes an excluded domain inert, the corpus ships two
@@ -1006,6 +1007,8 @@ on that being true — deciding once is the entire reason for pulling this in ea
 **The shape.** One `settings` item in `storage.local`, with each section a top-level key:
 `rules`, `profiles`, `exclusions`, `behaviour`, `passwords`, `sources`. Sharding per section
 later is then mechanical, which leaves DD-002 genuinely open rather than half-decided here.
+*(DD-002 resolved on 2026-08-22 and this held: it shards `rules` and `profiles` for
+`storage.sync` and changes no section and no schema.)*
 
 **Rules.** An ordered list; the first match wins, and a profile's rules are consulted before
 the global list (FR-031). Each rule carries a match mode — `contains`, `exact` or `regex` —
@@ -1051,24 +1054,113 @@ sequential ladder can be added later as a step in front of the parser, without c
 stored shape. Anything that would restructure a section is the moment to add it, and that
 should be written into this decision rather than remembered.
 
-### Open
-
-*(DD-001, DD-003 and DD-004 were resolved on 2026-08-12 — see "Resolved" above.)*
-
-**DD-002 — Sync storage shape and conflict resolution.** *Blocks UC-029.*
+**DD-002 — Sync storage shape and conflict resolution. RESOLVED 2026-08-22.**
 `chrome.storage.sync` caps at **8 KB per item** and 102 KB total, with write-rate limits. The
 reference stores everything under a single `options` key — under `storage.sync` that would
 break for any user with a moderate rule set. Options: shard rules across keys, compress, or
-sync a manifest and keep bulk in `storage.local`. Needs a sizing exercise against a
-realistic 100-rule configuration.
+sync a manifest and keep bulk in `storage.local`.
 
 Quota is only half of it. Synchronised storage is last-writer-wins per key, so two devices
 editing within the same window silently discard one of the edits — and if the whole
 configuration lives under one key, editing *any* setting on device A discards *every*
 concurrent edit on device B. The same sharding that solves the quota problem also narrows the
 blast radius of a conflict, which is why the two must be decided together. The third option
-is to accept last-writer-wins explicitly and say so in the interface. Whatever is chosen has
-schema consequences, so it must be settled before Phase 5 freezes the schema.
+is to accept last-writer-wins explicitly and say so in the interface.
+
+**The sizing exercise this decision asked for was run on 2026-08-19** —
+`pnpm run spike:syncquota`, in Chromium, against a 100-rule configuration with four profiles
+carrying 32 rules of their own, two exclusion lists and both keyword lists. Nothing below is
+computed from the documented constants: the quotas are read off `chrome.storage.sync` in the
+running browser, every layout is *written* to sync storage rather than compared against a
+number, and each ceiling is bisected until a write actually fails. The prediction and the
+observation agreed in every row, which is what makes the byte model above safe to reason with
+later.
+
+| Layout | 100 rules | Ceiling | Stopped by | A lost key costs |
+|---|---|---|---|---|
+| **L1** one item (the reference's) | **refused**, 32 360 B | doesn't fit with *no* rules at all; 31 rules without profiles | per-item quota | the whole configuration |
+| **L2** one item per section | **refused**, largest 23 069 B | same — 35 rules without profiles | per-item quota | every rule, or every profile |
+| **L3** rules and profiles sharded | fits, 13 items | **401 rules** | *total* quota, not per-item or item count | up to 35 rules |
+| **L5** one item per rule | fits, 112 items | **209 rules** | per-item quota — the *order* key | one rule |
+| **L4** manifest synced, bulk local | fits, 58 B | unbounded | — | nothing, and it carries nothing |
+
+**What the numbers settle.**
+
+- **The reference's layout is not merely tight, it is unusable.** A 100-rule configuration is
+  32 360 B against an 8 192 B item, and with four profiles present it exceeds the per-item quota
+  *before the first global rule* — the fixed sections alone are 9 298 B. Lifting DD-005's
+  storage shape key for key (L2) buys four rules, because `rules` is still one item. Neither is
+  a layout with a problem at scale; both are layouts that never worked.
+- **Sharding is the only candidate that carries a real configuration**, and its ceiling is the
+  *total* quota rather than the per-item one — 401 rules, at ~230 B a rule, of which 36 bytes is
+  the UUID the editor mints. It never approaches the 512-item limit.
+- **Per-rule keys cost half the capacity and the reason is not the rules.** L5 gives the
+  smallest possible blast radius, but ordering is state — first match wins (FR-031) — so it
+  needs an order key holding one UUID per rule, and *that* key hits the per-item quota at 209
+  rules. Sharding the order list would rescue the capacity and reintroduce a shared key whose
+  loss reorders rules, which is the same conflict in a quieter place.
+- **Write-rate limits do not price sharding.** A burst of one-key writes and a burst of
+  thirteen-key writes both stopped at exactly 120 calls, so an operation is counted per *call*,
+  not per key: a thirteen-item save costs one of the 120 a minute allows. Sharding is free
+  against the rate limits and it is only the byte quotas that decide anything.
+- **The browser counts UTF-8 bytes, not UTF-16 code units** — settled by writing a value that
+  fits under one accounting and not the other. It matters for exactly the users the corpus
+  serves: `Kundenstraße` is twelve code units and thirteen bytes, so a de-CH configuration is
+  quietly larger than an en-US one of the same shape.
+
+**Resolved 2026-08-22 — L3, at eight rules a shard, with last-writer-wins accepted and said
+out loud in the interface.** The measurement above chose the layout. What it left was a product
+choice and a parameter, and only the parameter needed measuring.
+
+**The shard size had been inherited rather than chosen, so the spike was extended on 2026-08-22
+to price it.** Thirty-five rules a shard is not a number anyone picked: it is however many fit
+in an 8 KB item, and it became the blast radius by default. Because L3's ceiling is the *total*
+quota rather than the per-item one, a smaller shard spends capacity only on the key names it
+adds — which is little enough to be worth writing down:
+
+| Rules a shard | Items at 100 rules | Ceiling | A conflict discards |
+|---|---|---|---|
+| packed to the item quota (~35) | 13 | 401 rules | up to 35 rules |
+| 16 | 17 | 401 rules | up to 16 rules |
+| **8** — chosen | **23** | **399 rules** | **up to 8 rules** |
+| 4 | 35 | 398 rules | up to 4 rules |
+
+Eight costs **two rules of 401** — half a percent of a ceiling four times larger than any
+configuration this project has measured — and cuts what a conflict destroys by a factor of
+four. Four costs one rule more than eight and would have been defensible; eight is where the
+item count stays well clear of the 512-item limit, at about 50 keys at the ceiling rather than
+100, and that is the one quota with no headroom to spare if a later section adds keys of its
+own.
+
+**Why the smallest blast radius was not bought at any price.** L5 shrinks a conflict to one
+rule and pays half the capacity for it, and the capacity is not the real objection. Ordering is
+behaviour — first match wins (FR-031) — so L5 needs an order key, that key is written on every
+add, delete and reorder, and losing it silently *reorders* the rule set. Missing rules are
+visible; a rule list that quietly fires a different generator is not. L5 trades a loud failure
+for a quiet one, which is the trade this project has refused everywhere else it has come up
+(DD-009's honesty floor, and the settings rule that a stored setting nothing consumes is worse
+than a missing one).
+
+**Two obligations follow, and both belong to UC-029's spec rather than to the storage layer.**
+
+- **Sync stops carrying the configuration at ~399 rules** while FR-044 promises an unlimited
+  rule set. It has to *say* it has stopped rather than truncate, which is what makes FR-059
+  load-bearing rather than a nicety.
+- **A conflict is last-writer-wins per shard and discards up to eight rules.** The interface
+  says so in those terms. No layout avoids saying it; this one keeps what has to be said small
+  and true.
+
+*(The sentence that used to close this decision — that it had to be settled before Phase 5
+froze the schema — was overtaken and is removed rather than quietly left standing. Phase 5
+landed on 2026-08-17 without it, and no harm came of that because DD-005 made each section a
+top-level key: the sharding these numbers select is a change to how the sections are *stored*,
+not to what they are. The claim was true when written and the reason it survived being wrong is
+worth keeping.)*
+
+### Open
+
+**None.** DD-002 was the last one, resolved on 2026-08-22 — see "Resolved" above. What is
+left in Phase 6 and Phase 7 is building and measuring, not deciding.
 
 *(DD-003 and DD-004 were resolved on 2026-08-12 — see "Resolved" above.)*
 

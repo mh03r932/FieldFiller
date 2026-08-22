@@ -477,7 +477,7 @@ argument available for keeping both harnesses rather than picking one.
 - **UC-026** Import Settings — validation plus the migration ladder, no bypass (ND-13)
 - **UC-028** Restore Default Settings
 - **UC-027** Migrate Settings from Fake Filler — with an unmapped-items report
-- **UC-029** Synchronise Settings Across Devices — *gated on DD-002 (8 KB per-item quota)*
+- **UC-029** Synchronise Settings Across Devices — DD-002 resolved to sharding at eight rules a key, ~399 rules of capacity, last-writer-wins accepted and said out loud*
 
 Deliberately last of the functional work. Every use case here serialises the schema; running
 this phase before Phase 5 means writing the exporter, the importer and the migration twice.
@@ -521,7 +521,7 @@ Phase 0 ─► Phase 1 ─► Phase 2 engine + schema (ND-9, DD-005) ─┬─�
                                                               │                                                              │
                                                               └─► Phase 4 config ─► Phase 5 profiles ─► Phase 6 portability ─┴─► Phase 7
                                                                                                             ▲
-                                                                                                   DD-002 (sync quota)
+                                                                                               DD-002 (sync quota, closed)
 ```
 
 Phase 7 waits on **both** upper branches, not on Phase 3 alone: it is the release phase, and a
@@ -532,9 +532,11 @@ decision blocking the release. It is not one.
 
 All the decisions that gated the engine are now closed, and **DD-005** closed with them on
 2026-08-15 — pulled forward out of Phase 4, which is why the schema arrow above now feeds the
-engine rather than trailing it. **DD-002** (sync quota) is the only decision left on the path;
-it blocks nothing before Phase 6 and can be resolved as late as UC-029 without holding anything
-up. **DD-006** (the feedback surface) was decided and built on 2026-08-15: badge, tooltip and the
+engine rather than trailing it. **DD-002** (sync quota) was the only decision left on the path,
+and it closed on 2026-08-22 — sharding at eight rules a key, with last-writer-wins accepted and
+stated in the interface. It never held anything up: it gated UC-029 alone, and Phase 6 opened
+with UC-025 while it was still open. The connector stays drawn because the graph is a record of
+what gated what, not a to-do list. **DD-006** (the feedback surface) was decided and built on 2026-08-15: badge, tooltip and the
 options-page report. That unblocked Phase 3, which was built the same day — UC-002 and UC-003
 needed only to supply their own scope value, because the sentence already named one.
 

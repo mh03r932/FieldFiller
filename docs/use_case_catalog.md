@@ -62,11 +62,11 @@ Legend — **Spec:** `Not started` · `Blocked` · `Drafted` · `Approved`
 
 | ID | Use Case | Primary Actor | Goal | Traces to | Priority | Spec |
 |---|---|---|---|---|---|---|
-| UC-025 | Export Settings to a File | Power User | Write the configuration to a shareable file | FR-052 | High | Not started |
-| UC-026 | Import Settings from a File | Power User | Replace the configuration from a file, with validation and migration | FR-053, FR-054, FR-073 | High | Not started |
+| UC-025 | Export Settings to a File | Power User | Write the configuration to a shareable file | FR-052 | High | **Drafted** *(2026-08-19, unbuilt)* |
+| UC-026 | Import Settings from a File | Power User | Replace the configuration from a file, with validation and migration | FR-053, FR-054, FR-073 | High | **Drafted** *(2026-08-19, unbuilt)* |
 | UC-027 | Migrate Settings from Fake Filler | Migrating User | Convert a Fake Filler backup into our schema and report the result | FR-055, FR-056, FR-073 | High | Unblocked 2026-08-15 — DD-005 and ND-9 are both resolved and the target schema is fixed; Phase 6 |
 | UC-028 | Restore Default Settings | Power User | Return to the shipped defaults after confirmation | FR-048, FR-057 | Medium | Not started |
-| UC-029 | Synchronise Settings Across Devices | Power User | Keep configuration consistent across signed-in browsers, no account | FR-058, FR-059 | High | Blocked (DD-002) |
+| UC-029 | Synchronise Settings Across Devices | Power User | Keep configuration consistent across signed-in browsers, no account | FR-058, FR-059 | High | **Unblocked 2026-08-22** — DD-002 resolved: shard at eight rules a key, last-writer-wins accepted and stated in the interface. Spec not started |
 
 ## Transparency
 
@@ -157,9 +157,9 @@ constraints rather than choices:
 | **UC-013** *(not started)* | The preview must run `validateRule` and show its message beside the field, not on save — FR-070's whole point is that the rejection reaches the user while they are still typing. It must also preview a *bounded* sample: a regex generator draws from a subset of its language, not from the pattern verbatim. |
 | ~~**UC-018**~~ | ~~The six source toggles bound every rule's effective sources. The spec must say that a rule naming a globally-disabled source matches nothing through it — the intersection is a bound, not a suggestion — and that `className` ships off.~~ **Discharged 2026-08-17** into `use_cases/UC-018.md` — BR-018-1 states the bound and says it must be on the screen in those words; BR-018-2 states the `className` default and why the source is offered at all. |
 | ~~**UC-020**~~ | ~~Field exclusions now carry the same three match modes as rules. A stored pre-DD-005 pattern was a regex and is lifted as one; the spec must not describe them as literal substrings.~~ **Discharged 2026-08-17** into `use_cases/UC-020.md` BR-020-1. |
-| **UC-026, UC-027** *(not started)* | The importer translates the reference's template and moment-style date grammars into ours, and must report what it could not map (PD-002). Anything it cannot translate is a rule the user loses silently otherwise. |
+| **UC-027** *(not started)* | ~~The importer translates the reference's template and moment-style date grammars into ours~~ — **the UC-026 half was discharged on 2026-08-19 and it moved rather than shrank**: UC-026 reads our schema and nothing else, so the whole translation obligation is UC-027's. UC-026 BR-026-4 is what keeps it from being quietly absorbed — a Fake Filler backup fed to the settings importer is refused and pointed here, because the tolerant parser would otherwise report a successful import of an empty configuration. Anything UC-027 cannot translate is a rule the user loses silently unless it is reported (PD-002, FR-056). |
 | **UC-024** *(drafted)* | Settings are one storage item with sections as top-level keys. A future shard per section is mechanical and must stay so; the spec should not describe the item as opaque. |
-| **UC-029** *(not started)* | DD-002 is still open and inherits this layout rather than choosing it. |
+| **UC-029** *(not started)* | DD-002 resolved 2026-08-22, so the spec inherits a *storage* layout that is no longer the settings item — rules and profiles sharded, **eight to a key**, chosen for the blast radius rather than packed to the item quota. Two things it must state rather than discover: sync stops carrying the configuration at **~399 rules** and has to say so rather than truncate (FR-059), and a conflict is last-writer-wins per shard, which discards up to eight rules unless the screen says so out loud. Neither is a limitation to apologise for in passing; both are sentences the user has to be able to read. |
 
 **One obligation belongs to nobody yet, and is the reason it is written here:** DD-005 accepted
 a tolerant parser instead of a migration ladder, so a future *structural* change to a section
