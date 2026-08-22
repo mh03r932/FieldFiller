@@ -1,0 +1,83 @@
+FieldFiller — third-party notices and attribution
+=================================================
+
+This file is the attribution surface required by C-009. It is separate from
+LICENSE, which is FieldFiller's own licence and covers FieldFiller's own code.
+
+
+1. Bundled third-party code
+---------------------------
+
+None.
+
+The published extension has no runtime dependencies. `package.json` declares no
+`dependencies` field at all; everything under `devDependencies` is build and test
+tooling that does not enter the shipped bundle. A CI gate walks the page agent's
+import graph on every change and fails the build on any package that is not on an
+explicit allowlist, so this section staying empty is enforced rather than
+remembered.
+
+No fonts, icons, images, corpora, or data files in this repository are taken from
+a third-party source. The name and address corpus is original; the icons are
+original artwork whose full provenance is the committed generator that draws
+them.
+
+
+2. Prior work: Fake Filler
+--------------------------
+
+FieldFiller is an independent reimplementation. It was designed after a detailed
+study of Fake Filler, an MIT-licensed form-filling extension by Hussein Shabbir,
+which established the product category and whose behaviour informed the
+requirements this project was built against.
+
+No Fake Filler source code has been copied into this repository. Every line here
+was written for this project, and the design record (`docs/vision.md` §7.4)
+documents seventeen decisions taken deliberately *against* the reference's
+implementation. What was carried across is understanding of the problem — which
+field types matter, why first-match-wins ordering beats specificity scoring, why
+profiles should augment a global rule list rather than replace it — not
+expression.
+
+The notice below is reproduced in full nonetheless. MIT's condition attaches to
+copies and substantial portions of the software, and reasonable people could
+disagree about where study ends and derivation begins in a reimplementation this
+closely informed by its predecessor. Reproducing the notice costs nothing and
+settles the question in the direction of giving credit.
+
+    MIT License
+
+    Copyright (c) 2014-2020 Hussein Shabbir
+
+    Permission is hereby granted, free of charge, to any person obtaining a copy
+    of this software and associated documentation files (the "Software"), to deal
+    in the Software without restriction, including without limitation the rights
+    to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+    copies of the Software, and to permit persons to whom the Software is
+    furnished to do so, subject to the following conditions:
+
+    The above copyright notice and this permission notice shall be included in all
+    copies or substantial portions of the Software.
+
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+    OUT OF OR IN CONNECTION WITH THE SOFTWARE OR OTHER DEALINGS IN THE SOFTWARE.
+
+
+3. Trademarks
+-------------
+
+The MIT grant above covers code. It does not cover names, logos or brand assets,
+and none are claimed here.
+
+"Fake Filler" is Hussein Shabbir's mark. FieldFiller is not affiliated with,
+endorsed by, sponsored by, or connected to Fake Filler or its author in any way.
+FieldFiller uses none of its name, logo, icon, store imagery or listing copy, and
+its own name, mark and imagery are original (PD-004, C-010).
+
+Any other product names mentioned in this repository's documentation — browsers,
+stores, frameworks — belong to their respective owners and are used only to say
+what this software runs on or interoperates with.

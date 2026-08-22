@@ -3,16 +3,17 @@
 A browser extension that fills every form control on a page with plausible dummy data in one
 action, for developers and QA engineers who test forms.
 
-**Status: the engine works.** A click on the toolbar button fills the page — every control
-kind, native constraints honoured, hidden fields and honeypots left alone, confirmation fields
-agreeing with their source, across nested frames and open shadow roots, all from one coherent
-persona. `pnpm e2e` asserts each of those against a real browser, and CI runs it on every
-change.
+**Status: feature-complete, not yet published.** A click on the toolbar button fills the page
+— every control kind, native constraints honoured, hidden fields and honeypots left alone,
+confirmation fields agreeing with their source, across nested frames and open shadow roots,
+all from one coherent persona. `pnpm e2e` asserts each of those against a real browser, and
+CI runs it on every change. All three fill scopes, the dependent-field cascade, the rule
+editor, profiles, exclusions, the fill report and settings export/import are built and
+tested.
 
-Not yet built: the other two fill scopes, the dependent-field cascade (UC-034), the
-settings UI, profiles, and import/export. The context menu and keyboard shortcuts are
-registered and reach the page scope; the narrower scopes behind them are Phase 3, and the
-cascade loop that follows a page's own rewrites is sequenced behind it.
+What remains is release work rather than product work — store artwork, screenshots, a
+published privacy policy, and a Firefox end-to-end fill. See
+[Still open before release](#still-open-before-release).
 
 Design documents live in [`docs/`](docs/): [vision](docs/vision.md),
 [requirements](docs/requirements.md), [use cases](docs/use_case_catalog.md), and the
@@ -38,7 +39,7 @@ pnpm e2e              # fill the reference page in a real Chrome, assert what la
 
 ## What CI enforces
 
-Four gates run on every push. None of them is hygiene — each keeps a claim the project makes
+Six gates run on every push. None of them is hygiene — each keeps a claim the project makes
 publicly from quietly becoming false.
 
 | Gate | Enforces | Why it exists from day one |
@@ -46,6 +47,8 @@ publicly from quietly becoming false.
 | `gate:size` | NFR-003 — page agent ≤ 40 KB minified, uncompressed | The agent runs in every frame of every page (DD-001). G6 quotes the number against the reference's 480 KB. |
 | `gate:imports` | ND-4 — the page agent's import graph | Nobody decided to ship Firebase into every page; an import graph decided it. This walks the graph and rejects any package not on an allowlist. |
 | `gate:network` | NFR-033, NFR-007 — no `fetch`/`XHR`/`WebSocket`/`EventSource`/`sendBeacon`, no external URL, no remote code | G3 is absolute: "no outbound request, ever." An absolute claim needs a gate. |
+| `gate:permissions` | NFR-008 — the manifest requests `storage`, `contextMenus`, `scripting`, `activeTab`, and nothing else | The permission set is the first thing a store reviewer and a sceptical user read. A fifth permission should have to be argued for, not merged. |
+| `gate:coverage-scope` | NFR-012 — which files are under a coverage threshold, and why each exemption exists | A coverage number falls silently when new code lands outside the measured set. This fails instead, and makes every exemption state its reason. |
 | `verify:reproducible` | NFR-011, G4 — two clean builds, digests compared | The published digest is what an auditor checks. Retrofitted later, the digests simply differ with nothing to show for it. |
 
 Browsers run in CI as well, which is NFR-014: the Chromium end-to-end fill on every change,
@@ -66,7 +69,7 @@ themselves, so a local run and a CI run exercise the same browser.
 ```
 src/entrypoints/background.ts           trigger registration; owns settings and generation
 src/entrypoints/page-agent.content.ts   injected everywhere; walks and applies, carries no data
-src/entrypoints/options/                settings UI (Phase 4)
+src/entrypoints/options/                settings UI — rules, profiles, exclusions, export/import
 src/lib/protocol.ts                     the background ↔ agent message protocol
 src/lib/platform/                       modules that touch the extension API
 scripts/                                the CI gates, the smoke tests, the icon generator
@@ -79,10 +82,29 @@ without a browser (NFR-015), and lint enforces it rather than review.
 
 ## Still open before release
 
-- A `NOTICE` carrying the upstream MIT text and copyright line (C-009), kept distinct from
-  our own `LICENSE`. Not yet required — no reference code has been ported — and due when the
-  first ported logic lands in Phase 2.
+- **The attribution does not reach the user yet.** `NOTICE` now carries the upstream MIT
+  text and copyright line, kept distinct from our own `LICENSE` (C-009). It sits in the
+  repository and not in the package: vision §8.1 asks for it to be reachable from an About
+  page, and there is no About page. FR-062 is what closes this, and it is unbuilt.
+- **Icons are placeholders.** Original artwork generated by `scripts/make-icons.mjs`, which
+  satisfies C-010's legal requirement — nothing shared with the reference — but does not
+  carry a listing. [`docs/art_brief.md`](docs/art_brief.md) is the brief and the generation
+  prompts; §7 there covers getting the replacement back into the build.
+- **No screenshots exist.** Both stores require at least one, and they have to be captures of
+  the real extension rather than generated art. The harness is already there —
+  `scripts/e2e-chrome.mjs` drives the built extension in a real Chromium — and it is a
+  `page.screenshot()` away from producing them.
+- **Nothing is published yet.** `PRIVACY.md` needs a public URL before the Chrome Web Store
+  will take the listing, and C-014 separately wants the source public at the release tag.
+  The only remote today is self-hosted.
+- **The contact address is unfilled**, in `PRIVACY.md` and in the listing. Both stores
+  require a working one.
+- **No Firefox end-to-end fill.** `smoke:firefox` proves the add-on installs and that the
+  `gecko.id` is honoured; it fills nothing. Every claim about *filling* behaviour rests on
+  Chromium plus a shared source tree — which NFR-014 asks not to be the case.
 - The `gecko.id` is `fieldfiller@dividbzero`, changeable until the first AMO submission and
   permanent after it (C-004).
-- Icons are original placeholder artwork generated by `scripts/make-icons.mjs`, expected to
-  be replaced before a store listing (C-010).
+
+[`docs/store_listing.md`](docs/store_listing.md) holds the listing copy, the single-purpose
+statement, the permission justifications and the data disclosures for both stores, and ends
+with the submission checklist these items feed.
