@@ -68,6 +68,12 @@ export default defineConfig({
         // a generator whose configuration is dropped exports as a valid rule of
         // the wrong kind, and neither end reports anything.
         'src/lib/settings-file.ts': { lines: 90, functions: 90 },
+        // The import analysis (UC-026), added 2026-08-22. The floor is argued
+        // more sharply here than anywhere else in this list: what this module
+        // gets wrong is a *silence*. The tolerant parser cannot fail, so every
+        // entry this analysis does not name is one the user is never told they
+        // lost — and they find out on the next page they fill.
+        'src/lib/settings-import.ts': { lines: 90, functions: 90 },
         'src/lib/protocol.ts': { lines: 90, functions: 90 },
         // The exclusion list operations (UC-020, UC-021), added 2026-08-17 with
         // the screens that author them. Same floor and the same argument as the

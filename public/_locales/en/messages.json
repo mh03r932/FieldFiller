@@ -1100,5 +1100,173 @@
         "example": "the document is not focused"
       }
     }
+  },
+  "importHeading": {
+    "message": "Import settings",
+    "description": "Options page section heading for UC-026."
+  },
+  "importIntro": {
+    "message": "Read a configuration back from a file. An import replaces everything you have now — rules, profiles and every setting — so you are shown what it would do before anything changes.",
+    "description": "Intro paragraph for the import section. States that an import replaces rather than merges (BR-026-1) and that it is confirmed first (BR-026-5)."
+  },
+  "importFileLabel": {
+    "message": "Settings file",
+    "description": "Label for the file picker in the import section."
+  },
+  "importPlanSummary": {
+    "message": "This would replace your $NOWRULES$ rule(s) and $NOWPROFILES$ profile(s) with the $NEWRULES$ rule(s) and $NEWPROFILES$ profile(s) in $FILE$.",
+    "description": "Shown after a file is chosen and before anything is written: both sides of the replacement in one sentence (BR-026-5).",
+    "placeholders": {
+      "nowrules": {
+        "content": "$1",
+        "example": "12"
+      },
+      "nowprofiles": {
+        "content": "$2",
+        "example": "2"
+      },
+      "newrules": {
+        "content": "$3",
+        "example": "30"
+      },
+      "newprofiles": {
+        "content": "$4",
+        "example": "4"
+      },
+      "file": {
+        "content": "$5",
+        "example": "fieldfiller-settings-v1.json"
+      }
+    }
+  },
+  "importPlanMigrated": {
+    "message": "This file was written against an older version of the settings format, so it is brought up to date as it is read. Anything in it this version has no place for is listed below.",
+    "description": "Shown when the file states an older schema version, or none at all (UC-026 A3, A4). Says the file was changed on the way in, because the user is entitled to know that."
+  },
+  "importPlanDropped": {
+    "message": "$COUNT$ thing(s) in this file cannot be kept and will not be imported:",
+    "description": "Heading above the list of entries the import would drop (UC-026 A6). Shown before the write, never after — a report afterwards names what the user can no longer recover (BR-026-3).",
+    "placeholders": {
+      "count": {
+        "content": "$1",
+        "example": "3"
+      }
+    }
+  },
+  "importDroppedRule": {
+    "message": "Rule “$NAME$” could not be read.",
+    "description": "One dropped rule in the import preview. $NAME$ is the rule’s own label from the file, or its pattern, or its position.",
+    "placeholders": {
+      "name": {
+        "content": "$1",
+        "example": "Postcode"
+      }
+    }
+  },
+  "importDroppedProfile": {
+    "message": "Profile “$NAME$” could not be read.",
+    "description": "One dropped profile in the import preview.",
+    "placeholders": {
+      "name": {
+        "content": "$1",
+        "example": "Staging"
+      }
+    }
+  },
+  "importDroppedProfileRule": {
+    "message": "In profile “$PROFILE$”: rule “$NAME$” could not be read.",
+    "description": "A rule dropped from inside a profile that is itself kept. Named separately because the profile’s own count would otherwise hide it.",
+    "placeholders": {
+      "profile": {
+        "content": "$1",
+        "example": "Staging"
+      },
+      "name": {
+        "content": "$2",
+        "example": "Postcode"
+      }
+    }
+  },
+  "importDroppedKey": {
+    "message": "$PATH$ — this version has no setting by that name.",
+    "description": "An unrecognised key in an otherwise readable file (BR-026-7), named by path so that “I added that by hand and it did nothing” has an answer.",
+    "placeholders": {
+      "path": {
+        "content": "$1",
+        "example": "behaviour.wobble"
+      }
+    }
+  },
+  "importConfirm": {
+    "message": "Replace my settings",
+    "description": "The action that applies the import. Worded as what it does to the user’s configuration rather than as “Import”, because replacing is the part worth being sure about (BR-026-1)."
+  },
+  "importCancel": {
+    "message": "Cancel",
+    "description": "Discards the chosen file without importing it."
+  },
+  "importCancelled": {
+    "message": "Import cancelled. Your settings are unchanged.",
+    "description": "Announced politely when the chosen file is discarded."
+  },
+  "importDone": {
+    "message": "Imported $NEWRULES$ rule(s) and $NEWPROFILES$ profile(s) from $FILE$. Your previous settings have been replaced, and the next fill in every open tab uses these.",
+    "description": "Announced politely after the import is written (UC-026 step 8). Says the settings are already live, which is UC-024’s propagation.",
+    "placeholders": {
+      "newrules": {
+        "content": "$1",
+        "example": "30"
+      },
+      "newprofiles": {
+        "content": "$2",
+        "example": "4"
+      },
+      "file": {
+        "content": "$3",
+        "example": "fieldfiller-settings-v1.json"
+      }
+    }
+  },
+  "importUnreadable": {
+    "message": "That file could not be read: $REASON$. Nothing was imported and your settings are unchanged.",
+    "description": "The file was chosen and then could not be read at all — moved or removed since. Distinct from a file that read fine and is not a settings file.",
+    "placeholders": {
+      "reason": {
+        "content": "$1",
+        "example": "NotFoundError"
+      }
+    }
+  },
+  "importRefusedNotJson": {
+    "message": "That file is not JSON, so nothing was imported: $DETAIL$. Your settings are unchanged.",
+    "description": "UC-026 A1. $DETAIL$ is the JSON parser’s own complaint, which names the position and is not translated.",
+    "placeholders": {
+      "detail": {
+        "content": "$1",
+        "example": "Unexpected token n in JSON at position 2"
+      }
+    }
+  },
+  "importRefusedNotObject": {
+    "message": "That file is valid JSON but is not a settings file — a settings file is a single JSON object. Nothing was imported and your settings are unchanged.",
+    "description": "UC-026 A1, for a file that parsed and is an array, a number or a string. Separated from the syntax failure because the correction is a different one."
+  },
+  "importRefusedNewer": {
+    "message": "That file was written by a newer version of this extension (settings format $FILEVERSION$; this version reads $OURS$). Nothing was imported. Update the extension and try again — do not change the version inside the file, because this version cannot read the parts it does not know about and would drop them without being able to say which.",
+    "description": "UC-026 A2. There is no override (ND-13), so the message names the fix and closes the door on the workaround the user would otherwise reach for.",
+    "placeholders": {
+      "fileversion": {
+        "content": "$1",
+        "example": "2"
+      },
+      "ours": {
+        "content": "$2",
+        "example": "1"
+      }
+    }
+  },
+  "importRefusedNothingOurs": {
+    "message": "Nothing in that file is a setting this extension knows, so it was not imported and your settings are unchanged. If it is a backup from a different form filler, bringing it across needs a converter this version does not have yet.",
+    "description": "UC-026 A5. The refusal exists because the tolerant parser would otherwise succeed and return a full set of defaults, reporting a successful import of an empty configuration. Worded on what can be proved — no setting of ours is present — rather than naming a product the code cannot actually identify; UC-027 owns that."
   }
 }

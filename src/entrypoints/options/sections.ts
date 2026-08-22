@@ -24,6 +24,7 @@ import {
 } from './controls';
 import type { OptionsHost } from './host';
 import { renderExport } from './export-section';
+import { renderImport } from './import-section';
 import { renderProfiles } from './profiles-section';
 import { rowAt, rowMovedUnderYou } from './rows';
 
@@ -748,4 +749,8 @@ export const SECTIONS: ReadonlyArray<{
   // them: it configures nothing, and a reader working down the page has seen
   // everything the file will contain by the time they reach it.
   { id: 'export', render: renderExport },
+  // UC-026, after the export it reads. The page reads top to bottom as
+  // "configure, then take a copy, then put one back", and an import replaces
+  // everything above it — which is a reason to meet it last rather than first.
+  { id: 'import', render: renderImport },
 ];

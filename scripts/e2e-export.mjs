@@ -26,7 +26,15 @@ import { existsSync, mkdtempSync, mkdirSync, readdirSync, readFileSync, rmSync }
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { attachToWorker, closeChromium, derivedExtensionId, launchChromium, sleep } from './lib/chromium.mjs';
+import {
+  attachToWorker,
+  canonicalState,
+  clickWithGesture,
+  closeChromium,
+  derivedExtensionId,
+  launchChromium,
+  sleep,
+} from './lib/chromium.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const EXTENSION_DIR = join(ROOT, '.output', 'chrome-mv3');
@@ -127,26 +135,6 @@ async function waitForDownloads(count, whatFailed) {
   throw new Error(`${whatFailed} (waited 10 s; saw ${JSON.stringify(completedDownloads())})`);
 }
 
-/**
- * A state compared by content rather than by its serialisation.
- *
- * `chrome.storage.local` hands back an object whose keys are in *alphabetical*
- * order, not the order they were written in — measured here, not assumed, when
- * this comparison was first written as a string compare and failed against a
- * state nothing had touched. It is also the sharpest argument for UC-025's
- * serialiser restating the schema's key order itself (BR-025-3): every
- * configuration this extension exports has been through storage, so an export
- * that stringified what it read would emit alphabetised keys today and
- * whatever a future storage backend prefers tomorrow.
- */
-function canonical(value) {
-  if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`;
-  if (value !== null && typeof value === 'object') {
-    return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${canonical(value[key])}`).join(',')}}`;
-  }
-  return JSON.stringify(value);
-}
-
 try {
   ({ chrome, cdp } = await launchChromium(EXTENSION_DIR, profileDir));
 
@@ -175,36 +163,6 @@ try {
       workerSession,
     );
     return result.value;
-  };
-
-  /**
-   * A click the browser counts as a gesture.
-   *
-   * `element.click()` is what the other harnesses use and it is enough
-   * everywhere they use it. Here it is not: Chromium allows one download from a
-   * page that has seen no user interaction and silently blocks the rest, so the
-   * second export — the one BR-025-3 is asserted on — wrote no file at all and
-   * read as the export being broken. Dispatching the press and release puts the
-   * gesture where the browser looks for it, and is what a person does anyway.
-   */
-  const clickWithGesture = async (selector) => {
-    const at = await inPage(
-      '(() => {' +
-        'const element = document.querySelector(' + JSON.stringify(selector) + ');' +
-        'if (element === null) return null;' +
-        "element.scrollIntoView({ block: 'center' });" +
-        'const box = element.getBoundingClientRect();' +
-        'return { x: box.left + box.width / 2, y: box.top + box.height / 2 };' +
-      '})()',
-    );
-    if (at === null) throw new Error(`nothing to click for \`${selector}\``);
-    for (const type of ['mousePressed', 'mouseReleased']) {
-      await cdp.send(
-        'Input.dispatchMouseEvent',
-        { type, x: at.x, y: at.y, button: 'left', clickCount: 1 },
-        page,
-      );
-    }
   };
 
   const waitFor = async (expression, whatFailed) => {
@@ -249,7 +207,7 @@ try {
    */
   const exportOnce = async (whatFailed) => {
     for (const name of readdirSync(downloadDir)) rmSync(join(downloadDir, name));
-    await clickWithGesture('#export .export-file');
+    await clickWithGesture(cdp, page, '#export .export-file');
     const [name] = await waitForDownloads(1, whatFailed);
     return { name, bytes: readFileSync(join(downloadDir, name)) };
   };
@@ -311,12 +269,11 @@ try {
     `chrome.storage.local.get('settings').then((s) => JSON.stringify(s.settings))`,
   )));
   check('an export changes nothing (success postcondition)',
-    canonical(stored) === canonical(SEEDED), `stored=${canonical(stored)}`);
+    canonicalState(stored) === canonicalState(SEEDED), `stored=${canonicalState(stored)}`);
 
+  const announced = String(await inPage(`document.querySelector('#announcements')?.textContent ?? ''`));
   check('the announcement names the file that was offered',
-    String(await inPage(`document.querySelector('#announcements')?.textContent ?? ''`))
-      .includes('fieldfiller-settings-v1.json'),
-    `announcement=${JSON.stringify(await inPage(`document.querySelector('#announcements')?.textContent ?? ''`))}`);
+    announced.includes('fieldfiller-settings-v1.json'), `announcement=${JSON.stringify(announced)}`);
 
   check('and the section says on its face what the file holds (A1)',
     (await inPage(`(document.querySelector('#export .hint')?.textContent ?? '').length > 20`)) === true,

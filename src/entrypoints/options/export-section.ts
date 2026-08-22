@@ -6,6 +6,7 @@ import {
   settingsFileName,
 } from '@/lib/settings-file';
 import type { OptionsHost } from './host';
+import { reason } from './reason';
 
 /**
  * UC-025 — the configuration, out to a file.
@@ -124,7 +125,7 @@ async function exportToFile(host: OptionsHost): Promise<void> {
     // constructed. Reported with the browser's own words and no diagnosis of
     // our own, per A2 — the page cannot see why the browser declined and must
     // not pretend to.
-    host.announce(message('exportFailed', [describe(error)]));
+    host.announce(message('exportFailed', [reason(error)]));
   } finally {
     // Not synchronously after `click()`. The download reads the blob through
     // this URL and revoking it in the same task can cancel the read before it
@@ -148,10 +149,6 @@ async function exportToClipboard(host: OptionsHost): Promise<void> {
     // write rejects when the permission is refused or the page is not focused —
     // so the user is told which of the two routes is unavailable rather than
     // being left to guess that both are.
-    host.announce(message('exportCopyFailed', [describe(error)]));
+    host.announce(message('exportCopyFailed', [reason(error)]));
   }
-}
-
-function describe(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }

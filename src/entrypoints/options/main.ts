@@ -5,12 +5,14 @@ import { DEFAULT_SETTINGS, parseSettings, type Settings } from '@/lib/settings';
 import { profileSentence, resultSentence, scopeRuleSentence } from '@/lib/report/surface';
 import {
   adoptKeepingEdit,
+  closeAnyRule,
   forgetUndo,
   isEditingRule,
   renderRules,
   type RuleEditorHost,
 } from './rules';
 import { focusIn } from './controls';
+import { reason } from './reason';
 import { SECTIONS } from './sections';
 import { closeIfProfileGone, isEditingProfile } from './profiles-section';
 import type { FieldReportEntry, FillReport, ReportResponse } from '@/lib/protocol';
@@ -81,11 +83,46 @@ async function mountSettings(): Promise<void> {
       // than a successful one.
       settings = next;
       void saveSettings(next).catch((error: unknown) => {
-        const reason = error instanceof Error ? error.message : String(error);
-        announce(message('settingsSaveFailed', [reason]));
+        announce(message('settingsSaveFailed', [reason(error)]));
       });
     },
     announce,
+    /**
+     * UC-026's write: the whole configuration at once, and the caller finds out.
+     *
+     * Memory first, then storage, in that order and for `save`'s reason — but
+     * the rejection is re-thrown rather than swallowed. An import is the one
+     * change on this page whose caller has something left to do about a failed
+     * write: A7 says the previous configuration is still in force and the
+     * import did not happen, and the section keeps its plan on screen so the
+     * user can try again. Announced here, so a rejected write is worded the
+     * same however it was made.
+     */
+    replace: async (next) => {
+      settings = next;
+      try {
+        await saveSettings(next);
+      } catch (error: unknown) {
+        announce(message('settingsSaveFailed', [reason(error)]));
+        throw error;
+      }
+    },
+    /**
+     * Everything, from the state now in memory (UC-026).
+     *
+     * An import replaces every list on the page, so every editor open over one
+     * of them is open over something that no longer exists — the rule editor
+     * and, if its profile went with the import, the profile editor. Both are
+     * closed before anything is drawn, because a render is what would otherwise
+     * leave their state pointing at a list the page has stopped drawing.
+     */
+    redraw: () => {
+      closeAnyRule();
+      forgetUndo(host);
+      closeIfProfileGone(settings);
+      renderRules(editor, host);
+      renderEverySection(editor);
+    },
   };
 
   renderRules(editor, host);
@@ -196,9 +233,7 @@ async function mountSettings(): Promise<void> {
  */
 function renderSections(editor: RuleEditorHost, force?: string): void {
   const focused = document.activeElement;
-  for (const section of SECTIONS) {
-    const into = document.querySelector(`#${section.id}`);
-    if (!(into instanceof HTMLElement)) continue;
+  for (const [section, into] of sectionHosts()) {
     // Asked before the render, because rendering detaches whatever was focused
     // and `contains` would then answer no about the element it just destroyed.
     const heldFocus = focused !== null && into.contains(focused);
@@ -219,6 +254,39 @@ function renderSections(editor: RuleEditorHost, force?: string): void {
     // here would take it from wherever the user actually is.
     if (section.id === force && heldFocus) focusIn(into, '.profile-add');
   }
+}
+
+/**
+ * Every section, skipping nothing (UC-026).
+ *
+ * The counterpart to `renderSections` above, and the exception to it. That one
+ * leaves alone whatever holds the focus, because a settings change arriving from
+ * another tab must not take the caret out from under someone's typing. After an
+ * import there is nothing to protect and everything to correct: the user clicked
+ * a button that replaced the whole configuration, so every section on screen is
+ * describing a state that is gone, including the one they clicked in.
+ */
+function renderEverySection(editor: RuleEditorHost): void {
+  for (const [section, into] of sectionHosts()) section.render(editor, into);
+}
+
+/**
+ * Each section paired with the element it draws into, skipping any whose
+ * element is not in the document.
+ *
+ * One place that knows how a section id becomes an element. Both renderers above
+ * had their own copy of the lookup and the `instanceof` guard, which is three
+ * lines of the five either of them is made of — and the guard is the part worth
+ * having once, since it is what keeps a section listed in `SECTIONS` but absent
+ * from `index.html` a no-op rather than a thrown error on every render.
+ */
+function sectionHosts(): readonly (readonly [(typeof SECTIONS)[number], HTMLElement])[] {
+  const pairs: (readonly [(typeof SECTIONS)[number], HTMLElement])[] = [];
+  for (const section of SECTIONS) {
+    const into = document.querySelector(`#${section.id}`);
+    if (into instanceof HTMLElement) pairs.push([section, into]);
+  }
+  return pairs;
 }
 
 async function render(): Promise<void> {

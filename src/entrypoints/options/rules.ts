@@ -170,6 +170,20 @@ export function closeRuleIn(key: string): void {
   if (editing?.lens.key === key) editing = undefined;
 }
 
+/**
+ * Closes whatever rule is open, whichever list it belongs to (UC-026).
+ *
+ * `closeRuleIn` asks about one list because its callers are dismantling one.
+ * An import dismantles all of them: the global list and every profile's list
+ * are replaced at once, so there is no list left for an open editor to belong
+ * to. Left set, `isEditingRule` would go on answering yes over a rule the page
+ * no longer draws, which is the stuck state `closeRuleIn` was written for,
+ * reached through the one door it cannot close.
+ */
+export function closeAnyRule(): void {
+  editing = undefined;
+}
+
 /** The last deletion, for as long as this page stays open (UC-011). */
 let undoable: { readonly rule: Rule; readonly at: number; readonly key: string } | undefined;
 

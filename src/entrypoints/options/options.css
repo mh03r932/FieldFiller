@@ -216,6 +216,7 @@ h2 {
 .rule-delete,
 .exclusion-delete,
 .export-clipboard,
+.import-cancel,
 button.primary {
   font: inherit;
   border: 1px solid var(--ff-rule);
@@ -412,4 +413,44 @@ p.samples {
 
 .export-privacy {
   margin-block-end: 0;
+}
+
+/*
+ * UC-026's preview: what an import would do, before it does it.
+ *
+ * Set apart from the chooser above it rather than styled as a warning. It is
+ * not an error — it is the ordinary path, and every import passes through it —
+ * so it reads as a statement with two buttons under it. The refusal beside it
+ * uses `.problem`, which is where this page puts things that did not happen.
+ */
+.import-plan {
+  margin-block-start: 0.75rem;
+  padding: 0.75rem;
+  border: 1px solid var(--ff-rule);
+  border-radius: 4px;
+}
+
+.import-summary {
+  margin-block-start: 0;
+  font-weight: 600;
+}
+
+.import-dropped ul {
+  margin: 0.25rem 0 0.75rem;
+  padding-inline-start: 1.1rem;
+  color: var(--ff-muted);
+  font-size: 0.9rem;
+  /* A file may name a rule anything at all, including something long and
+     unbroken; the list wraps rather than pushing the page sideways at 320 px. */
+  overflow-wrap: anywhere;
+}
+
+.import-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.import-refused {
+  margin-block-start: 0.75rem;
 }

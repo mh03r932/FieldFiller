@@ -282,6 +282,19 @@ jobs:
         # thing BR-025-3's serialiser exists to undo.
         run: pnpm run export:chrome
 
+      - name: Import from a file (Chromium)
+        # UC-026, and its centrepiece is a round trip: a configuration exported
+        # through UC-025 and imported straight back, asserted to leave storage
+        # holding what it held before. The two use cases are one format seen from
+        # both ends, and this is the only place that claim is checked as a whole
+        # rather than as two halves agreeing with the same unit test.
+        #
+        # The refusals are the other half, and A5 is why they are here at all:
+        # the tolerant parser cannot fail, so a file from another tool would
+        # otherwise import as a complete set of defaults and report success —
+        # a green screen over a configuration that is gone.
+        run: pnpm run import:chrome
+
       - name: Corpus per locale (Chromium)
         # The path a unit test cannot reach: a locale written to storage, parsed
         # back, resolved, and turned into a record on a real page. Until this

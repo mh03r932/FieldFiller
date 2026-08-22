@@ -84,7 +84,7 @@ export function findChrome() {
  */
 export function derivedExtensionId(absolutePath) {
   const hash = createHash('sha256').update(absolutePath).digest('hex').slice(0, 32);
-  return [...hash].map((digit) => String.fromCharCode(97 + parseInt(digit, 16))).join('');
+  return [...hash].map((digit) => String.fromCodePoint(97 + Number.parseInt(digit, 16))).join('');
 }
 
 /**
@@ -444,3 +444,73 @@ export async function closeChromium({ chrome, cdp, profileDir }) {
     console.warn(`  (left a temp profile behind: ${profileDir})`);
   }
 }
+
+/**
+ * A click the browser counts as a real user gesture.
+ *
+ * `element.click()` is enough for most of what these harnesses do, and it is
+ * what most of them use. It is not enough where a download is involved:
+ * Chromium allows one download from a page that has seen no user interaction
+ * and silently blocks the rest, so a second export wrote no file at all and
+ * read as the feature being broken rather than as the harness being too clever.
+ * Dispatching the press and the release puts the gesture where the browser
+ * looks for it — which is also what a person does.
+ *
+ * Owned here rather than in one harness because the export and import harnesses
+ * both need it, and a second copy of a workaround is how the *reason* for the
+ * workaround gets lost.
+ */
+export async function clickWithGesture(cdp, session, selector) {
+  const { result } = await cdp.send(
+    'Runtime.evaluate',
+    {
+      expression:
+        '(() => {' +
+          `const element = document.querySelector(${JSON.stringify(selector)});` +
+          'if (element === null) return null;' +
+          "element.scrollIntoView({ block: 'center' });" +
+          'const box = element.getBoundingClientRect();' +
+          'return { x: box.left + box.width / 2, y: box.top + box.height / 2 };' +
+        '})()',
+      returnByValue: true,
+    },
+    session,
+  );
+
+  const at = result.value;
+  if (at === null || at === undefined) throw new Error(`nothing to click for \`${selector}\``);
+
+  for (const type of ['mousePressed', 'mouseReleased']) {
+    await cdp.send(
+      'Input.dispatchMouseEvent',
+      { type, x: at.x, y: at.y, button: 'left', clickCount: 1 },
+      session,
+    );
+  }
+}
+
+/**
+ * A settings state as a string that depends on its content and not on its order.
+ *
+ * `chrome.storage.local` hands an object back with its keys in **alphabetical**
+ * order, at every level, rather than the order they were written in — measured
+ * when a harness assertion that nothing had touched storage failed against a
+ * state nothing had touched. Any harness comparing a stored state against the
+ * one it seeded needs this, and comparing `JSON.stringify` of the two is the
+ * trap it exists to keep people out of.
+ *
+ * It is also the shortest statement of why `lib/settings-file.ts` restates the
+ * schema's key order itself: every configuration the extension exports has been
+ * through this round trip.
+ */
+export function canonicalState(value) {
+  if (Array.isArray(value)) return `[${value.map(canonicalState).join(',')}]`;
+  if (value !== null && typeof value === 'object') {
+    return `{${Object.keys(value)
+      .sort((a, b) => a.localeCompare(b))
+      .map((key) => `${JSON.stringify(key)}:${canonicalState(value[key])}`)
+      .join(',')}}`;
+  }
+  return JSON.stringify(value);
+}
+

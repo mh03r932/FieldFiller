@@ -16,4 +16,27 @@ export type OptionsHost = {
   readonly save: (settings: Settings) => void;
   /** Announced politely, for changes a sighted user sees and nobody else would. */
   readonly announce: (text: string) => void;
+  /**
+   * Replaces the whole configuration, and settles when the write has (UC-026).
+   *
+   * Separate from `save` because an import is the one operation that needs the
+   * answer. `save` is optimistic and fire-and-forget: it announces a rejected
+   * write and moves on, which is right for a checkbox and wrong for a
+   * replacement — UC-026 A7 has to be able to say the import did not happen,
+   * and a caller with no promise to wait on can only guess. Rejects after
+   * announcing, so the failure is stated once and the caller still knows.
+   */
+  readonly replace: (settings: Settings) => Promise<void>;
+  /**
+   * Redraws every section from the current state (UC-026).
+   *
+   * Unconditional, unlike the render the page does when adopting another
+   * writer's settings: that one skips whatever holds the focus, to keep a
+   * settings change arriving mid-keystroke from eating the rest of them. An
+   * import has no keystroke to protect — the user has just clicked a button
+   * agreeing to replace everything, and every list on the page now describes a
+   * configuration that is gone. Leaving one section showing it would be the
+   * staleness that skip exists to trade *for*, with nothing bought.
+   */
+  readonly redraw: () => void;
 };
