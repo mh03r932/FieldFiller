@@ -99,6 +99,11 @@ without adjudicating. A mark that is obviously unrelated at a glance is the whol
 
 ## 3. Prompt — the icon master
 
+> **Settled, 2026-08-22.** The icon is done and this section is kept for the record and for
+> any future remake. A generated master was produced from the prompt below, and what shipped
+> is the mark rebuilt as geometry in `scripts/make-icons.mjs` — see the note at the end of
+> this section for what changed between the two and why.
+
 Generate at **1024×1024**. This is a master to trace, not a shippable asset; see §7 for what
 happens to it afterwards.
 
@@ -144,6 +149,35 @@ Risk: a check mark is the single most crowded shape in an extension toolbar.
 My recommendation is to render all three and judge them only at 16 px, pasted into a real
 toolbar screenshot next to the extensions you already have installed. The 1024 px render will
 make all three look fine and will tell you nothing.
+
+### What actually shipped
+
+The generated master confirmed the concept reads — blue tile, three bars, third part-filled,
+no monogram and no pencil — and three things had to change before it could be an icon.
+
+**The sparkles came out.** The generator added three four-pointed stars down the right edge
+that the prompt never asked for. They are the standard visual tell of a generated image, they
+broke the vertical symmetry the prompt specified, and they spent the entire shape budget that
+§3's legibility clause exists to protect. At 16 px they were three grey specks. Removing them
+also recentred the mark, which the sparkles had pushed left, leaving a dead band across the
+bottom third.
+
+**The geometry moved onto the 16 px grid.** This is the change that mattered, and it is not
+something a generated master can do for you. Every horizontal edge is now an exact sixteenth,
+so a 16 px render lands on whole pixels: bars on rows 3-5, 7-9 and 11-13, two pixels each,
+two clear pixels between, three of margin. The previous geometry sat on arbitrary fractions,
+so at 16 px every bar straddled a pixel boundary and antialiasing diluted it — the bars never
+reached white, and the mark read as a pale blue blur. Same shapes, same colours; the only
+difference is where the edges fall. It is the whole difference between the two renders.
+
+**The part-filled bar became a fill over a track.** It had been two abutting pills, and two
+pills meeting at a seam taper to a point on both sides of it, pinching the bar in the middle.
+At 128 px that is a subtle flaw; at 16 px it reads as a gap rather than as a boundary. Drawing
+the filled portion over a full-width track removes the seam entirely.
+
+The generated PNG is not in the repository and nothing was traced from it. The mark is
+forty lines of committed geometry, which keeps C-010's provenance argument intact: you can
+read the entire artwork.
 
 ---
 

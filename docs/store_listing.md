@@ -224,8 +224,10 @@ listing without a reachable one.
 ### 2.7 Images
 
 Store icon, screenshots and promo tiles are specified in [`art_brief.md`](art_brief.md).
-The current icons are placeholders and the screenshots do not exist yet; the listing cannot
-go live until at least the 128×128 icon and one 1280×800 screenshot are real.
+
+The 128×128 store icon is done — `public/icon/128.png`, drawn by `scripts/make-icons.mjs`.
+Screenshots and the promo tiles are not, and the listing cannot go live without at least one
+1280×800 screenshot.
 
 ---
 
@@ -318,7 +320,8 @@ All four run in CI on every change.
 
 ## 4. Before either submission
 
-- [ ] Real icons and screenshots — see [`art_brief.md`](art_brief.md). Blocks both listings.
+- [ ] Screenshots, and the 440×280 promo tile — see [`art_brief.md`](art_brief.md). The
+      screenshots block both listings; the tile only costs visibility. Icons are done.
 - [ ] `PRIVACY.md` published at a public URL, and the contact address in it filled in.
 - [ ] Source public at the release tag (C-014), which the AMO source upload and the
       build-verification claim in §2.2 both depend on.
