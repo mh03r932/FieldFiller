@@ -70,7 +70,7 @@ const ORIGINAL = {
     confirmationKeywords: ['confirm'],
   },
   passwords: { length: 20, upper: true, lower: true, digits: true, symbols: false },
-  sources: { name: true, id: true, className: false, label: true, placeholder: true, ariaLabel: true },
+  sources: { name: true, id: true, testId: true, className: false, label: true, placeholder: true, ariaLabel: true },
   triggers: { contextMenu: true },
 };
 

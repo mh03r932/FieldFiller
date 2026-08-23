@@ -39,16 +39,38 @@ export type MatchMode = 'contains' | 'exact' | 'regex';
 /**
  * The identity sources a pattern may be compared against (FR-027, FR-028).
  *
- * Exactly the six the page agent puts on a descriptor. `autocomplete` is not
+ * Exactly the seven the page agent puts on a descriptor. `autocomplete` is not
  * here: it is a controlled vocabulary rather than free text, and matching a
  * regex against it would invite rules that duplicate what the generator already
  * reads from it directly.
+ *
+ * `testId` is the test-automation attribute a component-rendered form usually
+ * carries — `data-testid` and its five common spellings, resolved to one value
+ * by the page agent (FR-083). It is one source rather than a family of them
+ * because a control carries one such attribute in practice, and because a
+ * separate toggle per spelling would be a settings screen about somebody's
+ * house style rather than about matching.
  */
-export type MatchSource = 'name' | 'id' | 'className' | 'label' | 'placeholder' | 'ariaLabel';
+export type MatchSource =
+  | 'name'
+  | 'id'
+  | 'testId'
+  | 'className'
+  | 'label'
+  | 'placeholder'
+  | 'ariaLabel';
 
+/**
+ * Order is provenance, not precedence (see `selectRule`): a rule whose pattern
+ * matches on two sources always reports the same one. `testId` sits beside `id`
+ * because that is where it belongs when a reader scans the list, and ahead of
+ * it a match is worth reporting — a `data-testid` is a deliberate identity
+ * somebody wrote for a machine, where a `class` is usually a side effect.
+ */
 export const MATCH_SOURCES: readonly MatchSource[] = [
   'name',
   'id',
+  'testId',
   'className',
   'label',
   'placeholder',
@@ -306,9 +328,18 @@ export type Settings = {
   readonly triggers: Triggers;
 };
 
+/**
+ * `className` ships off and everything else ships on (BR-018-2).
+ *
+ * `testId` ships on with the rest. It is the opposite of `className` on the one
+ * axis that decided that switch: the attribute exists only where somebody put it
+ * there on purpose, so on a page without test ids the source is absent rather
+ * than noisy, and on a page with them it is the most reliable identity present.
+ */
 export const DEFAULT_SOURCES: SourceToggles = {
   name: true,
   id: true,
+  testId: true,
   className: false,
   label: true,
   placeholder: true,

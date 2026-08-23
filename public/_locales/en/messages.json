@@ -281,6 +281,14 @@
     "message": "ID attribute",
     "description": "Identity source: the control's id attribute (FR-027)."
   },
+  "sourceTestId": {
+    "message": "Test ID attribute",
+    "description": "Identity source: the control's test-automation attribute, whichever of the six conventional spellings it uses (FR-083)."
+  },
+  "sourceTestIdHint": {
+    "message": "data-testid, data-test-id, data-test, data-qa, data-cy or data-automation-id — whichever the field carries.",
+    "description": "Hint under the test-id source checkbox, naming the attributes read. Attribute names are not translated."
+  },
   "sourceClassName": {
     "message": "CSS classes",
     "description": "Identity source: the control's class attribute. Off globally by default, being the noisiest (FR-028)."
@@ -368,7 +376,7 @@
     "description": "UC-024: another options page wrote settings while a rule was open here. Memory adopts their state with the draft carried across, so the next write cannot revert them; only the rendered list is left stale, because replacing it would take the caret out of the open editor."
   },
   "listChangedElsewhere": {
-    "message": "This list was changed somewhere else, so it has been redrawn here. Your last change to it was not applied \u2014 the entry it was aimed at had already moved.",
+    "message": "This list was changed somewhere else, so it has been redrawn here. Your last change to it was not applied — the entry it was aimed at had already moved.",
     "description": "UC-024, BR-024-3: exclusion rows and a profile's address patterns are addressed by position in lists that carry no identifiers, and this page skips re-rendering a section the user is working in. A row whose entry has moved refuses to write and redraws instead, because editing or deleting the wrong entry is worse than losing a keystroke."
   },
   "settingsAdoptedFromElsewhere": {
@@ -647,7 +655,7 @@
   },
   "sourcesLegend": {
     "message": "Sources rules may match against",
-    "description": "Fieldset legend grouping the six source checkboxes."
+    "description": "Fieldset legend grouping the seven source checkboxes."
   },
   "sourcesEnabledCount": {
     "message": "$ENABLED$ of $TOTAL$ sources enabled.",
@@ -659,7 +667,7 @@
       },
       "total": {
         "content": "$2",
-        "example": "6"
+        "example": "7"
       }
     }
   },

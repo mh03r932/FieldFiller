@@ -76,6 +76,16 @@ describe('naming a field to a person', () => {
     expect(identityOf(descriptorFor('<input id="lastName">'))).toBe('lastName');
   });
 
+  it('names a field by its test id ahead of a framework-generated id (FR-083)', () => {
+    // `:r3:` is a React-generated id and names nothing to anybody. The test id
+    // beside it was written by a person, for a person to read.
+    expect(identityOf(descriptorFor('<input id=":r3:" data-testid="billing-postcode">')))
+      .toBe('billing-postcode');
+    // Still behind everything the user actually reads on the page.
+    expect(identityOf(descriptorFor('<input data-testid="pc-1" aria-label="Postcode">')))
+      .toBe('Postcode');
+  });
+
   it('never names a field by its class attribute', () => {
     // A class identifies a style, not a field. It is also the noisiest source
     // there is (FR-027), and a row headed `form-control mt-2` names nothing.

@@ -43,7 +43,7 @@ const EXTENSION_DIR = join(ROOT, '.output', 'chrome-mv3');
 const REFERENCE_PAGE = join(ROOT, 'tests', 'fixtures', 'reference.html');
 
 /** Filled-field count for tests/fixtures/reference.html. See the badge check. */
-const EXPECTED_FILLED = 33;
+const EXPECTED_FILLED = 34;
 
 /**
  * Out-of-process frames the fixture must have running before a fill is useful:

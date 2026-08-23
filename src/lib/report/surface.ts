@@ -88,10 +88,14 @@ export function noteDescriptors(
  * page: the label is what sits beside the field, and `name` or `id` are what the
  * developer called it — useful, but not what the user sees. `className` is never
  * used, because it identifies a style and not a field.
+ *
+ * `testId` sits ahead of `id` because the `id` it displaces is usually a
+ * framework's own — `:r3:` names nothing to anybody, where `billing-postcode`
+ * was written by a person for a person to read (FR-083).
  */
 export function identityOf(descriptor: FieldDescriptor): string {
-  const { label, ariaLabel, placeholder, name, id } = descriptor.sources;
-  return first(label, ariaLabel, placeholder, name, id) ?? `${descriptor.kind} field`;
+  const { label, ariaLabel, placeholder, name, testId, id } = descriptor.sources;
+  return first(label, ariaLabel, placeholder, name, testId, id) ?? `${descriptor.kind} field`;
 }
 
 function first(...candidates: ReadonlyArray<string | undefined>): string | undefined {

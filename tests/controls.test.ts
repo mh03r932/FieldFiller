@@ -556,13 +556,14 @@ describe('kind coverage', () => {
 describe('identity sources (FR-027, ND-2)', () => {
   it('collects every source separately, class included', () => {
     const element = only(
-      '<input name="n" id="i" class="Field__input" placeholder="p" aria-label="a">',
+      '<input name="n" id="i" data-testid="t" class="Field__input" placeholder="p" aria-label="a">',
     );
     // Separately, never concatenated. A blob cannot be anchored, cannot say
     // which source matched, and lets a class trigger a rule meant for a name.
     expect(describeField(element, 0, 'text').sources).toEqual({
       name: 'n',
       id: 'i',
+      testId: 't',
       className: 'Field__input',
       label: undefined,
       placeholder: 'p',
@@ -590,6 +591,31 @@ describe('identity sources (FR-027, ND-2)', () => {
 
   it('omits a source the control does not carry rather than storing it empty', () => {
     expect(describeField(only('<input name="n">'), 0, 'text').sources).toEqual({ name: 'n' });
+  });
+
+  it.each([
+    ['data-testid', '<input data-testid="email-field">'],
+    ['data-test-id', '<input data-test-id="email-field">'],
+    ['data-test', '<input data-test="email-field">'],
+    ['data-qa', '<input data-qa="email-field">'],
+    ['data-cy', '<input data-cy="email-field">'],
+    ['data-automation-id', '<input data-automation-id="email-field">'],
+  ])('reads the test id from %s (FR-083)', (_attribute, html) => {
+    expect(describeField(only(html), 0, 'text').sources.testId).toBe('email-field');
+  });
+
+  it('takes one test id rather than joining every data attribute it finds', () => {
+    // A blob of every `data-*` would be `className`'s noise with no provenance
+    // on top: the report could not say which attribute the pattern hit, and no
+    // pattern could be anchored (ND-2). The list's order decides, so a page
+    // carrying two spellings still describes the same way on every fill.
+    const element = only('<input data-cy="cypress" data-testid="canonical" data-role="decoration">');
+    expect(describeField(element, 0, 'text').sources.testId).toBe('canonical');
+  });
+
+  it('carries no test id for a field that has none', () => {
+    expect(describeField(only('<input name="n" data-role="decoration">'), 0, 'text').sources)
+      .toEqual({ name: 'n' });
   });
 });
 

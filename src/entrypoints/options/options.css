@@ -282,6 +282,21 @@ button.primary {
   font-size: 0.85rem;
 }
 
+/*
+ * A hint under a checkbox, rather than run on from its label.
+ *
+ * `.field` is a grid, so its hint lands on a row of its own without being asked.
+ * `.field.check` is a block — the box and its text have to sit on one line — and
+ * the hint was inheriting that: "Skip controls that are not visibleOn by default"
+ * read as one run-on sentence with a word boundary missing. Every checkbox hint
+ * on the page was affected; the test-id source made it a third instance rather
+ * than finding it.
+ */
+.field.check .hint {
+  display: block;
+  padding-inline-start: 1.5rem;
+}
+
 .row {
   display: grid;
   grid-template-columns: minmax(min(10rem, 100%), auto) minmax(0, 1fr);

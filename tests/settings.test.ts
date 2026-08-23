@@ -257,6 +257,20 @@ describe('parseSettings', () => {
       expect(parseSettings({}).sources).toEqual(DEFAULT_SOURCES);
     });
 
+    it('ships the noisy source off and the deliberate one on (BR-018-2, BR-018-5)', () => {
+      expect(DEFAULT_SOURCES.className).toBe(false);
+      expect(DEFAULT_SOURCES.testId).toBe(true);
+    });
+
+    it('defaults a source a file predates rather than reading its absence as off', () => {
+      // A configuration exported before `testId` existed names six sources. Off
+      // is a choice the user never made, and it would silently cost them the
+      // best identity on a component-rendered form — so the parser's default
+      // stands, exactly as it does for a file with no `sources` key at all.
+      const before = { name: true, id: true, className: false, label: true, placeholder: true, ariaLabel: true };
+      expect(parseSettings({ sources: before }).sources.testId).toBe(true);
+    });
+
     it('keeps only positive integer max-lengths', () => {
       expect(parseSettings({ behaviour: { maxLengths: { text: 20, email: 0, url: 2.5 } } }) //
         .behaviour.maxLengths).toEqual({ text: 20 });

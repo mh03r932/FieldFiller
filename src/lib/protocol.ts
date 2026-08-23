@@ -133,6 +133,18 @@ export type FieldDescriptor = {
     readonly name?: string;
     readonly id?: string;
     /**
+     * The test-automation attribute, whichever spelling the page uses (FR-083).
+     *
+     * One value, not a map of every `data-*` on the control. A component-rendered
+     * form frequently carries no `name` and a generated `id`, and this attribute
+     * is then the only identity anyone chose deliberately — but only the six
+     * conventional spellings in `TEST_ID_ATTRIBUTES` are read, because matching
+     * against every data attribute would be `className`'s noise problem with
+     * `className`'s provenance problem on top: one blob, and no way to say which
+     * attribute the pattern hit (ND-2).
+     */
+    readonly testId?: string;
+    /**
      * The `class` attribute, verbatim (FR-027).
      *
      * The noisiest source by a distance — a utility-first stylesheet puts twenty

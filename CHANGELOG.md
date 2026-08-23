@@ -48,10 +48,15 @@ rather than a set of changes to it.
 
 **Configuration**
 
-- Custom rules: match a class of field by `name`, `id`, `class`, `placeholder`, label text
-  or ARIA label, using contains, exact or regular-expression matching, and fill it from any
-  of thirteen generator types — name, email, organisation, username, telephone, URL, text,
-  alphanumeric template, number, date, constant, list, or regular expression.
+- Custom rules: match a class of field by `name`, `id`, test id, `class`, `placeholder`,
+  label text or ARIA label, using contains, exact or regular-expression matching, and fill it
+  from any of thirteen generator types — name, email, organisation, username, telephone, URL,
+  text, alphanumeric template, number, date, constant, list, or regular expression.
+- Test-automation attributes are a matching source of their own: `data-testid`,
+  `data-test-id`, `data-test`, `data-qa`, `data-cy` and `data-automation-id`. On a
+  component-rendered form whose `id` is generated and whose `name` is absent, that attribute
+  is often the only stable identity there is — and it is the one a rule can be written
+  against. On by default, and it names the field in the fill report too.
 - Rules can be scoped to a subset of match sources, so a noisy `class` attribute cannot
   trigger a rule meant for `name`.
 - Rule order is precedence, first match wins, and reordering is fully keyboard-operable.

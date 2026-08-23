@@ -252,7 +252,7 @@ try {
        ?.querySelector('input').checked`)) === false,
     'the class checkbox is ticked on a fresh profile');
 
-  // Two in a row, and that is the point. Six checkboxes share one section and
+  // Two in a row, and that is the point. Seven checkboxes share one section and
   // nothing re-renders between two clicks, so a handler holding the state it was
   // built with computes the second tick from before the first — and the first is
   // silently lost. It is the defect the rule editor was fixed for, reachable
@@ -268,7 +268,7 @@ try {
     (await announced()).length > 0, `announced "${await announced()}"`);
 
   check('the count beneath the boxes follows the boxes',
-    (await inPage(`(document.querySelector('#sources .source-count')?.textContent ?? '').includes('5')`)) === true,
+    (await inPage(`(document.querySelector('#sources .source-count')?.textContent ?? '').includes('6 of 7')`)) === true,
     `count reads ${JSON.stringify(await inPage(`document.querySelector('#sources .source-count')?.textContent ?? ''`))}`);
 
   // Put them back, so nothing downstream is filled through a changed source set.

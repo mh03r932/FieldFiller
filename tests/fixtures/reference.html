@@ -67,6 +67,17 @@
       </fieldset>
 
       <fieldset>
+        <legend>Component-rendered — identified only by a test id (FR-083)</legend>
+
+        <!-- What a React or Vue form actually ships: a framework-generated `id`
+             that names nothing, no `name`, no label the platform can find, and a
+             test attribute somebody wrote deliberately. Before FR-083 this field
+             reached rule matching carrying `:r3:` and nothing else, and the fill
+             report headed its row with that. -->
+        <input type="text" id=":r3:" data-testid="billing-reference" />
+      </fieldset>
+
+      <fieldset>
         <legend>Address — postcode, locality and region must belong together</legend>
         <label>Street <input type="text" name="street" autocomplete="street-address" /></label>
         <label>Town <input type="text" name="town" autocomplete="address-level2" /></label>

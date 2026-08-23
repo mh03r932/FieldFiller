@@ -89,16 +89,30 @@ export function renderGeneral(host: OptionsHost, into: HTMLElement): void {
  *
  * The same table the rule editor uses, and deliberately the same strings: a
  * source called "CSS class" in one section and `className` in another reads as
- * two different settings. Declared as a total record so a seventh source is a
+ * two different settings. Declared as a total record so an eighth source is a
  * compile error here rather than a raw identifier on screen.
  */
 const SOURCE_LABELS: Record<MatchSource, MessageKey> = {
   name: 'sourceName',
   id: 'sourceId',
+  testId: 'sourceTestId',
   className: 'sourceClassName',
   label: 'sourceLabel',
   placeholder: 'sourcePlaceholder',
   ariaLabel: 'sourceAriaLabel',
+};
+
+/**
+ * The sources whose name does not say what is read.
+ *
+ * Only `testId` needs one: "Name attribute" names an attribute, and "Test ID
+ * attribute" names a convention with six spellings. Without the list on screen,
+ * deciding whether this toggle does anything on your application means reading
+ * the extension's source. Partial rather than total on purpose — a hint under
+ * every box is a paragraph nobody reads.
+ */
+const SOURCE_HINTS: Partial<Record<MatchSource, MessageKey>> = {
+  testId: 'sourceTestIdHint',
 };
 
 /**
@@ -115,7 +129,11 @@ const SOURCE_LABELS: Record<MatchSource, MessageKey> = {
  * half of real markup names its fields there and nowhere else, which is why it
  * is offered at all rather than dropped.
  *
- * Turning all six off is allowed. It leaves every rule inert and the built-in
+ * `testId` ships on, for the opposite reason: the attribute is only ever there
+ * because somebody put it there deliberately, so it is silent on a page without
+ * test ids and the best identity present on a page with them.
+ *
+ * Turning all seven off is allowed. It leaves every rule inert and the built-in
  * generator untouched, which is a legible state rather than a broken one: rules
  * off, everything else as it was. The count beneath the boxes is what makes it
  * visible instead of something the user infers from rules that stopped working.
@@ -131,17 +149,24 @@ export function renderSources(host: OptionsHost, into: HTMLElement): void {
 
   for (const source of MATCH_SOURCES) {
     const label = message(SOURCE_LABELS[source]);
-    const box = checkbox(label, settings.sources[source], (value) => {
-      // `host.settings()`, not the `settings` captured above: six checkboxes
-      // sharing one snapshot means the second tick is computed from the state
-      // before the first, so ticking two in a row loses the first — the stale
-      // closure the rule editor was fixed for, which is easy to reintroduce
-      // exactly here because nothing re-renders between the two clicks.
-      const current = host.settings();
-      host.save({ ...current, sources: { ...current.sources, [source]: value } });
-      host.announce(message(value ? 'sourceEnabled' : 'sourceDisabled', [label]));
-      countSources(host, into);
-    });
+    const hintKey = SOURCE_HINTS[source];
+    const hint = hintKey === undefined ? undefined : message(hintKey);
+    const box = checkbox(
+      label,
+      settings.sources[source],
+      (value) => {
+        // `host.settings()`, not the `settings` captured above: seven checkboxes
+        // sharing one snapshot means the second tick is computed from the state
+        // before the first, so ticking two in a row loses the first — the stale
+        // closure the rule editor was fixed for, which is easy to reintroduce
+        // exactly here because nothing re-renders between the two clicks.
+        const current = host.settings();
+        host.save({ ...current, sources: { ...current.sources, [source]: value } });
+        host.announce(message(value ? 'sourceEnabled' : 'sourceDisabled', [label]));
+        countSources(host, into);
+      },
+      hint,
+    );
     box.dataset['source'] = source;
     group.append(box);
   }

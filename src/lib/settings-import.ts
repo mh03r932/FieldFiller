@@ -1,4 +1,4 @@
-import { DEFAULT_SETTINGS, parseSettings, type Settings } from './settings';
+import { DEFAULT_SETTINGS, MATCH_SOURCES, parseSettings, type Settings } from './settings';
 
 /**
  * Reading a configuration back in (UC-026, FR-053, FR-054, ND-13).
@@ -152,7 +152,12 @@ const SECTION_SHAPES: readonly (readonly [string, ReadonlySet<string>])[] = [
     ]),
   ],
   ['passwords', new Set(['length', 'upper', 'lower', 'digits', 'symbols'])],
-  ['sources', new Set(['name', 'id', 'className', 'label', 'placeholder', 'ariaLabel'])],
+  // Derived, not restated: a source added to `MATCH_SOURCES` and forgotten here
+  // would make every exported file report that source as dropped — an accurate
+  // statement about this table and a false one about the import, which writes it
+  // faithfully. `testId` arrived and did exactly that, in this project's own
+  // round-trip test.
+  ['sources', new Set<string>(MATCH_SOURCES)],
   ['triggers', new Set(['contextMenu'])],
 ];
 

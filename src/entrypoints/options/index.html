@@ -4,6 +4,17 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <!--
+      Opened as an ordinary tab, not embedded. Both browsers default to the
+      embedded surface — a fixed narrow panel inside chrome://extensions or
+      about:addons — and this page is not a panel: it is ten sections of
+      settings, a rule editor whose two-column rows collapse below 30rem, and a
+      per-control report table (DD-006). All of that reads as a phone-sized
+      column in the embedded frame, at a width the user cannot change. WXT reads
+      this meta tag into `options_ui.open_in_tab` (Safari excepted, which has no
+      such key).
+    -->
+    <meta name="manifest.open_in_tab" content="true" />
+    <!--
       No <title> text here: it is resolved from the i18n catalog by main.ts
       (NFR-018). Manifest and CSS accept __MSG_name__ substitution; HTML does
       not, so every string in this page arrives at runtime.

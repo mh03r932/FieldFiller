@@ -640,12 +640,13 @@ function matcher(live: () => Rule, update: (rule: Rule) => void): HTMLElement {
  * is showing an identifier to somebody who never wrote one, in the one control
  * FR-067 exists for, and it could not be translated because it was not a string.
  *
- * Declared as a total record rather than a lookup with a fallback, so adding a
- * seventh source is a compile error here instead of a raw identifier on screen.
+ * Declared as a total record rather than a lookup with a fallback, so adding an
+ * eighth source is a compile error here instead of a raw identifier on screen.
  */
 const SOURCE_LABELS: Record<MatchSource, MessageKey> = {
   name: 'sourceName',
   id: 'sourceId',
+  testId: 'sourceTestId',
   className: 'sourceClassName',
   label: 'sourceLabel',
   placeholder: 'sourcePlaceholder',
@@ -660,7 +661,7 @@ const SOURCE_LABELS: Record<MatchSource, MessageKey> = {
  * intersection with the global toggles, and a rule cannot opt back into a source
  * switched off there.
  *
- * Unticking all six is allowed to happen and then refused: `validateRule` reports
+ * Unticking all of them is allowed to happen and then refused: `validateRule` reports
  * it and `update` does not commit, which is the same path an empty pattern takes.
  * Preventing the last untick instead would leave the user with a checkbox that
  * silently does nothing and no statement of why.
@@ -689,7 +690,7 @@ function sources(live: () => Rule, update: (rule: Rule, refocus?: string) => voi
     // exists to change.
     const next = { ...live() };
     delete next.sources;
-    // Structural: this toggle is what decides whether the six per-source
+    // Structural: this toggle is what decides whether the per-source
     // checkboxes exist at all, so the body has to be rebuilt to show or remove
     // them. Focus returns here, to the box the user just operated.
     update(allBox.checked ? next : { ...next, sources: [...MATCH_SOURCES] }, '.sources-all');

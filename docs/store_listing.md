@@ -72,8 +72,11 @@ after you pick a country — are followed rather than raced.
 
 CONFIGURE IT AS FAR AS YOU NEED
 
-- Custom rules matching on name, id, class, placeholder, label text or ARIA label, by
+- Custom rules matching on name, id, test id, class, placeholder, label text or ARIA label, by
   contains, exact or regular expression, filled from thirteen generator types.
+- Test-automation attributes are matched as their own source — data-testid, data-test-id,
+  data-test, data-qa, data-cy, data-automation-id — so a React or Vue form whose ids are
+  generated and whose fields have no name is still targetable by a rule.
 - Scope a rule to specific match sources so a noisy class attribute can't trigger it.
 - Rule order is precedence, first match wins, and reordering works from the keyboard.
 - A live preview shows what a rule produces before you save it.
