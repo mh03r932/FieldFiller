@@ -237,6 +237,7 @@ try {
     version: 1,
     rules: [rule('kept'), { label: 'Broken rule', match: { mode: 'contains', pattern: 'x' } }],
     behaviour: { wobble: 3 },
+    exclusions: 3,
     somethingElse: true,
   }));
   await waitFor(`document.querySelector('#import .import-dropped') !== null`, 'nothing was reported as dropped');
@@ -247,6 +248,12 @@ try {
   check('an unknown key is named by path (BR-026-7)',
     droppedText.includes('behaviour.wobble') && droppedText.includes('somethingElse'),
     `dropped=${JSON.stringify(droppedText)}`);
+  // The silent one. A section the parser answers with defaults reports nothing
+  // of its own — no unknown key, no unreadable entry — so if the shape check
+  // ever stops running, this file imports as clean and takes the user's
+  // exclusions with it.
+  check('a section that is not a section is named too (UC-026 step 4)',
+    droppedText.includes('exclusions'), `dropped=${JSON.stringify(droppedText)}`);
   check('and it is said before the write, not after (BR-026-3)',
     canonicalState(await stored()) === canonicalState(OTHER),
     'storage changed while the drop report was still a preview');

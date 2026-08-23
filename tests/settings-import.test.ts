@@ -253,6 +253,66 @@ describe('naming what will not be kept', () => {
     );
   });
 
+  it('names a section whose value is not a section (UC-026 step 4)', () => {
+    // The case that made the report blind: `record(3)` is `{}` and `{}` has no
+    // unknown keys in it, so before the shape check this imported as every
+    // behaviour setting reset, with an empty drop list and `ok: true`.
+    for (const given of [3, 'hello', null, [] as unknown]) {
+      const outcome = analyse({ version: SCHEMA_VERSION, behaviour: given });
+
+      expect(outcome.ok).toBe(true);
+      if (!outcome.ok) return;
+      expect(outcome.plan.dropped).toEqual([{ code: 'importDroppedShape', params: ['behaviour'] }]);
+      expect(outcome.plan.settings.behaviour).toEqual(DEFAULT_SETTINGS.behaviour);
+    }
+  });
+
+  it('names a field of a section whose value is the wrong kind', () => {
+    const outcome = analyse({
+      version: SCHEMA_VERSION,
+      exclusions: { fields: '^cvv$', domains: [] },
+      passwords: { ...DEFAULT_SETTINGS.passwords, length: '20' },
+    });
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.plan.dropped).toEqual(
+      expect.arrayContaining([
+        { code: 'importDroppedShape', params: ['exclusions.fields'] },
+        { code: 'importDroppedShape', params: ['passwords.length'] },
+      ]),
+    );
+    expect(outcome.plan.settings.exclusions.fields).toEqual([]);
+  });
+
+  it('reports a wrongly shaped rules list without inventing entries', () => {
+    const outcome = analyse({ version: SCHEMA_VERSION, rules: { a: 1 } });
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.plan.dropped).toEqual([{ code: 'importDroppedShape', params: ['rules'] }]);
+    expect(outcome.plan.incoming.rules).toBe(0);
+  });
+
+  it('does not name array indices as keys the user added', () => {
+    // `record` hands an array back unchanged, so scanning a section given as a
+    // list would report `exclusions.0` — an index dressed up as a hand-added
+    // key, on top of the honest report that the section is not a section.
+    const outcome = analyse({ version: SCHEMA_VERSION, exclusions: ['^cvv$'] });
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.plan.dropped).toEqual([{ code: 'importDroppedShape', params: ['exclusions'] }]);
+  });
+
+  it('says nothing about a shape the schema does keep there', () => {
+    const outcome = analyse(JSON.parse(serialiseSettings(configured())));
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.plan.dropped).toEqual([]);
+  });
+
   it('does not call the pre-DD-005 flat keys unknown (A4)', () => {
     // The parser reads these from the top level, so a file carrying them is
     // being understood rather than tolerated. Reporting them as dropped would

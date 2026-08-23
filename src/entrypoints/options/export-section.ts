@@ -1,5 +1,5 @@
 import { message } from '@/lib/platform/i18n';
-import { getSettings } from '@/lib/platform/settings-store';
+import { readSettings } from '@/lib/platform/settings-store';
 import {
   SETTINGS_FILE_TYPE,
   serialiseSettings,
@@ -23,6 +23,9 @@ import { reason } from './reason';
  * failure postcondition, and is true by there being no write to fail rather than
  * by anything being rolled back.
  */
+/** How long the browser is given to take its own reference to the blob. */
+const REVOKE_AFTER_MS = 60_000;
+
 export function renderExport(host: OptionsHost, into: HTMLElement): void {
   const actions = document.createElement('div');
   actions.className = 'export-actions';
@@ -84,12 +87,16 @@ export function renderExport(host: OptionsHost, into: HTMLElement): void {
  * write a file describing a configuration no fill has ever run — the failure A1
  * exists to prevent, reached through the one door A1 does not describe.
  *
- * `getSettings` is a cached read that `onChanged` invalidates, so this is a
- * memory hit in the ordinary case and a storage read exactly when storage has
- * moved.
+ * `readSettings` rather than `getSettings`, and that is A4. The cached read
+ * cannot fail: it answers an unreadable storage with the defaults, so an export
+ * built on it would hand the browser a complete, correctly named file of shipped
+ * defaults and announce it as the user's configuration — the same failure A1
+ * describes, arrived at with nothing on screen to suggest it. The strict read
+ * costs one storage round trip per export, which is a button press, and buys the
+ * one thing this path cannot do without: a read that can say no.
  */
 async function currentFile(): Promise<{ readonly name: string; readonly text: string }> {
-  const settings = await getSettings();
+  const settings = await readSettings();
   return { name: settingsFileName(settings), text: serialiseSettings(settings) };
 }
 
@@ -121,20 +128,33 @@ async function exportToFile(host: OptionsHost): Promise<void> {
     // the one time it matters, which is A2.
     host.announce(message('exportOffered', [file.name]));
   } catch (error) {
-    // What this *can* catch: storage unreadable, a blob that could not be
-    // constructed. Reported with the browser's own words and no diagnosis of
-    // our own, per A2 — the page cannot see why the browser declined and must
-    // not pretend to.
+    // What this catches: storage unreadable (A4, and reachable because
+    // `currentFile` reads strictly), a blob that could not be constructed.
+    // Reported with the browser's own words and no diagnosis of our own, per
+    // A2 — the page cannot see why the browser declined and must not pretend to.
+    //
+    // What it cannot catch is the download itself, which never reports back.
+    // That asymmetry is why the clipboard button stands offered rather than
+    // appearing here.
     host.announce(message('exportFailed', [reason(error)]));
   } finally {
-    // Not synchronously after `click()`. The download reads the blob through
-    // this URL and revoking it in the same task can cancel the read before it
-    // starts; a task later, the browser has taken its reference and the URL is
-    // ours to release. Skipping the revoke entirely would leak the whole
-    // configuration into the page's blob store for as long as the options page
-    // stays open, which BR-025-2 has no patience for either.
+    // Not synchronously after `click()`, and not on the next task either. The
+    // download reads the blob through this URL, and revoking before it has done
+    // so cancels the download — silently, because a download that never starts
+    // reports nothing back to the page while the announcement above still says
+    // the file was handed over.
+    //
+    // Chromium resolves the blob during the click, so a next-task revoke is safe
+    // there and `e2e-export.mjs` proves it. Gecko has resolved it asynchronously
+    // for most of the life of `<a download>`, and this extension ships a
+    // `firefox-mv3` target with no export harness of its own — so the delay is
+    // set by the engine we cannot watch rather than the one we can. A minute is
+    // past any plausible resolution and still bounded, which is what separates
+    // it from skipping the revoke: BR-025-2 has no patience for the whole
+    // configuration sitting in the page's blob store for as long as the options
+    // page stays open.
     const created = url;
-    if (created !== undefined) setTimeout(() => URL.revokeObjectURL(created), 0);
+    if (created !== undefined) setTimeout(() => URL.revokeObjectURL(created), REVOKE_AFTER_MS);
   }
 }
 

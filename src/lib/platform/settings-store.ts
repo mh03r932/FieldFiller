@@ -27,12 +27,32 @@ const STORAGE_KEY = 'settings';
 
 let cached: Settings | undefined;
 
+/**
+ * Storage, read now and without a net (UC-025 step 2).
+ *
+ * `getSettings` below answers a failed read with the defaults, and for a fill
+ * that is right. For an export it is the worst thing it could do: a file of
+ * defaults, serialised and named like any other, is the one failure UC-025
+ * cannot report after the fact — it looks entirely correct, and the machine it
+ * is imported onto loses the configuration it was supposed to receive. So the
+ * export path reads through here, where a rejection stays a rejection and A4
+ * has something to catch.
+ *
+ * Uncached in both directions. It does not answer from the cache, because a
+ * cache holding the defaults from an earlier failed read is exactly what a
+ * strict read exists to see past; and it does not fill the cache, because that
+ * would make the fill path's state depend on whether anyone had exported.
+ */
+export async function readSettings(): Promise<Settings> {
+  const stored = await browser.storage.local.get(STORAGE_KEY);
+  return parseSettings(stored[STORAGE_KEY]);
+}
+
 export async function getSettings(): Promise<Settings> {
   if (cached !== undefined) return cached;
 
   try {
-    const stored = await browser.storage.local.get(STORAGE_KEY);
-    cached = parseSettings(stored[STORAGE_KEY]);
+    cached = await readSettings();
   } catch {
     // Storage being unavailable must not stop a fill. Defaults are a complete,
     // self-consistent state, and refusing to fill because a preference could not

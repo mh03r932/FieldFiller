@@ -18,6 +18,17 @@
  * manifest asserted to still lack the permission in the same run, so the two
  * halves of the claim cannot drift apart.
  *
+ * **Chromium only, deliberately.** Gecko is the engine where this path is most
+ * likely to break — it has historically resolved a download's blob URL after the
+ * click returns, which is what the revoke delay in `export-section.ts` is set
+ * for — and it is the one this harness does not watch. Driving a real download
+ * to disk in Firefox needs a profile prepared to save without a dialog and a
+ * remote protocol this project does not otherwise use, which is a harness of its
+ * own rather than a flag on this one. Until it exists the Firefox export is
+ * covered by the delay being long enough that the race cannot be lost, not by a
+ * test — written down here because the alternative is rediscovering it as a bug
+ * report about a button that does nothing.
+ *
  * Usage: pnpm run build && pnpm run export:chrome
  *   CHROME_PATH=…  override the browser binary
  *   HEADFUL=1      show the window

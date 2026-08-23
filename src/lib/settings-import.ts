@@ -46,7 +46,8 @@ export type ImportDrop = {
     | 'importDroppedRule'
     | 'importDroppedProfile'
     | 'importDroppedProfileRule'
-    | 'importDroppedKey';
+    | 'importDroppedKey'
+    | 'importDroppedShape';
   readonly params: readonly string[];
 };
 
@@ -207,13 +208,14 @@ export function analyseImport(text: string, current: Settings): ImportOutcome {
   }
 
   const settings = parseSettings(file);
+  const shapes = mistypedShapes(file);
   return {
     ok: true,
     plan: {
       settings,
       incoming: { rules: settings.rules.length, profiles: settings.profiles.length },
       current: { rules: current.rules.length, profiles: current.profiles.length },
-      dropped: [...droppedEntries(file), ...unknownKeys(file)],
+      dropped: [...droppedEntries(file), ...unknownKeys(file, shapes.mistyped), ...shapes.drops],
       // A3 and A4 are the same fact to the user — the file did not come from
       // this schema and was changed on the way in — and today they are also the
       // same mechanism, since the tolerant parser stands in for the ladder.
@@ -272,14 +274,88 @@ function keepsRule(entry: unknown): boolean {
 }
 
 /**
+ * Sections and fields whose value is not the kind the schema keeps there
+ * (UC-026 step 4, BR-026-7).
+ *
+ * The tolerant parser answers a wrongly shaped value with the default for that
+ * place, and until this existed the report said nothing at all about it:
+ * `record(3)` is `{}` and `{}` has no unknown keys in it, so both halves of the
+ * analysis looked at an empty shape and found nothing to say. `{"behaviour": 3}`
+ * imported as every behaviour setting silently reset, reported as a clean
+ * import with an empty drop list — the loss step 5 exists to make visible,
+ * reached by the one input that made the report blind.
+ *
+ * **What shape the schema keeps is read off `DEFAULT_SETTINGS`, not restated
+ * here.** The defaults hold a value of the right kind in every place the schema
+ * defines, which makes them a witness that cannot drift from the schema the way
+ * a table of types written out here would — the same argument `SECTION_KEYS` and
+ * the `sources` row make against restating what can be derived. A key with no
+ * witness is left alone: the pre-DD-005 flat keys have no home in the current
+ * defaults, and `unknownKeys` already speaks for whatever the schema cannot name.
+ *
+ * This is a check on *shape* and nothing more. A value of the right kind and the
+ * wrong content — `locale: "xx"`, an exclusion whose regex will not compile — is
+ * the parser's business, and reporting it from here would mean keeping a second
+ * copy of the parser's rules, which the note at the top of this file refuses.
+ * The ladder FR-073 asks for is what would report those; until it exists they
+ * are coerced silently, as A3 already says.
+ */
+function mistypedShapes(file: Record<string, unknown>): {
+  readonly drops: readonly ImportDrop[];
+  /** Root sections reported here, which `unknownKeys` must not descend into. */
+  readonly mistyped: ReadonlySet<string>;
+} {
+  const drops: ImportDrop[] = [];
+  const mistyped = new Set<string>();
+  const defaults: Record<string, unknown> = { ...DEFAULT_SETTINGS };
+
+  for (const [key, given] of Object.entries(file)) {
+    const witness = defaults[key];
+    if (witness === undefined || kindOf(given) === kindOf(witness)) continue;
+    drops.push({ code: 'importDroppedShape', params: [key] });
+    mistyped.add(key);
+  }
+
+  for (const [section] of SECTION_SHAPES) {
+    if (mistyped.has(section)) continue;
+    const witness = record(defaults[section]);
+    for (const [key, given] of Object.entries(record(file[section]))) {
+      const expected = witness[key];
+      if (expected === undefined || kindOf(given) === kindOf(expected)) continue;
+      drops.push({ code: 'importDroppedShape', params: [`${section}.${key}`] });
+    }
+  }
+
+  return { drops, mistyped };
+}
+
+/**
+ * What kind of value this is, for the comparison above.
+ *
+ * `null` and arrays are separated from `object` because `typeof` calls all three
+ * the same thing and the schema never does: a section given as `null` and one
+ * given as `[]` are both total losses, and both would pass a `typeof` check
+ * against a section the schema keeps as an object.
+ */
+function kindOf(value: unknown): string {
+  if (value === null) return 'null';
+  if (Array.isArray(value)) return 'list';
+  return typeof value;
+}
+
+/**
  * BR-026-7: keys this build does not know, named rather than silently ignored.
  *
  * Reported by path — `behaviour.wobble`, `rules[2].colour` — so that "I added
  * that by hand and it did nothing" has an answer. It descends only into shapes
  * the schema defines; an unknown key's own contents are not explored, because
- * nothing below an unrecognised name has a meaning to report against.
+ * nothing below an unrecognised name has a meaning to report against, and
+ * neither are sections `mistypedShapes` has already spoken for.
  */
-function unknownKeys(file: Record<string, unknown>): readonly ImportDrop[] {
+function unknownKeys(
+  file: Record<string, unknown>,
+  mistyped: ReadonlySet<string>,
+): readonly ImportDrop[] {
   const drops: ImportDrop[] = [];
 
   const scan = (value: unknown, known: ReadonlySet<string>, path: string): void => {
@@ -289,7 +365,14 @@ function unknownKeys(file: Record<string, unknown>): readonly ImportDrop[] {
   };
 
   scan(file, ROOT_KEYS, '');
-  for (const [section, known] of SECTION_SHAPES) scan(file[section], known, `${section}.`);
+  for (const [section, known] of SECTION_SHAPES) {
+    // A section already reported for its shape is not descended into. `record`
+    // hands back an array unchanged, so scanning `exclusions: ["a"]` would name
+    // `exclusions.0` — an array index dressed up as a key the user typed, on
+    // top of the honest report that the section is not a section at all.
+    if (mistyped.has(section)) continue;
+    scan(file[section], known, `${section}.`);
+  }
 
   for (const [index, rule] of listAt(file, 'rules').entries()) {
     scan(rule, RULE_KEYS, `rules[${index}].`);

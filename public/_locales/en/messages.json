@@ -1161,7 +1161,7 @@
   },
   "exportFailed": {
     "message": "The export did not happen, because $REASON$. Your settings are unchanged, since an export only reads them. Try \"Copy to the clipboard\".",
-    "description": "Announced politely when the export could not be started at all. $REASON$ is the browser’s own wording and is not translated; nothing is added to diagnose it (UC-025 A2).",
+    "description": "Announced politely when the export could not be started at all — the stored configuration could not be read (UC-025 A4), or the file could not be constructed. $REASON$ is the browser’s own wording and is not translated; nothing is added to diagnose it (UC-025 A2). A download the browser declines after the click is not this message, because it never reports back.",
     "placeholders": {
       "reason": {
         "content": "$1",
@@ -1266,6 +1266,16 @@
       "name": {
         "content": "$2",
         "example": "Postcode"
+      }
+    }
+  },
+  "importDroppedShape": {
+    "message": "$PATH$ is not the shape this version keeps there, so the built-in default was used instead.",
+    "description": "A known section or field whose value is the wrong kind — a number where the schema keeps a section, a string where it keeps a list (UC-026 step 4). Distinct from importDroppedKey: the name was recognised, the value was not, and what replaced it is a default rather than nothing.",
+    "placeholders": {
+      "path": {
+        "content": "$1",
+        "example": "behaviour"
       }
     }
   },
