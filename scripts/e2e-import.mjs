@@ -293,7 +293,7 @@ try {
   await waitFor(`document.querySelector('#import .import-refused') !== null`, 'no refusal for a newer file');
   const newerSaid = await textOf('#import .import-refused');
   check('the newer-schema refusal names both versions and rules out editing the file (A2)',
-    newerSaid.includes('2') && newerSaid.includes('1') && newerSaid.includes('do not change the version'),
+    newerSaid.includes('2') && newerSaid.includes('1') && newerSaid.includes('Do not change the version'),
     `said=${JSON.stringify(newerSaid)}`);
 
   // ── A5 is the one that would otherwise look like a success ────────────────

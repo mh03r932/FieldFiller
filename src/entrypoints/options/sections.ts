@@ -515,6 +515,16 @@ export function renderBehaviour(host: OptionsHost, into: HTMLElement): void {
   const legend = document.createElement('legend');
   legend.textContent = message('behaviourLengthsLegend');
   lengths.append(legend);
+
+  // Once, above the four boxes, rather than under each. The sentence is the same
+  // for every kind and does not depend on which one is being capped, so printing
+  // it four times put three lines of hint between every pair of controls and
+  // made the group twice as tall as the settings in it.
+  const hint = document.createElement('p');
+  hint.className = 'hint';
+  hint.textContent = message('behaviourLengthHint');
+  lengths.append(hint);
+
   for (const [kind, key] of CAPPED_KINDS) {
     lengths.append(
       field(
@@ -529,7 +539,6 @@ export function renderBehaviour(host: OptionsHost, into: HTMLElement): void {
           else caps[kind] = value;
           saveBehaviour(host, { maxLengths: caps });
         }),
-        message('behaviourLengthHint'),
       ),
     );
   }
@@ -763,8 +772,12 @@ export const SECTIONS: ReadonlyArray<{
   readonly render: (host: OptionsHost, into: HTMLElement) => void;
 }> = [
   { id: 'general', render: renderGeneral },
-  { id: 'profiles', render: renderProfiles },
+  // Before the rules it bounds, matching the page. A source switched off here is
+  // off for every rule, so meeting this after the rule editor meant reading
+  // "whatever is enabled globally" with no idea what that was, and a rule could
+  // be silently dead because of a checkbox three sections further down.
   { id: 'sources', render: renderSources },
+  { id: 'profiles', render: renderProfiles },
   { id: 'field-exclusions', render: renderFieldExclusions },
   { id: 'domain-exclusions', render: renderDomainExclusions },
   { id: 'behaviour', render: renderBehaviour },

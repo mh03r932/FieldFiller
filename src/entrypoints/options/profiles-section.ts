@@ -6,7 +6,7 @@ import { validateDomainPattern } from '@/lib/rules/validate';
 import { checkbox, field, focusIn, textInput } from './controls';
 import type { OptionsHost } from './host';
 import { rowAt, rowMovedUnderYou } from './rows';
-import { closeRuleIn, profileRules, renderRules } from './rules';
+import { closeRuleIn, markOff, profileRules, renderRules } from './rules';
 
 /**
  * URL profiles: named rule sets scoped to the pages they belong to
@@ -159,6 +159,8 @@ function profileRow(
     focusIn(into, `[data-profile="${profile.id}"] .profile-name`);
   });
 
+  markOff(disclose, profile);
+
   const problem = problemOf(profile);
   if (problem !== undefined) disclose.append(flagFor(problem));
 
@@ -169,8 +171,37 @@ function profileRow(
   );
   item.append(header);
 
-  if (openProfileId === profile.id) item.append(editor(host, profile, into));
+  if (openProfileId === profile.id) {
+    item.append(editor(host, profile, into));
+  } else {
+    item.append(summaryLine(profile));
+  }
   return item;
+}
+
+/**
+ * What a closed profile claims, in one line (UC-014).
+ *
+ * Which pages a profile governs is the whole of what distinguishes one from
+ * another, and the row showed a name. Two profiles called "Staging" and "Live"
+ * are indistinguishable from the list, which is exactly the moment a tester asks
+ * "which of these was running?" — and the report line answering that names the
+ * profile, not its patterns.
+ *
+ * A profile with no patterns says so here rather than only inside its editor. It
+ * matches no page at all, and that is worth reading without opening it.
+ */
+function summaryLine(profile: Profile): HTMLElement {
+  const line = document.createElement('p');
+  line.className = 'rule-summary';
+  // The whole line, not a slot in it, when there are no patterns: a profile that
+  // matches no page has no interesting rule count, and the two read as one
+  // run-on sentence when concatenated.
+  line.textContent =
+    profile.urls.length === 0
+      ? message('profileNoUrlsShort')
+      : message('profileSummary', [profile.urls.join(', '), String(profile.rules.length)]);
+  return line;
 }
 
 /**
@@ -375,8 +406,10 @@ function editor(host: OptionsHost, profile: Profile, into: HTMLElement): HTMLEle
   // The profile's own rules, through the rule editor itself. A heading, because
   // the reader has to be able to tell these from the global list further down
   // the page — they look identical and behave identically, and the only thing
-  // that distinguishes them is which pages they run on.
-  const heading = document.createElement('h4');
+  // that distinguishes them is which pages they run on. An h3, the level the
+  // rule editor's own groups use, so a heading inside an editor is one level
+  // everywhere and the page's outline stays h1 → h2 → h3 → h4 all the way down.
+  const heading = document.createElement('h3');
   heading.textContent = message('profileRulesHeading');
   const hint = document.createElement('p');
   hint.className = 'hint';
@@ -413,6 +446,14 @@ function urls(
   legend.textContent = message('profileUrls');
   group.append(legend);
 
+  // Once, above the patterns, rather than under each of them. The hint is two
+  // lines and never varies, so a profile scoped to three addresses printed the
+  // same two lines three times and buried its own list in them.
+  const hint = document.createElement('p');
+  hint.className = 'hint';
+  hint.textContent = message('domainPatternHint');
+  group.append(hint);
+
   if (profile.urls.length === 0) {
     const empty = document.createElement('p');
     empty.className = 'problem';
@@ -425,7 +466,13 @@ function urls(
 
   for (const [index, pattern] of profile.urls.entries()) {
     const row = document.createElement('div');
-    row.className = 'row';
+    // `pattern-row`, not the two-column `.row` this used to be. The grid sizes
+    // its first column to that column's content, and the content was a field
+    // carrying the two-line hint above — 572px of max-content against 190px
+    // without it — so the Remove button beside it was pushed 8px past the
+    // fieldset's own edge and clipped. The exclusion lists have the same field
+    // plus button shape and have always wrapped instead; this is that rule.
+    row.className = 'pattern-row';
     // Addressed by position, the way the exclusion lists address their rows.
     // What this replaces was `.row:nth-of-type(n)`, which counts *div* siblings
     // — and the problem lines between the rows are divs too, so it named the
@@ -475,7 +522,6 @@ function urls(
         slot.wrote(value);
         showProblem(value);
       }),
-      message('domainPatternHint'),
     );
 
     const drop = document.createElement('button');
@@ -542,7 +588,13 @@ function nameOf(profile: Profile): string {
   // The fallback to the first pattern is `profileName`, shared with the
   // background so the report cannot name a profile differently from the list
   // that shows it. Only the last resort is local, because it is a translation.
-  return profileName(profile) ?? message('profileUnnamed');
+  //
+  // `profileUnnamedTitle`, not `profileUnnamed`. The latter is written to sit
+  // inside a button's accessible name — "Remove: this unnamed profile" — and was
+  // being reused as the row's visible heading, where "this unnamed profile"
+  // reads as a sentence fragment pointing at something. The rule list never had
+  // the bug: `ruleUnnamed` is "Unnamed rule" and is only ever a title.
+  return profileName(profile) ?? message('profileUnnamedTitle');
 }
 
 function save(host: OptionsHost, profiles: readonly Profile[]): void {

@@ -436,7 +436,7 @@ try {
   }
 
   const noSourceProblem = await inPage(
-    `document.querySelector('#rules .rule-body .problems')?.textContent?.trim() ?? ''`,
+    `document.querySelector('#rules .rule-body .problems-sources')?.textContent?.trim() ?? ''`,
   );
   check('unticking every source states that the rule could never fire',
     noSourceProblem.includes('never fire'), `problems="${noSourceProblem}"`);

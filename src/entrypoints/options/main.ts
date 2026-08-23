@@ -295,6 +295,59 @@ async function render(): Promise<void> {
 
   const report = await requestReport();
   host.replaceChildren(report === undefined ? noReport() : reportView(report));
+  renderReportLede(report);
+}
+
+/**
+ * The one line about the last fill that sits under the page title (DD-006).
+ *
+ * The report is the last section on the page and stays there: a populated one
+ * measures over 2000px against a 900px viewport, so anywhere among the settings
+ * it buries them rather than dividing them, and it is empty most of the time
+ * because the background is torn down between uses. What being last cost was
+ * discoverability, which is what this pays, at the cost of one line that is not
+ * drawn at all when there is nothing to say.
+ *
+ * `resultSentence` again, the same function the tooltip and the report's own
+ * summary call. Three surfaces now state one fill's outcome and none of them can
+ * word it differently, which is the whole reason that function is host-free and
+ * takes its catalog as an argument.
+ */
+function renderReportLede(report: FillReport | undefined): void {
+  const slot = document.querySelector('#report-lede');
+  if (!(slot instanceof HTMLElement)) return;
+  slot.replaceChildren();
+  if (report === undefined) return;
+
+  slot.append(message('reportLatest', [resultSentence(report, message)]), ' ');
+
+  const jump = document.createElement('a');
+  // To the heading rather than to the section, so a screen reader that follows
+  // the link lands on the words naming what it just moved to.
+  jump.href = '#report-heading';
+  jump.textContent = message('reportJump');
+  jump.addEventListener('click', focusReportHeading);
+  slot.append(jump);
+}
+
+/**
+ * Moves the focus with the link, not only the scroll (WCAG 2.4.3).
+ *
+ * A fragment link scrolls and leaves the focus where it was, and the browser
+ * scrolls it back the moment anything asks for it: measured, the first Tab after
+ * following this link landed on the link itself and dragged the page back to the
+ * top, so a keyboard user was returned to where they started by the act of
+ * trying to read on. The heading takes `tabindex="-1"` to be a focus target
+ * without joining the tab order, which is the same arrangement a skip link uses.
+ *
+ * Set here rather than in the markup because it exists for this link, and this
+ * link exists only when there is a report to jump to.
+ */
+function focusReportHeading(): void {
+  const heading = document.querySelector('#report-heading');
+  if (!(heading instanceof HTMLElement)) return;
+  heading.tabIndex = -1;
+  heading.focus();
 }
 
 /**
