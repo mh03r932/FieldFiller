@@ -1,4 +1,4 @@
-import { message } from '@/lib/platform/i18n';
+import { message, type MessageKey } from '@/lib/platform/i18n';
 import { analyseImport, type ImportDrop, type ImportPlan, type ImportRefusal } from '@/lib/settings-import';
 import type { OptionsHost } from './host';
 import { focusIn } from './controls';
@@ -53,7 +53,11 @@ export function renderImport(host: OptionsHost, into: HTMLElement): void {
 
   if (pending === undefined) return;
   const outcome = analyseImport(pending.text, host.settings());
-  into.append(outcome.ok ? planView(host, into, pending.name, outcome.plan) : refusalView(outcome.refusal));
+  into.append(
+    outcome.ok
+      ? planView(host, into, pending.name, outcome.plan)
+      : refusalView(host, into, outcome.refusal),
+  );
 }
 
 async function chosen(host: OptionsHost, into: HTMLElement, file: File | undefined): Promise<void> {
@@ -74,13 +78,59 @@ async function chosen(host: OptionsHost, into: HTMLElement, file: File | undefin
   renderImport(host, into);
 }
 
-/** A1, A2, A5 — stated, with no way past it (BR-026-2). */
-function refusalView(refusal: ImportRefusal): HTMLElement {
+/**
+ * A1, A2, A5 — stated, with no way past it (BR-026-2).
+ *
+ * The dismiss button is not a way past it. It imports nothing and offers
+ * nothing: it puts the file down, which is the one thing the user could not do
+ * before — a refused file is re-analysed on every render, so a redraw from
+ * another tab's write brought the refusal back with no way to make it go away
+ * short of reloading the page. Choosing another file has always worked, and
+ * still does; this is for the user who has finished with this one.
+ *
+ * A fragment rather than a wrapper element, so the alert is inserted into the
+ * section itself exactly as it was before the button existed. An alert is
+ * announced on being added to the DOM, and burying it a level deeper is not a
+ * change worth making for a layout that does not need it.
+ */
+function refusalView(
+  host: OptionsHost,
+  into: HTMLElement,
+  refusal: ImportRefusal,
+): DocumentFragment {
   const paragraph = document.createElement('p');
   paragraph.className = 'problem import-refused';
   paragraph.setAttribute('role', 'alert');
   paragraph.textContent = message(refusal.code, refusal.params);
-  return paragraph;
+
+  const dismiss = document.createElement('button');
+  dismiss.type = 'button';
+  dismiss.className = 'import-dismiss';
+  dismiss.textContent = message('importDismiss');
+  dismiss.addEventListener('click', () => {
+    discard(host, into, 'importDismissed');
+  });
+
+  const view = document.createDocumentFragment();
+  view.append(paragraph, dismiss);
+  return view;
+}
+
+/**
+ * Puts the chosen file down without importing it.
+ *
+ * One function for the plan's cancel and the refusal's dismiss, because it is
+ * one act: forget the file, redraw, say so, and put the focus back where a
+ * second attempt starts. Only the wording differs, and it has to — a cancelled
+ * import is one that could have happened, a dismissed refusal is one that never
+ * could, and telling the second user their import was "cancelled" would credit
+ * them with a decision the extension made for them.
+ */
+function discard(host: OptionsHost, into: HTMLElement, announcement: MessageKey): void {
+  pending = undefined;
+  renderImport(host, into);
+  host.announce(message(announcement));
+  focusIn(into, '.import-file');
 }
 
 /**
@@ -131,10 +181,7 @@ function planView(host: OptionsHost, into: HTMLElement, name: string, plan: Impo
   cancel.className = 'import-cancel';
   cancel.textContent = message('importCancel');
   cancel.addEventListener('click', () => {
-    pending = undefined;
-    renderImport(host, into);
-    host.announce(message('importCancelled'));
-    focusIn(into, '.import-file');
+    discard(host, into, 'importCancelled');
   });
 
   actions.append(confirm, cancel);

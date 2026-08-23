@@ -1293,6 +1293,14 @@
     "message": "Replace my settings",
     "description": "The action that applies the import. Worded as what it does to the user’s configuration rather than as “Import”, because replacing is the part worth being sure about (BR-026-1)."
   },
+  "importDismiss": {
+    "message": "Dismiss",
+    "description": "Clears a refused file and its message. Not a bypass (BR-026-2): it imports nothing and offers nothing — it is how the user puts down a file the extension will not read, which otherwise stays on screen through every redraw until the page is reloaded."
+  },
+  "importDismissed": {
+    "message": "The file was discarded. Your settings are unchanged.",
+    "description": "Announced politely when a refused file is dismissed. Worded apart from importCancelled because the two are not the same event: a cancelled import could have happened, a dismissed one never could."
+  },
   "importCancel": {
     "message": "Cancel",
     "description": "Discards the chosen file without importing it."

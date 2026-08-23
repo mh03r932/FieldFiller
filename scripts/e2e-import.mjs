@@ -281,6 +281,11 @@ try {
 
   for (const [name, file, contents, expected] of refusals) {
     await openOptions();
+    // Marked so the check after the refusal can tell whether this element
+    // survived it. `choose` cannot see the difference — `DOM.setFileInputFiles`
+    // fires `change` whether or not the input already held that file — so the
+    // property the user depends on has to be asserted structurally.
+    await inPage(`(document.querySelector('#import .import-file').dataset.mark = 'before', true)`);
     await choose(file, contents);
     await waitFor(`document.querySelector('#import .import-refused') !== null`, `${name}: no refusal appeared`);
 
@@ -292,6 +297,23 @@ try {
       'a confirm button was offered for a refused file');
     check(`${name} leaves the configuration alone`,
       canonicalState(await stored()) === canonicalState(OTHER), 'storage moved on a refused import');
+    // The recovery path from every refusal is "fix the file and pick it again",
+    // and a browser fires `change` only when the input's value changes — so
+    // re-picking the same file would do nothing if the refusal left the same
+    // element in place. It does not: the refusal is rendered by rebuilding the
+    // section, which is what keeps the retry working without a reset.
+    check(`${name} rebuilds the chooser, so the same file can be picked again`,
+      (await inPage(`document.querySelector('#import .import-file').dataset.mark === undefined`)) === true,
+      'the refused file was left in the chooser, which stops a re-pick firing change');
+
+    // Last, because dismissing rebuilds the section and the check above has to
+    // see what the *refusal* rendered.
+    await clickWithGesture(cdp, page, '#import .import-dismiss');
+    await sleep(200);
+    check(`${name} can be dismissed, which clears it and writes nothing`,
+      (await inPage(`document.querySelector('#import .import-refused') === null`)) === true &&
+        canonicalState(await stored()) === canonicalState(OTHER),
+      'the refusal stayed on screen after dismissing it, or something was written');
   }
 
   // A2 names both versions, which is what tells the user the fix is an update.

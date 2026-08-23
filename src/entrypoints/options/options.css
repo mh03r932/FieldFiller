@@ -328,7 +328,8 @@ legend,
 .rule-delete,
 .exclusion-delete,
 .export-clipboard,
-.import-cancel {
+.import-cancel,
+.import-dismiss {
   font: inherit;
   border: 1px solid var(--ff-rule);
   border-radius: 4px;
@@ -708,5 +709,9 @@ p.samples {
 }
 
 .import-refused {
+  margin-block-start: 0.75rem;
+}
+
+.import-dismiss {
   margin-block-start: 0.75rem;
 }
