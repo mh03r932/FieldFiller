@@ -137,7 +137,7 @@ try {
         exclusions: { fields: [], domains: [] },
         behaviour: { dispatchEvents: true, skipHidden: true, skipPreFilled: false, maxLengths: {} },
         passwords: { length: 16, upper: true, lower: true, digits: true, symbols: true },
-        sources: { name: true, id: true, className: false, label: true, placeholder: true, ariaLabel: true },
+        sources: { name: true, id: true, testId: true, className: false, label: true, placeholder: true, ariaLabel: true },
       })} })`,
       awaitPromise: true,
     },

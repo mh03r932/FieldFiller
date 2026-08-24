@@ -62,8 +62,8 @@ Legend — **Spec:** `Not started` · `Blocked` · `Drafted` · `Approved`
 
 | ID | Use Case | Primary Actor | Goal | Traces to | Priority | Spec |
 |---|---|---|---|---|---|---|
-| UC-025 | Export Settings to a File | Power User | Write the configuration to a shareable file | FR-052 | High | **Drafted** *(2026-08-19, unbuilt)* |
-| UC-026 | Import Settings from a File | Power User | Replace the configuration from a file, with validation and migration | FR-053, FR-054, FR-073 | High | **Drafted** *(2026-08-19, unbuilt)* |
+| UC-025 | Export Settings to a File | Power User | Write the configuration to a shareable file | FR-052 | High | **Drafted** *(built 2026-08-22)* |
+| UC-026 | Import Settings from a File | Power User | Replace the configuration from a file, with validation and migration | FR-053, FR-054, FR-073 | High | **Drafted** *(built 2026-08-22; FR-073's ladder still owed)* |
 | UC-027 | Migrate Settings from Fake Filler | Migrating User | Convert a Fake Filler backup into our schema and report the result | FR-055, FR-056, FR-073 | High | Unblocked 2026-08-15 — DD-005 and ND-9 are both resolved and the target schema is fixed; Phase 6 |
 | UC-028 | Restore Default Settings | Power User | Return to the shipped defaults after confirmation | FR-048, FR-057 | Medium | Not started |
 | UC-029 | Synchronise Settings Across Devices | Power User | Keep configuration consistent across signed-in browsers, no account | FR-058, FR-059 | High | **Unblocked 2026-08-22** — DD-002 resolved: shard at eight rules a key, last-writer-wins accepted and stated in the interface. Spec not started |

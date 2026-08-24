@@ -53,6 +53,7 @@ function report(overrides: Partial<FillReport> = {}): FillReport {
     capped: undefined,
     stale: 0,
     skippedRules: [],
+    skippedExclusions: [],
     refused: undefined,
     profile: undefined,
     scopeRule: undefined,
@@ -74,6 +75,16 @@ describe('naming a field to a person', () => {
     expect(identityOf(descriptorFor('<input placeholder="Your town" name="t">'))).toBe('Your town');
     expect(identityOf(descriptorFor('<input name="given_name">'))).toBe('given_name');
     expect(identityOf(descriptorFor('<input id="lastName">'))).toBe('lastName');
+  });
+
+  it('names a field by its test id ahead of a framework-generated id (FR-083)', () => {
+    // `:r3:` is a React-generated id and names nothing to anybody. The test id
+    // beside it was written by a person, for a person to read.
+    expect(identityOf(descriptorFor('<input id=":r3:" data-testid="billing-postcode">')))
+      .toBe('billing-postcode');
+    // Still behind everything the user actually reads on the page.
+    expect(identityOf(descriptorFor('<input data-testid="pc-1" aria-label="Postcode">')))
+      .toBe('Postcode');
   });
 
   it('never names a field by its class attribute', () => {
@@ -352,5 +363,30 @@ describe('naming the profile that governed the fill (FR-047, UC-017)', () => {
     expect(profileName({ ...newProfile('p1'), urls: ['*.example.com/*'] })).toBe('*.example.com/*');
     expect(profileSentence(report({ profile: profileName({ ...newProfile('p1'), urls: ['*.example.com/*'] }) }), echo))
       .toBe('[reportProfileApplied:*.example.com/*]');
+  });
+});
+
+describe('an exclusion that could not run', () => {
+  it('gets its own sentence, beside the rules rather than inside them', () => {
+    // The two fail in opposite directions and must not read as one fact: a
+    // skipped rule left a field with a default value, a skipped exclusion left a
+    // field filled that the user had asked to be left alone.
+    const sentence = resultSentence(
+      report({ skippedRules: ['postcode: invalid pattern'], skippedExclusions: ['(a+)+b'] }),
+      echo,
+    );
+
+    expect(sentence).toBe(
+      '[resultSettled:6|[resultScopeAllInputs]] [resultRulesSkipped:1|postcode: invalid pattern] [resultExclusionsSkipped:1|(a+)+b]',
+    );
+  });
+
+  it('says nothing when every exclusion ran', () => {
+    expect(resultSentence(report(), echo)).toBe('[resultSettled:6|[resultScopeAllInputs]]');
+  });
+
+  it('names every pattern that was not applied', () => {
+    const sentence = resultSentence(report({ skippedExclusions: ['(a+)+b', '(x+)+y'] }), echo);
+    expect(sentence).toContain('[resultExclusionsSkipped:2|(a+)+b; (x+)+y]');
   });
 });

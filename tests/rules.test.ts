@@ -180,6 +180,31 @@ describe('matching (FR-067, FR-068)', () => {
     expect(selectRule(descriptor, compileRules([classOnly], on)).selection?.source).toBe('className');
   });
 
+  it('matches a component-rendered field on its test id alone (FR-083)', () => {
+    // The case the source exists for: a framework-generated id, no `name`, no
+    // placeholder, and the only identity anybody chose is the test attribute.
+    const generated = descriptorFor('<input id=":r3:" data-testid="billing-postcode">');
+    const compiled = compileRules(
+      [rule({ match: { mode: 'contains', pattern: 'postcode' } })],
+      DEFAULT_SOURCES,
+    );
+    const selection = selectRule(generated, compiled).selection;
+    expect(selection?.source).toBe('testId');
+    expect(selection?.text).toBe('billing-postcode');
+  });
+
+  it('bounds the test id by the global toggle like every other source', () => {
+    const generated = descriptorFor('<input id=":r3:" data-qa="billing-postcode">');
+    const scoped = rule({ match: { mode: 'contains', pattern: 'postcode' }, sources: ['testId'] });
+
+    expect(selectRule(generated, compileRules([scoped], DEFAULT_SOURCES)).selection?.source) //
+      .toBe('testId');
+
+    const off = { ...DEFAULT_SOURCES, testId: false };
+    expect(effectiveSources(scoped, off)).toEqual([]);
+    expect(selectRule(generated, compileRules([scoped], off)).selection).toBeUndefined();
+  });
+
   it('lets a global toggle silence a source no rule mentions', () => {
     const any = rule({ match: { mode: 'contains', pattern: 'user_name' } });
     const idOff = { ...DEFAULT_SOURCES, id: false };

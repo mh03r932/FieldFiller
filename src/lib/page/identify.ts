@@ -33,6 +33,7 @@ export function describe(
     sources: compact({
       name: attribute(element, 'name'),
       id: element.id === '' ? undefined : element.id,
+      testId: testId(element),
       className: attribute(element, 'class'),
       label: labelText(element),
       placeholder: attribute(element, 'placeholder'),
@@ -154,6 +155,38 @@ function autocompleteToken(element: Element): string | undefined {
   const value = attribute(element, 'autocomplete')?.toLowerCase();
   if (value === undefined || value === 'off' || value === 'on') return undefined;
   return value.split(/\s+/).at(-1);
+}
+
+/**
+ * The test-automation attribute the page uses, if it uses one (FR-083).
+ *
+ * Six spellings, because there is no standard one: `data-testid` is what
+ * Testing Library reads, `data-test-id` and `data-test` are what a good many
+ * codebases wrote before it, `data-qa` is the manual-QA convention,
+ * `data-cy` is Cypress's and `data-automation-id` is what several enterprise
+ * design systems emit.
+ *
+ * First one present wins rather than all of them joined. A control carries one
+ * in practice, and joining would flatten several attributes into a blob that no
+ * pattern can anchor and no report can attribute — which is exactly the source
+ * ND-2 spent this whole module avoiding. Where a page really does carry two, the
+ * list's order decides, and it is stable rather than attribute-order dependent.
+ */
+const TEST_ID_ATTRIBUTES = [
+  'data-testid',
+  'data-test-id',
+  'data-test',
+  'data-qa',
+  'data-cy',
+  'data-automation-id',
+] as const;
+
+function testId(element: Element): string | undefined {
+  for (const name of TEST_ID_ATTRIBUTES) {
+    const value = attribute(element, name);
+    if (value !== undefined) return value;
+  }
+  return undefined;
 }
 
 function attribute(element: Element, name: string): string | undefined {

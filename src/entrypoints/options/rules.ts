@@ -10,6 +10,7 @@ import {
   sampleRule,
 } from '@/lib/rules/editing';
 import { validateRule, type RuleProblem } from '@/lib/rules/validate';
+import { problemText } from './problems';
 import { checkbox, field, focusIn, numberInput, select, textArea, textInput } from './controls';
 import type { OptionsHost } from './host';
 import type { Locale } from '@/lib/persona/persona';
@@ -170,6 +171,20 @@ export function closeRuleIn(key: string): void {
   if (editing?.lens.key === key) editing = undefined;
 }
 
+/**
+ * Closes whatever rule is open, whichever list it belongs to (UC-026).
+ *
+ * `closeRuleIn` asks about one list because its callers are dismantling one.
+ * An import dismantles all of them: the global list and every profile's list
+ * are replaced at once, so there is no list left for an open editor to belong
+ * to. Left set, `isEditingRule` would go on answering yes over a rule the page
+ * no longer draws, which is the stuck state `closeRuleIn` was written for,
+ * reached through the one door it cannot close.
+ */
+export function closeAnyRule(): void {
+  editing = undefined;
+}
+
 /** The last deletion, for as long as this page stays open (UC-011). */
 let undoable: { readonly rule: Rule; readonly at: number; readonly key: string } | undefined;
 
@@ -303,7 +318,10 @@ export function renderRules(
     commit(host, lens, addRule(lens.read(host.settings()), id));
     editing = { id, lens };
     renderRules(host, into, lens);
-    into.querySelector<HTMLInputElement>(`[data-rule="${id}"] input`)?.focus();
+    // Into the pattern, not the first input: the name is optional, and the new
+    // rule is invalid precisely because this field is empty — so this is both
+    // where the work is and where the problem list points.
+    into.querySelector<HTMLInputElement>(`[data-rule="${id}"] .rule-pattern`)?.focus();
   });
   into.append(add);
 
@@ -384,14 +402,8 @@ function ruleRow(
     focusIn(list, `[data-rule="${rule.id}"] .rule-name`);
   });
 
-  const problems = validateRule(rule);
-  if (problems.length > 0) {
-    const flag = document.createElement('span');
-    flag.className = 'rule-flag';
-    flag.textContent = '!';
-    flag.title = problemText(problems[0]!);
-    disclose.append(flag);
-  }
+  markOff(disclose, rule);
+  markInvalid(disclose, rule);
 
   header.append(
     disclose,
@@ -400,7 +412,15 @@ function ruleRow(
   );
   item.append(header);
 
-  if (editing?.id === rule.id) item.append(editor(host, rule, item, list, lens));
+  if (editing?.id === rule.id) {
+    item.append(editor(host, rule, item, list, lens));
+  } else {
+    // Only while closed. The open editor states all of this in full a few pixels
+    // below, and repeating it under the name would be the one place on the page
+    // where the same fact is drawn twice at once.
+    const line = summaryLine(rule);
+    if (line !== undefined) item.append(line);
+  }
   return item;
 }
 
@@ -574,20 +594,67 @@ function editor(
       list.querySelector<HTMLElement>(`[data-rule="${next.id}"] ${refocus}`)?.focus();
       return;
     }
-    rerenderBody(host, next, item, problems.length === 0);
+    rerenderBody(host, next, item);
   };
 
+  const problems = validateRule(rule);
+
+  /*
+   * Three questions in the order a rule is written, each with its own heading:
+   * what it matches, what a match receives, and the toggles that qualify both.
+   * One flat run of ten controls read as a wall with no way to jump to "the
+   * part that says what gets filled"; the headings give the card the same
+   * outline while collapsed as it has expanded.
+   *
+   * Each group carries its own problem list, beside the fields that cause it —
+   * a fresh rule is invalid from the moment it appears (no pattern yet), and
+   * the one sentence saying so used to render at the foot of the long form,
+   * a screen away from the empty field it is about.
+   */
   body.append(
     field(message('ruleLabel'), textInput(rule.label, (value) => update({ ...live(), label: value })), message('ruleLabelHint')),
-    checkbox(message('ruleEnabled'), rule.enabled, (value) => update({ ...live(), enabled: value })),
+    groupHeading('ruleMatchHeading'),
     matcher(live, update),
+    problemList('match', problems, rule),
     sources(live, update),
+    problemList('sources', problems, rule),
+    groupHeading('ruleGeneratorHeading'),
     generatorFields(live, update),
+    problemList('generator', problems, rule),
+    groupHeading('ruleOptionsHeading'),
+    checkbox(message('ruleEnabled'), rule.enabled, (value) => update({ ...live(), enabled: value })),
     checkbox(message('ruleFromPersona'), rule.fromPersona, (value) => update({ ...live(), fromPersona: value }), message('ruleFromPersonaHint')),
     preview(rule, previewLocale(host)),
-    problemList(validateRule(rule)),
   );
   return body;
+}
+
+/**
+ * Two fields that are the two ends of one setting (UC-009).
+ *
+ * A generator's bounds — fewest and most words, min and max, from and to — are
+ * one decision with two halves, and stacked full-width they read as two
+ * unrelated settings a row apart. Side by side they read as a range.
+ *
+ * Flex rather than the two-column `.row` above, and for the reason `.exclusion
+ * .row` gives: these wrap when the *text* outgrows the space, which is not a
+ * width any media query can name — at 200% text a fixed track list overflows
+ * while every breakpoint still says there is room (WCAG 1.4.4, 1.4.10).
+ */
+function pair(first: HTMLElement, second: HTMLElement): HTMLElement {
+  const row = document.createElement('div');
+  row.className = 'pair';
+  row.append(first, second);
+  return row;
+}
+
+export { markOff };
+
+/** A group heading inside the open rule's editor (UC-009). */
+function groupHeading(key: MessageKey): HTMLElement {
+  const heading = document.createElement('h3');
+  heading.textContent = message(key);
+  return heading;
 }
 
 function matcher(live: () => Rule, update: (rule: Rule) => void): HTMLElement {
@@ -604,10 +671,16 @@ function matcher(live: () => Rule, update: (rule: Rule) => void): HTMLElement {
       update({ ...live(), match: { ...live().match, mode: value as Rule['match']['mode'] } }),
   );
 
+  // Named so the add handler can put the focus straight into it: the pattern is
+  // the one field a new rule still needs, where the name is optional and falls
+  // back to the pattern for display (BR-009-3).
+  const patternInput = textInput(rule.match.pattern, (value) =>
+    update({ ...live(), match: { ...live().match, pattern: value } }));
+  patternInput.className = 'rule-pattern';
+
   const pattern = field(
     message('ruleMatch'),
-    textInput(rule.match.pattern, (value) =>
-      update({ ...live(), match: { ...live().match, pattern: value } })),
+    patternInput,
     message('ruleMatchHint'),
   );
 
@@ -626,12 +699,13 @@ function matcher(live: () => Rule, update: (rule: Rule) => void): HTMLElement {
  * is showing an identifier to somebody who never wrote one, in the one control
  * FR-067 exists for, and it could not be translated because it was not a string.
  *
- * Declared as a total record rather than a lookup with a fallback, so adding a
- * seventh source is a compile error here instead of a raw identifier on screen.
+ * Declared as a total record rather than a lookup with a fallback, so adding an
+ * eighth source is a compile error here instead of a raw identifier on screen.
  */
 const SOURCE_LABELS: Record<MatchSource, MessageKey> = {
   name: 'sourceName',
   id: 'sourceId',
+  testId: 'sourceTestId',
   className: 'sourceClassName',
   label: 'sourceLabel',
   placeholder: 'sourcePlaceholder',
@@ -646,7 +720,7 @@ const SOURCE_LABELS: Record<MatchSource, MessageKey> = {
  * intersection with the global toggles, and a rule cannot opt back into a source
  * switched off there.
  *
- * Unticking all six is allowed to happen and then refused: `validateRule` reports
+ * Unticking all of them is allowed to happen and then refused: `validateRule` reports
  * it and `update` does not commit, which is the same path an empty pattern takes.
  * Preventing the last untick instead would leave the user with a checkbox that
  * silently does nothing and no statement of why.
@@ -675,7 +749,7 @@ function sources(live: () => Rule, update: (rule: Rule, refocus?: string) => voi
     // exists to change.
     const next = { ...live() };
     delete next.sources;
-    // Structural: this toggle is what decides whether the six per-source
+    // Structural: this toggle is what decides whether the per-source
     // checkboxes exist at all, so the body has to be rebuilt to show or remove
     // them. Focus returns here, to the box the user just operated.
     update(allBox.checked ? next : { ...next, sources: [...MATCH_SOURCES] }, '.sources-all');
@@ -778,22 +852,28 @@ function generatorFields(live: () => Rule, update: (rule: Rule, refocus?: string
       break;
     case 'number':
       wrapper.append(
-        field(message('genMin'), numberInput(generator.min, (value) => set('number')({ min: value }), GENERATOR_BOUNDS.number)),
-        field(message('genMax'), numberInput(generator.max, (value) => set('number')({ max: value }), GENERATOR_BOUNDS.number)),
+        pair(
+          field(message('genMin'), numberInput(generator.min, (value) => set('number')({ min: value }), GENERATOR_BOUNDS.number)),
+          field(message('genMax'), numberInput(generator.max, (value) => set('number')({ max: value }), GENERATOR_BOUNDS.number)),
+        ),
         field(message('genDecimals'), numberInput(generator.decimals, (value) => set('number')({ decimals: value }), GENERATOR_BOUNDS.decimals)),
       );
       break;
     case 'date':
       wrapper.append(
         field(message('genFormat'), textInput(generator.format, (value) => set('date')({ format: value })), message('genFormatHint')),
-        field(message('genFrom'), textInput(generator.from, (value) => set('date')({ from: value }))),
-        field(message('genTo'), textInput(generator.to, (value) => set('date')({ to: value }))),
+        pair(
+          field(message('genFrom'), textInput(generator.from, (value) => set('date')({ from: value }))),
+          field(message('genTo'), textInput(generator.to, (value) => set('date')({ to: value }))),
+        ),
       );
       break;
     case 'text':
       wrapper.append(
-        field(message('genMinWords'), numberInput(generator.minWords, (value) => set('text')({ minWords: value }), GENERATOR_BOUNDS.words)),
-        field(message('genMaxWords'), numberInput(generator.maxWords, (value) => set('text')({ maxWords: value }), GENERATOR_BOUNDS.words)),
+        pair(
+          field(message('genMinWords'), numberInput(generator.minWords, (value) => set('text')({ minWords: value }), GENERATOR_BOUNDS.words)),
+          field(message('genMaxWords'), numberInput(generator.maxWords, (value) => set('text')({ maxWords: value }), GENERATOR_BOUNDS.words)),
+        ),
       );
       break;
     case 'alphanumeric':
@@ -852,35 +932,47 @@ function preview(rule: Rule, locale: Locale): HTMLElement {
   return box;
 }
 
-function problemList(problems: ReturnType<typeof validateRule>): HTMLElement {
+/**
+ * One part's validation failures, as sentences (NFR-018, NFR-020).
+ *
+ * One list per value of `RuleProblem.field`, drawn directly under the controls
+ * that field names: the pattern row, the sources fieldset, the generator's own
+ * fields. A problem belongs beside the field that fixes it, and the split is the
+ * type's — there is no mapping to keep in step and no group that can be handed a
+ * fault about controls it does not contain. A single list at the foot of the
+ * editor was a screen away from the empty pattern it was about; a two-way split
+ * put "this rule could never fire" under the pattern row rather than under the
+ * six checkboxes that caused it.
+ *
+ * The box is rendered even when empty, because `rerenderBody` replaces it in
+ * place: a box that exists only while it has content could never gain any.
+ *
+ * The sentence itself is resolved by `problemText`, which the exclusion list and
+ * the import preview also use; only the frame around it belongs to this screen.
+ */
+function problemList(
+  part: RuleProblem['field'],
+  problems: ReturnType<typeof validateRule>,
+  rule: Rule,
+): HTMLElement {
   const box = document.createElement('div');
-  box.className = 'problems';
-  box.setAttribute('role', 'alert');
+  box.className = `problems problems-${part}`;
+
+  // Quiet, and not a live region, while the rule is still blank: nothing has
+  // gone wrong yet, and an alert firing as the editor opens announces the user's
+  // own click back at them as a failure (see `untouched`).
+  const pending = untouched(rule);
+  if (!pending) box.setAttribute('role', 'alert');
+
   for (const problem of problems) {
+    if (problem.field !== part) continue;
     const line = document.createElement('p');
-    line.className = 'problem';
+    line.className = pending ? 'hint' : 'problem';
     line.textContent = message('ruleInvalid', [problemText(problem)]);
     box.append(line);
   }
   return box;
 }
-
-/**
- * One validation failure as a sentence (NFR-018, NFR-020).
- *
- * `problem.code` goes straight into `message`, whose parameter type is the union
- * of keys WXT generates from the catalog — so a code without a message does not
- * compile, and the pairing needs no test to hold. What used to be here was
- * `message('ruleInvalid', [problem.message])`, where `problem.message` was an
- * English literal from `lib/rules/validate.ts`: the frame was translatable and
- * the sentence inside it never could be.
- */
-function problemText(problem: RuleProblem): string {
-  return problem.params === undefined
-    ? message(problem.code)
-    : message(problem.code, problem.params);
-}
-
 /* ------------------------------------------------------------ small builders */
 
 /**
@@ -897,10 +989,144 @@ function previewLocale(host: RuleEditorHost): Locale {
   return locale === 'auto' ? 'en-US' : locale;
 }
 
+/**
+ * What a closed rule does, in one line (UC-009).
+ *
+ * The list is ordered by precedence and says so: first match wins. A row
+ * carrying only the rule's name gave the reader nothing to apply that with. A
+ * rule called "Postcode" does not say whether it matches `^(zip|post)` or what
+ * it produces, so deciding whether rule 3 belonged above rule 1 meant opening
+ * each in turn, and only one rule opens at a time.
+ *
+ * Absent until there is a pattern. A rule created a moment ago has nothing to
+ * summarise, and `Contains ""` is worse than the blank it replaces.
+ */
+function summaryLine(rule: Rule): HTMLElement | undefined {
+  if (rule.match.pattern === '') return undefined;
+  const line = document.createElement('p');
+  line.className = 'rule-summary';
+  line.textContent = message('ruleSummary', [
+    message(MATCH_MODES[rule.match.mode]),
+    rule.match.pattern,
+    generatorSummary(rule.generator),
+  ]);
+  return line;
+}
+
+/** The match modes by catalog key, so a fourth mode cannot go unnamed here. */
+const MATCH_MODES: Record<Rule['match']['mode'], MessageKey> = {
+  contains: 'ruleModeContains',
+  exact: 'ruleModeExact',
+  regex: 'ruleModeRegex',
+};
+
+/**
+ * A generator named for the summary line.
+ *
+ * The four types defined by a string the user typed show that string, because
+ * "Template" is the same word for every template anyone has ever written and
+ * `INV-{digit:6}` is the one in front of them. The rest carry no single value
+ * worth a row's width, so they show their type.
+ */
+function generatorSummary(generator: Generator): string {
+  switch (generator.type) {
+    case 'alphanumeric':
+      return generator.template === '' ? message('genAlphanumeric') : generator.template;
+    case 'regex':
+      return generator.pattern === '' ? message('genRegex') : generator.pattern;
+    case 'constant':
+      return generator.value === '' ? message('genConstant') : generator.value;
+    case 'date':
+      return generator.format === '' ? message('genDate') : generator.format;
+    default: {
+      const named = GENERATOR_TYPES.find(([type]) => type === generator.type);
+      return named === undefined ? generator.type : message(named[1]);
+    }
+  }
+}
+
+/**
+ * The "kept, but not applied" marker (UC-010 A3).
+ *
+ * A rule switched off looked exactly like one switched on: `ruleRow` never read
+ * `rule.enabled`, and the toggle that sets it sits at the foot of the open
+ * editor, so the state could be changed and then hidden by collapsing the row it
+ * belongs to.
+ *
+ * A chip rather than a dimmed row. Fading the row would say it with `opacity`,
+ * which composites the foreground toward the background and takes small text
+ * under 4.5:1, the failure `.report-scope-rule` already carries a comment about
+ * (WCAG 1.4.3). A word costs nothing and anyone can read it.
+ */
+function markOff(disclose: HTMLElement, rule: { readonly enabled: boolean }): void {
+  disclose.querySelector('.rule-off')?.remove();
+  if (rule.enabled) return;
+  const off = document.createElement('span');
+  off.className = 'rule-off';
+  off.textContent = message('ruleOff');
+  disclose.append(off);
+}
+
+/**
+ * A rule nobody has started writing yet (UC-009).
+ *
+ * A new rule is invalid from the moment the button creates it, because it has no
+ * pattern — so the editor opened with a red "Not saved" under a field the user
+ * had not yet been given the chance to type into, reporting the button's own
+ * doing as their omission, and the collapsed row was flagged before it had ever
+ * been anything else. Nothing is hidden either way: the same sentence is shown,
+ * as the hint it is until there is something to have got wrong. The moment a
+ * name or a pattern exists it is a real report and is drawn as one.
+ *
+ * Structural rather than a `touched` flag, because the two agree — a rule with
+ * neither a name nor a pattern is one nobody has typed into — and a flag would
+ * have to survive `rerenderBody`, which is called from outside the closure that
+ * would hold it.
+ */
+function untouched(rule: Rule): boolean {
+  return rule.label === '' && rule.match.pattern === '';
+}
+
+/**
+ * The "not being saved" marker on a rule's collapsed header (BR-009-1).
+ *
+ * Redrawn rather than only removed. `rerenderBody` used to delete this and never
+ * put it back, so a rule made invalid *again* while its editor was open — a
+ * pattern typed and then cleared — kept a clean header until the next full
+ * render, and the header is the only place a closed rule can say it is not being
+ * saved.
+ *
+ * The sentence is in the DOM, not in a `title`. A `title` on a non-interactive
+ * span is announced by almost nothing and is unreachable by keyboard or touch,
+ * so the bare "!" was the whole of what a screen reader got — and "!" inside a
+ * button's name is punctuation, which most of them drop (NFR-019).
+ */
+function markInvalid(disclose: HTMLElement, rule: Rule): void {
+  disclose.querySelector('.rule-flag')?.remove();
+  const problems = validateRule(rule);
+  if (problems.length === 0 || untouched(rule)) return;
+
+  const flag = document.createElement('span');
+  flag.className = 'rule-flag';
+
+  const mark = document.createElement('span');
+  mark.textContent = '!';
+  mark.setAttribute('aria-hidden', 'true');
+
+  const said = document.createElement('span');
+  said.className = 'visually-hidden';
+  said.textContent = message('ruleInvalid', [problemText(problems[0]!)]);
+
+  flag.append(mark, said);
+  disclose.append(flag);
+}
+
 function nameOf(rule: Rule): string {
   // Falls back to the pattern rather than to nothing: worse to read, never
   // blank, and blank is what makes a report unusable (BR-009-3).
-  return rule.label !== '' ? rule.label : rule.match.pattern !== '' ? rule.match.pattern : message('ruleUnnamed');
+  if (rule.label !== '') return rule.label;
+  if (rule.match.pattern !== '') return rule.match.pattern;
+  return message('ruleUnnamed');
 }
 
 function commit(host: RuleEditorHost, lens: RuleLens, rules: readonly Rule[]): void {
@@ -914,16 +1140,24 @@ function commit(host: RuleEditorHost, lens: RuleLens, rules: readonly Rule[]): v
  * it, which makes a text field unusable. The two parts that must follow the
  * rule are replaced in place instead.
  */
-function rerenderBody(host: RuleEditorHost, rule: Rule, item: HTMLElement, valid: boolean): void {
+function rerenderBody(host: RuleEditorHost, rule: Rule, item: HTMLElement): void {
   const body = item.querySelector('.rule-body');
   if (body === null) return;
 
+  const problems = validateRule(rule);
   body.querySelector('.preview')?.replaceWith(preview(rule, previewLocale(host)));
-  body.querySelector('.problems')?.replaceWith(problemList(validateRule(rule)));
+  for (const part of ['match', 'sources', 'generator'] as const) {
+    body.querySelector(`.problems-${part}`)?.replaceWith(problemList(part, problems, rule));
+  }
 
   const name = item.querySelector('.rule-name');
-  if (name instanceof HTMLElement) name.firstChild!.textContent = nameOf(rule);
-
-  const flag = item.querySelector('.rule-flag');
-  if (valid) flag?.remove();
+  if (name instanceof HTMLElement) {
+    name.firstChild!.textContent = nameOf(rule);
+    // Both markers, because both can change from inside the open editor: the
+    // Enabled box sits in the Options group, and every keystroke can make the
+    // rule valid or invalid. The summary is not redrawn here — it exists only
+    // while the rule is closed, and closing re-renders the whole list.
+    markOff(name, rule);
+    markInvalid(name, rule);
+  }
 }

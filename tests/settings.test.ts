@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   agentSettings,
+  fillableExclusions,
   DEFAULT_PASSWORD_POLICY,
   DEFAULT_SETTINGS,
   DEFAULT_SOURCES,
@@ -103,11 +104,53 @@ describe('parseSettings', () => {
       });
     });
 
-    it('falls back to the pattern for a missing id and label', () => {
+    it('falls back to the pattern for a missing label, and to the pattern and position for an id', () => {
       const [parsed] = parseSettings({
         rules: [{ match: rule.match, generator: rule.generator }],
       }).rules;
-      expect(parsed).toMatchObject({ id: 'email', label: 'email' });
+      expect(parsed).toMatchObject({ id: 'email#0', label: 'email' });
+    });
+
+    it('gives two rules with one pattern two identities (BR-010-2)', () => {
+      // The pattern alone was the fallback until 2026-08-24, and every editor
+      // write is keyed on the id: `replaceRule` maps *all* matches and
+      // `removeRule` filters all, so a hand-written file with two `email` rules
+      // gave the user a list where editing one relabelled both and deleting one
+      // deleted both. Fills never saw it — matching takes the first hit — which
+      // is exactly why nothing else catches this.
+      const { rules } = parseSettings({
+        rules: [
+          { label: 'first', match: rule.match, generator: rule.generator },
+          { label: 'second', match: rule.match, generator: rule.generator },
+        ],
+      });
+
+      expect(rules.map((parsed) => parsed.id)).toEqual(['email#0', 'email#1']);
+    });
+
+    it('leaves a stated id alone, wherever it sits', () => {
+      // The fallback is for a file that states none. A file that states one is
+      // making a claim about identity that a parser has no business rewriting —
+      // including the claim, in the second entry here, that it is the same rule
+      // as the first.
+      const { rules } = parseSettings({
+        rules: [
+          { id: 'chosen', match: rule.match, generator: rule.generator },
+          { id: 'chosen', match: rule.match, generator: rule.generator },
+        ],
+      });
+
+      expect(rules.map((parsed) => parsed.id)).toEqual(['chosen', 'chosen']);
+    });
+
+    it('numbers by position in the file, so a dropped entry does not renumber the rest', () => {
+      // The alternative is an id that depends on what was *dropped* beside it:
+      // add a malformed rule at the top of a file and every id below it shifts.
+      const { rules } = parseSettings({
+        rules: [{ label: 'unreadable' }, { match: rule.match, generator: rule.generator }],
+      });
+
+      expect(rules.map((parsed) => parsed.id)).toEqual(['email#1']);
     });
 
     it('drops a malformed rule instead of repairing it', () => {
@@ -257,6 +300,20 @@ describe('parseSettings', () => {
       expect(parseSettings({}).sources).toEqual(DEFAULT_SOURCES);
     });
 
+    it('ships the noisy source off and the deliberate one on (BR-018-2, BR-018-5)', () => {
+      expect(DEFAULT_SOURCES.className).toBe(false);
+      expect(DEFAULT_SOURCES.testId).toBe(true);
+    });
+
+    it('defaults a source a file predates rather than reading its absence as off', () => {
+      // A configuration exported before `testId` existed names six sources. Off
+      // is a choice the user never made, and it would silently cost them the
+      // best identity on a component-rendered form — so the parser's default
+      // stands, exactly as it does for a file with no `sources` key at all.
+      const before = { name: true, id: true, className: false, label: true, placeholder: true, ariaLabel: true };
+      expect(parseSettings({ sources: before }).sources.testId).toBe(true);
+    });
+
     it('keeps only positive integer max-lengths', () => {
       expect(parseSettings({ behaviour: { maxLengths: { text: 20, email: 0, url: 2.5 } } }) //
         .behaviour.maxLengths).toEqual({ text: 20 });
@@ -400,6 +457,55 @@ describe('agentSettings', () => {
       },
     });
     expect(agent.ignorePatterns).toEqual(['^card\\.number$', 'csrf', '^tok(en)?$']);
+  });
+
+  it('does not send a pattern the editor already flags (NFR-009)', () => {
+    // Stored and run are different questions. The exclusion editor keeps a
+    // half-typed pattern on purpose (UC-005 A5) and an import keeps one out of a
+    // file (UC-026 A8) — neither is a reason to hand it to a page, where
+    // `matchesIgnorePattern` tests it against `className` and label text on
+    // every control of every pass. Measured before this existed: a catastrophic
+    // pattern against an 86-character utility class string took 55 seconds.
+    const agent = agentSettings({
+      ...DEFAULT_SETTINGS,
+      exclusions: {
+        fields: [
+          { mode: 'regex', pattern: 'csrf' },
+          { mode: 'regex', pattern: '(a+)+b' },
+          { mode: 'regex', pattern: '(unclosed' },
+          { mode: 'regex', pattern: '^tok(en)?$' },
+        ],
+        domains: [],
+      },
+    });
+
+    expect(agent.ignorePatterns).toEqual(['csrf', '^tok(en)?$']);
+  });
+
+  it('keeps a literal pattern that would be catastrophic as a regex', () => {
+    // `contains` and `exact` are escaped before they are compiled, so `(a+)+b`
+    // in either mode is six harmless characters and must not be caught by the
+    // check above.
+    const agent = agentSettings({
+      ...DEFAULT_SETTINGS,
+      exclusions: { fields: [{ mode: 'contains', pattern: '(a+)+b' }], domains: [] },
+    });
+
+    expect(agent.ignorePatterns).toEqual(['\\(a\\+\\)\\+b']);
+  });
+});
+
+describe('fillableExclusions', () => {
+  it('separates what a page may evaluate from what it may not, with the fault', () => {
+    const { runnable, refused } = fillableExclusions([
+      { mode: 'regex', pattern: 'csrf' },
+      { mode: 'regex', pattern: '(a+)+b' },
+    ]);
+
+    expect(runnable).toEqual([{ mode: 'regex', pattern: 'csrf' }]);
+    expect(refused).toHaveLength(1);
+    expect(refused[0]?.pattern).toBe('(a+)+b');
+    expect(refused[0]?.problem.code).toBe('ruleProblemPatternBacktracks');
   });
 });
 

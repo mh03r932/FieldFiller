@@ -1015,9 +1015,11 @@ the global list (FR-031). Each rule carries a match mode — `contains`, `exact`
 rather than one implicit regex dialect. The pattern is never rewritten behind the user's back,
 so `^name$` in regex mode means what it says and the reference's defect (`name` matching
 `username`, `firstname` and `company_name`) is gone by construction. A rule may name a subset
-of the six identity sources; omitting it means "whatever is enabled globally", and the
+of the seven identity sources; omitting it means "whatever is enabled globally", and the
 effective set is always the intersection with FR-028's toggles, so switching `className` off
-globally silences it everywhere without editing a single rule (FR-067).
+globally silences it everywhere without editing a single rule (FR-067). *(Seven since
+2026-08-22: FR-083 added the test-automation attribute, which on a component-rendered form is
+often the only identity anybody chose deliberately.)*
 
 **Generators** are a discriminated union on `type`, which is ND-9's correction: thirteen types
 — the twelve FR-019 names, plus `constant`, which is the most common real need and otherwise

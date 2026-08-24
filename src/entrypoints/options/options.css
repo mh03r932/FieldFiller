@@ -50,6 +50,19 @@ body {
   background: var(--ff-bg);
   color: var(--ff-fg);
   font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  /*
+   * Stated rather than inherited, which is not a formality here. Chrome's
+   * user-agent sheet gives a `chrome-extension://` document `body { font-size:
+   * 12px }` and nothing overrode it, so every inherited run of text on this page
+   * — a section's intro, a list item, a button, a legend, a table cell — came
+   * out at 12px while everything sized in `rem` was measured off the 16px root.
+   * That inverted the scale rather than merely shrinking it: a 0.85rem hint
+   * rendered *larger* than the paragraph it explained, and the rule editor's own
+   * headings landed within two pixels of the field labels beneath them. One
+   * declaration puts the page back on one scale, and every size below is a ratio
+   * of this one.
+   */
+  font-size: 1rem;
   line-height: 1.5;
 }
 
@@ -58,13 +71,43 @@ main {
   margin-inline: auto;
 }
 
+/*
+ * Five sizes, each with one job: the page title, the section heading, the body
+ * (which is also every label, input and button), the secondary line under one of
+ * those, and the group label. Nothing else is allowed a size of its own — the
+ * page had picked up 0.85, 0.875, 0.9 and 0.95rem for four things that are all
+ * "a quieter line beneath something", which reads as inconsistency because that
+ * is what it is.
+ *
+ * The first two levels step by size. The third deliberately does not. A group
+ * label inside a card competes with the section heading above it at any size
+ * close to it, and stepping it far enough down to stop competing put it under
+ * the body text it was introducing. So it steps by *style* instead — the small
+ * tracked uppercase this page already used for a table's column heads. Size then
+ * carries exactly one meaning here, importance, and never has to carry "a
+ * different kind of thing" as well.
+ */
 h1 {
   margin-top: 0;
-  font-size: 1.5rem;
+  font-size: 1.75rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
 }
 
 p {
   color: var(--ff-muted);
+}
+
+/*
+ * The statement under the title. Full foreground, not the muted every other
+ * paragraph gets: it is the page speaking for itself rather than annotating a
+ * control, and the sentence it carries — that there is no Save button — is the
+ * one a reader cannot recover from anywhere else on screen.
+ */
+.lede {
+  margin-block: 0.5rem 0;
+  color: var(--ff-fg);
+  max-width: 36rem;
 }
 
 /*
@@ -76,9 +119,39 @@ p {
  * to fall under it. The colour never carries the fact alone — the word is in the
  * cell beside it — so a reader who cannot distinguish them loses nothing.
  */
+/*
+ * Each section announces its own start with a rule across the page. The page is
+ * one long scroll of twelve sections by design (see index.html), and without the
+ * divider there is nothing on screen marking where one ends and the next begins
+ * — find-in-page lands the reader mid-stream with no landmark.
+ */
 h2 {
-  margin-top: 2.5rem;
-  font-size: 1.15rem;
+  margin-top: 3rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--ff-rule);
+  font-size: 1.25rem;
+  font-weight: 600;
+}
+
+/*
+ * Every group label on the page, whatever element happens to carry it: the rule
+ * editor's three groups and a profile's rule list (h3), the sample under a rule
+ * (h4), the report's column heads, and every fieldset legend — "Match against",
+ * "Must include", "Default length limits", "Example". All of them name a set of
+ * controls sitting under or around them, so they are one thing and now look like
+ * one. A legend used to render at the browser's default with no styling at all,
+ * which made the most common group label on the page the only one that did not
+ * look like a label.
+ */
+h3,
+h4,
+legend,
+.report-table thead th {
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ff-muted);
 }
 
 .report-summary {
@@ -102,12 +175,6 @@ h2 {
   overflow-wrap: anywhere;
 }
 
-.report-table thead th {
-  font-size: 0.85rem;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-  color: var(--ff-muted);
-}
 
 .report-table tbody th {
   font-weight: 600;
@@ -125,12 +192,12 @@ h2 {
 
 .detail {
   color: var(--ff-muted);
-  font-size: 0.95rem;
+  font-size: 0.875rem;
 }
 
 .report-privacy {
   margin-top: 1.5rem;
-  font-size: 0.9rem;
+  font-size: 0.875rem;
   border-inline-start: 3px solid var(--ff-rule);
   padding-inline-start: 0.75rem;
 }
@@ -140,7 +207,7 @@ h2 {
    the fill rather than during it. */
 .report-scope-rule {
   margin-top: 0.25rem;
-  font-size: 0.875em;
+  font-size: 0.875rem;
   /*
    * Quieter by colour, not by opacity. `opacity: 0.8` composited the muted
    * foreground toward the background and took it to 4.35:1 in the light scheme —
@@ -152,12 +219,28 @@ h2 {
 }
 
 /*
+ * The last fill's outcome, under the page title, linking to the report itself
+ * (DD-006). Empty and unrendered when there is nothing to report, so it costs
+ * the usual visit nothing at all.
+ */
+.report-lede {
+  margin-block: 0.75rem 0;
+  color: var(--ff-fg);
+  max-width: 36rem;
+}
+
+.report-lede:empty {
+  margin-block: 0;
+}
+
+/*
  * The rule editor (UC-009..UC-013).
  *
  * Order is meaning here — first match wins — so the list reads as a numbered
  * sequence and the move controls sit with each rule rather than in a toolbar.
  * Nothing below depends on colour to carry a fact: the invalid marker is a
- * character with a title, and validation problems are sentences (NFR-019).
+ * character with the sentence itself beside it, and validation problems are
+ * sentences (NFR-019).
  */
 .visually-hidden {
   position: absolute;
@@ -192,6 +275,35 @@ h2 {
   flex-wrap: wrap;
 }
 
+/*
+ * The rule's name is the control that opens it. `aria-expanded` said so to a
+ * screen reader and nothing said it to anybody else: a bold run of text with no
+ * border, no background and no marker does not read as a button, so the only way
+ * to discover the editor was to click the name on a hunch.
+ */
+.rule-name::before {
+  content: '';
+  display: inline-block;
+  width: 0.4em;
+  height: 0.4em;
+  margin-inline-end: 0.6em;
+  border-right: 2px solid var(--ff-muted);
+  border-bottom: 2px solid var(--ff-muted);
+  transform: rotate(-45deg);
+  transition: transform 120ms ease;
+  vertical-align: 0.15em;
+}
+
+.rule-name[aria-expanded='true']::before {
+  transform: rotate(45deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rule-name::before {
+    transition: none;
+  }
+}
+
 .rule-name {
   flex: 1;
   /* A flex item will not shrink past its content without this. */
@@ -215,7 +327,9 @@ h2 {
 .rule-order button,
 .rule-delete,
 .exclusion-delete,
-button.primary {
+.export-clipboard,
+.import-cancel,
+.import-dismiss {
   font: inherit;
   border: 1px solid var(--ff-rule);
   border-radius: 4px;
@@ -225,8 +339,59 @@ button.primary {
   cursor: pointer;
 }
 
+/*
+ * A section's main action — add a rule, add a profile, export, confirm an
+ * import. Filled with the page's own foreground, which inverts the scheme and
+ * keeps the contrast a token swap rather than a second palette: ~15:1 light and
+ * ~13:1 dark (WCAG 1.4.3). It was grouped with the buttons above and so looked
+ * exactly like the Delete sitting beside it, which is the one pairing on this
+ * page where a mistaking must not be cheap.
+ */
+button.primary {
+  font: inherit;
+  font-weight: 600;
+  border: 1px solid var(--ff-fg);
+  border-radius: 4px;
+  background: var(--ff-fg);
+  color: var(--ff-bg);
+  padding: 0.4rem 0.9rem;
+  cursor: pointer;
+}
+
+/*
+ * What a closed rule or profile actually does, under its name.
+ *
+ * Indented past the chevron so it hangs under the name rather than under the
+ * marker, which is the difference between a caption and a second row.
+ */
+.rule-summary {
+  margin: 0.15rem 0 0;
+  padding-inline-start: 1.6em;
+  font-size: 0.875rem;
+  color: var(--ff-muted);
+  /* A pattern or a template can be long and unbroken; it wraps rather than
+     pushing the card sideways at 320px (WCAG 1.4.10). */
+  overflow-wrap: anywhere;
+}
+
+/*
+ * "Kept, but not applied." A chip in the group-label style the rest of the page
+ * uses, so it reads as a state rather than as part of the name.
+ */
+.rule-off {
+  margin-inline-start: 0.6em;
+  padding: 0.05em 0.5em;
+  border: 1px solid var(--ff-rule);
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ff-muted);
+}
+
 /* Focus must be visible on every control, not only where a browser chooses. */
-:where(button, input, select, textarea):focus-visible {
+:where(a, button, input, select, textarea):focus-visible {
   outline: 2px solid var(--ff-ok);
   outline-offset: 2px;
 }
@@ -236,16 +401,58 @@ button.primary {
   cursor: default;
 }
 
+/*
+ * The open editor, set off from the header that opened it. Without the rule the
+ * form ran straight on from the rule's own name, so an expanded card had no
+ * boundary anywhere in it and the name read as the first label of the form
+ * rather than as the thing the form is about.
+ */
 .rule-body {
   display: grid;
   gap: 0.75rem;
+  margin-block-start: 0.5rem;
   padding-block: 0.75rem;
+  border-top: 1px solid var(--ff-rule);
 }
 
+/*
+ * A group label with a hairline running out to the card's edge.
+ *
+ * The grid gap spaces the body evenly, and evenly is the problem: a heading with
+ * exactly as much air above it as two adjacent fields have between them does not
+ * start anything, so three named groups read as one run of ten controls with
+ * three words dropped into it. The extra margin and the rule are what make the
+ * groups groups. A box each would have been the other answer and is the wrong
+ * one — the matcher already contains a bordered fieldset, and boxes inside boxes
+ * inside the rule's own box is three borders deep for two levels of meaning.
+ */
+.rule-body h3 {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin: 0.75rem 0 0;
+}
+
+.rule-body h3::after {
+  content: '';
+  flex: 1;
+  border-top: 1px solid var(--ff-rule);
+}
+
+/* The first group opens the body, where the border above is separation enough. */
+.rule-body h3:first-of-type {
+  margin-top: 0;
+}
+
+/*
+ * No size of its own. A label and its control are the page's ordinary text, and
+ * the 0.95rem here was a fifth size doing nothing but sitting between the body
+ * and the hint under it — while, because of the 12px body above, actually
+ * rendering *larger* than the paragraph that introduced the whole section.
+ */
 .field {
   display: grid;
   gap: 0.2rem;
-  font-size: 0.95rem;
 }
 
 .field.check {
@@ -274,10 +481,56 @@ button.primary {
   min-width: 0;
 }
 
+/*
+ * The two ends of one setting, side by side (see `pair` in rules.ts).
+ *
+ * Equal shares rather than content widths, so the two labels line up as two
+ * columns whatever they say — "Earliest"/"Latest" and "Fewest words"/"Most
+ * words" are not the same length and were never going to be in translation. The
+ * `8rem` basis is the wrap point: below two of them the pair stacks, which is
+ * the same answer `.exclusion .row` gives and needs no breakpoint to reach.
+ */
+.pair {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.pair > .field {
+  /* A flex item will not shrink past its content without this. */
+  min-inline-size: 0;
+  flex: 1 1 8rem;
+}
+
+/*
+ * A number gets a number's width. The 32rem above is right for a pattern and
+ * absurd for "fewest words: 3" — the generator's two bounds each spanned the
+ * whole card, which read as two unrelated settings rather than the two ends of
+ * one range.
+ */
+.field input[type='number'] {
+  max-width: 8rem;
+}
+
 .hint,
 .muted {
   color: var(--ff-muted);
-  font-size: 0.85rem;
+  font-size: 0.875rem;
+}
+
+/*
+ * A hint under a checkbox, rather than run on from its label.
+ *
+ * `.field` is a grid, so its hint lands on a row of its own without being asked.
+ * `.field.check` is a block — the box and its text have to sit on one line — and
+ * the hint was inheriting that: "Skip controls that are not visibleOn by default"
+ * read as one run-on sentence with a word boundary missing. Every checkbox hint
+ * on the page was affected; the test-id source made it a third instance rather
+ * than finding it.
+ */
+.field.check .hint {
+  display: block;
+  padding-inline-start: 1.5rem;
 }
 
 .row {
@@ -330,7 +583,11 @@ button.primary {
 
 /*
  * Three controls, not the two `.row` assumes: a mode, a pattern and a remove
- * button.
+ * button. A profile's address patterns are the same shape — one field and one
+ * Remove — and were laid out with the grid instead, which sizes its first column
+ * to that column's content: the field carried a two-line hint, so the column
+ * took 572px where the field alone wants 190px, and the button beside it was
+ * pushed 8px past the fieldset's own edge and clipped. Same shape, same rule.
  *
  * Flex rather than the grid above, and not for variety. A fixed three-column
  * track list has to be told at what width to collapse, and the width that
@@ -341,14 +598,16 @@ button.primary {
  * 1.4.10). Wrapping needs no width to be named, so it is right at every text
  * size rather than at the ones somebody thought of.
  */
-.exclusion .row {
+.exclusion .row,
+.pattern-row {
   display: flex;
   flex-wrap: wrap;
   align-items: end;
   gap: 0.75rem;
 }
 
-.exclusion .row > .field {
+.exclusion .row > .field,
+.pattern-row > .field {
   /* A flex item will not shrink past its content without this. */
   min-inline-size: 0;
   flex: 1 1 10rem;
@@ -378,13 +637,13 @@ p.samples {
   margin: 0;
   padding-inline-start: 1.1rem;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 0.9rem;
+  font-size: 0.875rem;
   overflow-wrap: anywhere;
 }
 
 .problem {
   color: var(--ff-bad);
-  font-size: 0.9rem;
+  font-size: 0.875rem;
   margin: 0;
 }
 
@@ -392,4 +651,82 @@ p.samples {
   display: flex;
   align-items: center;
   gap: 0.75rem;
+}
+
+/*
+ * UC-025's two routes, side by side and wrapping rather than shrinking.
+ *
+ * Both are export buttons and neither is a fallback the user should have to
+ * discover, so they sit on one line where there is room and stack where there is
+ * not — the same behaviour the rest of this page gives a pair of controls at
+ * 320 px (WCAG 1.4.10).
+ */
+.export-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-block-end: 0.75rem;
+}
+
+.export-privacy {
+  margin-block-end: 0;
+}
+
+/*
+ * UC-026's preview: what an import would do, before it does it.
+ *
+ * Set apart from the chooser above it rather than styled as a warning. It is
+ * not an error — it is the ordinary path, and every import passes through it —
+ * so it reads as a statement with two buttons under it. The refusal beside it
+ * uses `.problem`, which is where this page puts things that did not happen.
+ */
+.import-plan {
+  margin-block-start: 0.75rem;
+  padding: 0.75rem;
+  border: 1px solid var(--ff-rule);
+  border-radius: 4px;
+}
+
+.import-summary {
+  margin-block-start: 0;
+  font-weight: 600;
+}
+
+.import-dropped ul {
+  margin: 0.25rem 0 0.75rem;
+  padding-inline-start: 1.1rem;
+  color: var(--ff-muted);
+  font-size: 0.875rem;
+  /* A file may name a rule anything at all, including something long and
+     unbroken; the list wraps rather than pushing the page sideways at 320 px. */
+  overflow-wrap: anywhere;
+}
+
+/* Read together with the drop list and styled as one, because the difference
+   between them is what the headings say rather than how the two look. Giving the
+   notes a colour of their own would rank them against the drops, and they are
+   not the more serious of the two — an entry that arrived faulty is correctable
+   in the list below, an entry that did not arrive is gone. */
+.import-noted ul {
+  margin: 0.25rem 0 0.75rem;
+  padding-inline-start: 1.1rem;
+  color: var(--ff-muted);
+  font-size: 0.875rem;
+  /* A pattern out of a file can be long and unbroken; wrap rather than push the
+     page sideways at 320 px. */
+  overflow-wrap: anywhere;
+}
+
+.import-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.import-refused {
+  margin-block-start: 0.75rem;
+}
+
+.import-dismiss {
+  margin-block-start: 0.75rem;
 }

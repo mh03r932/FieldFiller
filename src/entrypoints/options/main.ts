@@ -5,12 +5,14 @@ import { DEFAULT_SETTINGS, parseSettings, type Settings } from '@/lib/settings';
 import { profileSentence, resultSentence, scopeRuleSentence } from '@/lib/report/surface';
 import {
   adoptKeepingEdit,
+  closeAnyRule,
   forgetUndo,
   isEditingRule,
   renderRules,
   type RuleEditorHost,
 } from './rules';
 import { focusIn } from './controls';
+import { reason } from './reason';
 import { SECTIONS } from './sections';
 import { closeIfProfileGone, isEditingProfile } from './profiles-section';
 import type { FieldReportEntry, FillReport, ReportResponse } from '@/lib/protocol';
@@ -81,11 +83,64 @@ async function mountSettings(): Promise<void> {
       // than a successful one.
       settings = next;
       void saveSettings(next).catch((error: unknown) => {
-        const reason = error instanceof Error ? error.message : String(error);
-        announce(message('settingsSaveFailed', [reason]));
+        announce(message('settingsSaveFailed', [reason(error)]));
       });
     },
     announce,
+    /**
+     * UC-026's write: the whole configuration at once, and the caller finds out.
+     *
+     * Memory first, then storage, in that order and for `save`'s reason — but
+     * the rejection is re-thrown rather than swallowed. An import is the one
+     * change on this page whose caller has something left to do about a failed
+     * write: A7 says the previous configuration is still in force and the
+     * import did not happen, and the section keeps its plan on screen so the
+     * user can try again. Announced here, so a rejected write is worded the
+     * same however it was made.
+     *
+     * **And memory goes back, which `save` does not do.** A7's "still in force"
+     * has to be true of the page as well as of storage: `settings()` is what
+     * every other section computes its next write from, so a failed import that
+     * left the imported state in memory would be applied by the next keystroke
+     * anywhere on the page — a checkbox in the behaviour section writing a whole
+     * configuration the user was told had not been imported. UC-024 A2 accepts
+     * that divergence for a single field, where the next write re-states the
+     * same field; it is a different bargain when what is left in memory is every
+     * rule and every profile the user still has.
+     *
+     * Only if nothing else has taken memory in the meantime. The adopt listener
+     * below runs on storage events and can land during the await, and its state
+     * came from storage — restoring over it would revert a write this page did
+     * not make and could not see, which is BR-024-3's defect committed by the
+     * rollback meant to prevent one.
+     */
+    replace: async (next) => {
+      const previous = settings;
+      settings = next;
+      try {
+        await saveSettings(next);
+      } catch (error: unknown) {
+        if (settings === next) settings = previous;
+        announce(message('settingsSaveFailed', [reason(error)]));
+        throw error;
+      }
+    },
+    /**
+     * Everything, from the state now in memory (UC-026).
+     *
+     * An import replaces every list on the page, so every editor open over one
+     * of them is open over something that no longer exists — the rule editor
+     * and, if its profile went with the import, the profile editor. Both are
+     * closed before anything is drawn, because a render is what would otherwise
+     * leave their state pointing at a list the page has stopped drawing.
+     */
+    redraw: () => {
+      closeAnyRule();
+      forgetUndo(host);
+      closeIfProfileGone(settings);
+      renderRules(editor, host);
+      renderEverySection(editor);
+    },
   };
 
   renderRules(editor, host);
@@ -196,9 +251,7 @@ async function mountSettings(): Promise<void> {
  */
 function renderSections(editor: RuleEditorHost, force?: string): void {
   const focused = document.activeElement;
-  for (const section of SECTIONS) {
-    const into = document.querySelector(`#${section.id}`);
-    if (!(into instanceof HTMLElement)) continue;
+  for (const [section, into] of sectionHosts()) {
     // Asked before the render, because rendering detaches whatever was focused
     // and `contains` would then answer no about the element it just destroyed.
     const heldFocus = focused !== null && into.contains(focused);
@@ -221,12 +274,98 @@ function renderSections(editor: RuleEditorHost, force?: string): void {
   }
 }
 
+/**
+ * Every section, skipping nothing (UC-026).
+ *
+ * The counterpart to `renderSections` above, and the exception to it. That one
+ * leaves alone whatever holds the focus, because a settings change arriving from
+ * another tab must not take the caret out from under someone's typing. After an
+ * import there is nothing to protect and everything to correct: the user clicked
+ * a button that replaced the whole configuration, so every section on screen is
+ * describing a state that is gone, including the one they clicked in.
+ */
+function renderEverySection(editor: RuleEditorHost): void {
+  for (const [section, into] of sectionHosts()) section.render(editor, into);
+}
+
+/**
+ * Each section paired with the element it draws into, skipping any whose
+ * element is not in the document.
+ *
+ * One place that knows how a section id becomes an element. Both renderers above
+ * had their own copy of the lookup and the `instanceof` guard, which is three
+ * lines of the five either of them is made of — and the guard is the part worth
+ * having once, since it is what keeps a section listed in `SECTIONS` but absent
+ * from `index.html` a no-op rather than a thrown error on every render.
+ */
+function sectionHosts(): readonly (readonly [(typeof SECTIONS)[number], HTMLElement])[] {
+  const pairs: (readonly [(typeof SECTIONS)[number], HTMLElement])[] = [];
+  for (const section of SECTIONS) {
+    const into = document.querySelector(`#${section.id}`);
+    if (into instanceof HTMLElement) pairs.push([section, into]);
+  }
+  return pairs;
+}
+
 async function render(): Promise<void> {
   const host = document.querySelector('#report');
   if (!(host instanceof HTMLElement)) return;
 
   const report = await requestReport();
   host.replaceChildren(report === undefined ? noReport() : reportView(report));
+  renderReportLede(report);
+}
+
+/**
+ * The one line about the last fill that sits under the page title (DD-006).
+ *
+ * The report is the last section on the page and stays there: a populated one
+ * measures over 2000px against a 900px viewport, so anywhere among the settings
+ * it buries them rather than dividing them, and it is empty most of the time
+ * because the background is torn down between uses. What being last cost was
+ * discoverability, which is what this pays, at the cost of one line that is not
+ * drawn at all when there is nothing to say.
+ *
+ * `resultSentence` again, the same function the tooltip and the report's own
+ * summary call. Three surfaces now state one fill's outcome and none of them can
+ * word it differently, which is the whole reason that function is host-free and
+ * takes its catalog as an argument.
+ */
+function renderReportLede(report: FillReport | undefined): void {
+  const slot = document.querySelector('#report-lede');
+  if (!(slot instanceof HTMLElement)) return;
+  slot.replaceChildren();
+  if (report === undefined) return;
+
+  slot.append(message('reportLatest', [resultSentence(report, message)]), ' ');
+
+  const jump = document.createElement('a');
+  // To the heading rather than to the section, so a screen reader that follows
+  // the link lands on the words naming what it just moved to.
+  jump.href = '#report-heading';
+  jump.textContent = message('reportJump');
+  jump.addEventListener('click', focusReportHeading);
+  slot.append(jump);
+}
+
+/**
+ * Moves the focus with the link, not only the scroll (WCAG 2.4.3).
+ *
+ * A fragment link scrolls and leaves the focus where it was, and the browser
+ * scrolls it back the moment anything asks for it: measured, the first Tab after
+ * following this link landed on the link itself and dragged the page back to the
+ * top, so a keyboard user was returned to where they started by the act of
+ * trying to read on. The heading takes `tabindex="-1"` to be a focus target
+ * without joining the tab order, which is the same arrangement a skip link uses.
+ *
+ * Set here rather than in the markup because it exists for this link, and this
+ * link exists only when there is a report to jump to.
+ */
+function focusReportHeading(): void {
+  const heading = document.querySelector('#report-heading');
+  if (!(heading instanceof HTMLElement)) return;
+  heading.tabIndex = -1;
+  heading.focus();
 }
 
 /**

@@ -4,6 +4,17 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <!--
+      Opened as an ordinary tab, not embedded. Both browsers default to the
+      embedded surface — a fixed narrow panel inside chrome://extensions or
+      about:addons — and this page is not a panel: it is twelve sections of
+      settings, a rule editor whose two-column rows collapse below 30rem, and a
+      per-control report table (DD-006). All of that reads as a phone-sized
+      column in the embedded frame, at a width the user cannot change. WXT reads
+      this meta tag into `options_ui.open_in_tab` (Safari excepted, which has no
+      such key).
+    -->
+    <meta name="manifest.open_in_tab" content="true" />
+    <!--
       No <title> text here: it is resolved from the i18n catalog by main.ts
       (NFR-018). Manifest and CSS accept __MSG_name__ substitution; HTML does
       not, so every string in this page arrives at runtime.
@@ -18,6 +29,26 @@
   <body>
     <main>
       <h1 data-i18n="optionsTitle"></h1>
+      <!--
+        What the extension is, how to set it going, and the one thing this page's
+        behaviour cannot be guessed from: there is no Save button, because every
+        change is written as it is made (BR-009-1). A reader arriving from any
+        other settings page looks for Save, does not find one, and has nothing on
+        screen to learn from that their work was kept.
+      -->
+      <p class="lede" data-i18n="optionsIntro"></p>
+
+      <!--
+        Filled by main.ts when the background holds a report, and left empty
+        otherwise (DD-006). The report itself is the last section on the page: a
+        populated one measures over 2000px, so anywhere among the settings it
+        cuts them in half, and it is empty most of the time because the
+        background is torn down between uses. Being last made it undiscoverable,
+        which is a different problem and this is its fix. The anchor is an
+        ordinary deep link, which is one of the three things the single-scroll
+        layout exists to keep working.
+      -->
+      <p id="report-lede" class="report-lede"></p>
 
       <!--
         Sections on one scrolling page rather than tabs: every setting stays
@@ -34,6 +65,20 @@
         <div id="general"></div>
       </section>
 
+      <!--
+        UC-018. The bound on every rule's effective sources (FR-028), and above
+        the rules for that reason: a source switched off here is off for every
+        rule, including one that names it. Read after the rule editor, "whatever
+        is enabled globally" named a set the reader had not been shown, and a
+        rule could match nothing at all because of a checkbox further down.
+      -->
+      <section aria-labelledby="sources-heading">
+        <h2 id="sources-heading" data-i18n="sourcesHeading"></h2>
+        <p data-i18n="sourcesIntro"></p>
+        <div id="sources"></div>
+      </section>
+
+      <!-- UC-009..UC-013. The list whose order is its precedence. -->
       <section aria-labelledby="rules-heading">
         <h2 id="rules-heading" data-i18n="rulesHeading"></h2>
         <p data-i18n="rulesIntro"></p>
@@ -41,7 +86,7 @@
       </section>
 
       <!--
-        UC-014..UC-016. Below the global rules on purpose: a profile is an
+        UC-014..UC-016. Still below the global rules on purpose: a profile is an
         exception to them, and the page reads top to bottom as general first,
         then scoped.
       -->
@@ -49,13 +94,6 @@
         <h2 id="profiles-heading" data-i18n="profilesHeading"></h2>
         <p data-i18n="profilesIntro"></p>
         <div id="profiles"></div>
-      </section>
-
-      <!-- UC-018. The bound on every rule's effective sources (FR-028). -->
-      <section aria-labelledby="sources-heading">
-        <h2 id="sources-heading" data-i18n="sourcesHeading"></h2>
-        <p data-i18n="sourcesIntro"></p>
-        <div id="sources"></div>
       </section>
 
       <!-- UC-020. Fields never to fill, plus the two structural skips. -->
@@ -94,21 +132,55 @@
       </section>
 
       <!--
+        UC-025. The configuration as a file that can be diffed, reviewed and kept
+        in version control.
+      -->
+      <section aria-labelledby="export-heading">
+        <h2 id="export-heading" data-i18n="exportHeading"></h2>
+        <p data-i18n="exportIntro"></p>
+        <div id="export"></div>
+      </section>
+
+      <!--
+        UC-026. The other end of the same format: a file back in, with what it
+        would replace shown before anything is replaced.
+      -->
+      <section aria-labelledby="import-heading">
+        <h2 id="import-heading" data-i18n="importHeading"></h2>
+        <p data-i18n="importIntro"></p>
+        <div id="import"></div>
+      </section>
+
+      <!--
         Politely announced changes that a sighted user sees in the list itself —
         a rule's new position after a move (BR-012-2). Empty until something
         needs saying, and never focused.
       -->
-      <div id="announcements" class="visually-hidden" role="status" aria-live="polite"></div>
-
       <!--
-        DD-006's third surface. The section exists in the markup so the heading
-        is present for a screen reader before the report arrives; main.ts fills
-        #report once the background has answered, or explains why it cannot.
+        DD-006's third surface, and the answer to "did the rule I just wrote
+        fire?". Last on the page, and not because it matters least.
+
+        A populated report measures over 2000px against a 900px viewport, so
+        placed among the settings it does not divide two sections, it buries
+        them. It is also not a setting: every other section here configures
+        something, and this one reports. And it is empty most of the time,
+        because the background is torn down between uses.
+
+        What being last actually cost was discoverability, and the line under the
+        page title pays that instead, without moving two viewports of table into
+        the middle of the settings.
+
+        The section exists in the markup so the heading is present for a screen
+        reader before the report arrives; main.ts fills #report once the
+        background has answered, or explains why it cannot.
       -->
       <section aria-labelledby="report-heading">
         <h2 id="report-heading" data-i18n="reportHeading"></h2>
         <div id="report" aria-live="polite"></div>
       </section>
+
+      <div id="announcements" class="visually-hidden" role="status" aria-live="polite"></div>
+
     </main>
     <script type="module" src="./main.ts"></script>
   </body>

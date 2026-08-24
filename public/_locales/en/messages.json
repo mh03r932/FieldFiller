@@ -35,6 +35,10 @@
     "message": "FieldFiller settings",
     "description": "Heading of the options page."
   },
+  "optionsIntro": {
+    "message": "FieldFiller fills every form control on a page with plausible dummy data, from the toolbar button, the right-click menu or a keyboard shortcut. Everything on this page saves as you change it, so there is no Save button.",
+    "description": "Statement under the page title. Answers the two questions the page never answered: what the extension does and how to invoke it (UC-030, BR-023-2), and that every edit is written as it is made (BR-009-1). The second half matters most: with no Save button anywhere, a reader trained by other settings pages has no way to know their work is kept."
+  },
   "optionsPlaceholder": {
     "message": "There is nothing to configure yet. Filling works from the toolbar button, the right-click menu, and the keyboard shortcuts listed in your browser's extension settings.",
     "description": "Placeholder text on the options page until Phase 4 builds the configuration UI."
@@ -103,6 +107,20 @@
     "message": "the extension could not be reached",
     "description": "Why a fill stopped: the background did not answer a descriptor batch."
   },
+  "resultExclusionsSkipped": {
+    "message": "$COUNT$ field exclusion(s) not applied, so fields they cover were filled — $DETAIL$. Correct the pattern in Field exclusions.",
+    "description": "Appended when a stored exclusion was not sent to the page because its pattern would hang the fill (NFR-009). Worded around the consequence rather than the cause: an exclusion that does not run means a field the user asked to be left alone was filled, which is the part they may need to undo. Distinct from resultRulesSkipped, which fails in the opposite direction — there a field got a default value instead of a configured one.",
+    "placeholders": {
+      "count": {
+        "content": "$1",
+        "example": "1"
+      },
+      "detail": {
+        "content": "$2",
+        "example": "^(\\s*[\\w-]+)+$"
+      }
+    }
+  },
   "resultRulesSkipped": {
     "message": "$COUNT$ rule(s) skipped — $DETAIL$",
     "description": "Appended when a configured rule could not run (DD-005).",
@@ -122,8 +140,22 @@
     "description": "Heading of the fill report on the options page (DD-006)."
   },
   "reportNone": {
-    "message": "No report is available. The extension's background process is stopped between uses, and the last fill's report goes with it — fill a page and come straight back to see one.",
+    "message": "No report is available. The browser stops this extension's background process between uses, and the last fill's report goes with it. Fill a page and come straight back to see one.",
     "description": "Shown when no report is held, which is an ordinary outcome rather than an error (DD-006, NFR-020)."
+  },
+  "reportLatest": {
+    "message": "Last fill: $SUMMARY$.",
+    "description": "The line under the page title when a report is held (DD-006). The report itself is the last section on the page, because a populated one runs to thousands of pixels and would otherwise cut the settings in half; this is what makes it findable without moving it. $SUMMARY$ is resultSentence, the same function the toolbar tooltip uses, so the two surfaces cannot state different outcomes for one fill.",
+    "placeholders": {
+      "summary": {
+        "content": "$1",
+        "example": "6 filled in this page"
+      }
+    }
+  },
+  "reportJump": {
+    "message": "See the report",
+    "description": "Link from the line under the page title down to the report section (DD-006)."
   },
   "reportColumnField": {
     "message": "Field",
@@ -150,7 +182,7 @@
     "description": "A control that could not be filled (FR-010)."
   },
   "reportPrivacyNote": {
-    "message": "This report is held in memory only, covers one fill, and is never written to storage. No value from the page is recorded — only how each field was named and why it received what it did.",
+    "message": "This report lives in memory, covers one fill, and never reaches storage. It records how each field was named and why it received what it did. It records no value from the page.",
     "description": "States the retention bound the report operates under (NFR-010, NFR-030)."
   },
   "resultExcluded": {
@@ -214,27 +246,61 @@
     "description": "Heading of the rule list on the options page (UC-009)."
   },
   "rulesIntro": {
-    "message": "Rules decide what a matching field receives. The first rule that matches a field wins, so order matters — move a rule up to give it precedence. Fields no rule matches are filled from the built-in generators.",
+    "message": "Rules decide what a matching field receives. The first rule that matches wins, so order matters. Move a rule up to give it precedence. Any field no rule matches gets a value from the built-in generators.",
     "description": "Explains the rule list, including that order is precedence (FR-031)."
   },
   "rulesEmpty": {
-    "message": "No rules yet. Without any, every field is filled from the built-in generators — which is a complete configuration, not an empty one.",
+    "message": "No rules yet. Every field gets a value from the built-in generators, which is a working setup on its own.",
     "description": "Shown when the rule list is empty (UC-009)."
   },
   "ruleAdd": {
     "message": "Add a rule",
     "description": "Button that appends a new rule (UC-009)."
   },
+  "ruleMatchHeading": {
+    "message": "Match",
+    "description": "Sub-heading of the open rule editor's matcher group: how the rule recognises a field (UC-009)."
+  },
+  "ruleGeneratorHeading": {
+    "message": "Fill with",
+    "description": "Sub-heading of the open rule editor's generator group: what a matched field receives (UC-009)."
+  },
+  "ruleOptionsHeading": {
+    "message": "Options",
+    "description": "Sub-heading of the open rule editor's remaining toggles: enabled, and whether the value belongs to the fill's person (UC-009)."
+  },
   "ruleUnnamed": {
     "message": "Unnamed rule",
     "description": "Stands in for a rule whose name is blank (BR-009-3)."
+  },
+  "ruleSummary": {
+    "message": "$MODE$ \"$PATTERN$\" → $FILL$",
+    "description": "One collapsed rule, in the list (UC-009). The list is ordered by precedence and the name alone carries neither the pattern nor the generator, so the order could not be reasoned about without opening every rule in turn.",
+    "placeholders": {
+      "mode": {
+        "content": "$1",
+        "example": "Contains"
+      },
+      "pattern": {
+        "content": "$2",
+        "example": "invoice"
+      },
+      "fill": {
+        "content": "$3",
+        "example": "INV-{digit:6}"
+      }
+    }
+  },
+  "ruleOff": {
+    "message": "Off",
+    "description": "Marks a rule or profile kept but not applied (UC-010 A3). The collapsed row used to look identical whether the toggle was on or off, and the toggle itself sits at the foot of the open editor."
   },
   "ruleLabel": {
     "message": "Name",
     "description": "Field label for a rule's name, shown in the fill report as provenance."
   },
   "ruleLabelHint": {
-    "message": "Shown in the fill report, so you can tell which rule produced a value.",
+    "message": "The fill report shows this, so you can tell which rule produced a value.",
     "description": "Help text under the rule name field (FR-069)."
   },
   "ruleEnabled": {
@@ -262,7 +328,7 @@
     "description": "Match mode: the pattern is a regular expression."
   },
   "ruleMatchHint": {
-    "message": "Matching ignores case. Your pattern is used exactly as written — nothing is added to it.",
+    "message": "Matching ignores case. The extension uses your pattern exactly as written and adds nothing to it.",
     "description": "States that patterns are never rewritten (FR-068)."
   },
   "ruleSources": {
@@ -280,6 +346,14 @@
   "sourceId": {
     "message": "ID attribute",
     "description": "Identity source: the control's id attribute (FR-027)."
+  },
+  "sourceTestId": {
+    "message": "Test ID attribute",
+    "description": "Identity source: the control's test-automation attribute, whichever of the six conventional spellings it uses (FR-083)."
+  },
+  "sourceTestIdHint": {
+    "message": "data-testid, data-test-id, data-test, data-qa, data-cy or data-automation-id, whichever the field carries.",
+    "description": "Hint under the test-id source checkbox, naming the attributes read. Attribute names are not translated."
   },
   "sourceClassName": {
     "message": "CSS classes",
@@ -306,7 +380,7 @@
     "description": "Toggle for the coherence flag (ND-1, DD-005)."
   },
   "ruleFromPersonaHint": {
-    "message": "On, the value belongs to the same person as the rest of the form — so a confirmation field or a summary still agrees. Off, it is unrelated to the other fields.",
+    "message": "On, the value belongs to the same person as the rest of the form, so a confirmation field or a summary still agrees. Off, it has nothing to do with the other fields.",
     "description": "Explains the coherence flag in the user's terms rather than the design's."
   },
   "ruleMoveUp": {
@@ -322,7 +396,7 @@
     "description": "Deletes a rule (UC-011)."
   },
   "ruleDeleted": {
-    "message": "Deleted “$NAME$”.",
+    "message": "Deleted \"$NAME$\".",
     "description": "Announces a deletion, beside the undo offer (UC-011).",
     "placeholders": {
       "name": {
@@ -336,7 +410,7 @@
     "description": "Restores a just-deleted rule to its old position (UC-011 A1)."
   },
   "ruleMoved": {
-    "message": "“$NAME$” is now rule $POSITION$ of $TOTAL$.",
+    "message": "\"$NAME$\" is now rule $POSITION$ of $TOTAL$.",
     "description": "Announced after a move, so the change is perceivable without sight of the list (BR-012-2).",
     "placeholders": {
       "name": {
@@ -354,7 +428,7 @@
     }
   },
   "settingsSaveFailed": {
-    "message": "That change could not be saved, so it is not in effect: $REASON$. Your other settings are unchanged.",
+    "message": "That change could not be saved, so it is not in effect, because $REASON$. Your other settings are unchanged.",
     "description": "UC-024 A2/A3: a write that was rejected has to say so, and why. The page is optimistic in memory, so without this the editor shows a change that storage does not have — and a reload silently undoes it.",
     "placeholders": {
       "reason": {
@@ -364,15 +438,15 @@
     }
   },
   "settingsChangedElsewhere": {
-    "message": "Your settings were changed somewhere else. The rule you are editing is safe and your next change will not overwrite theirs; the rest of the list is out of date on screen and refreshes when you close this rule.",
+    "message": "Your settings changed somewhere else. The rule you are editing is safe, and your next change will not overwrite that one. The rest of the list is out of date on screen, and refreshes when you close this rule.",
     "description": "UC-024: another options page wrote settings while a rule was open here. Memory adopts their state with the draft carried across, so the next write cannot revert them; only the rendered list is left stale, because replacing it would take the caret out of the open editor."
   },
   "listChangedElsewhere": {
-    "message": "This list was changed somewhere else, so it has been redrawn here. Your last change to it was not applied \u2014 the entry it was aimed at had already moved.",
+    "message": "This list changed somewhere else, so it has been redrawn here. Your last change to it did not go through, because the entry it was aimed at had already moved.",
     "description": "UC-024, BR-024-3: exclusion rows and a profile's address patterns are addressed by position in lists that carry no identifiers, and this page skips re-rendering a section the user is working in. A row whose entry has moved refuses to write and redraws instead, because editing or deleting the wrong entry is worse than losing a keystroke."
   },
   "settingsAdoptedFromElsewhere": {
-    "message": "Your settings were changed somewhere else, and this page has been updated to match.",
+    "message": "Your settings changed somewhere else, and this page now matches.",
     "description": "UC-024, BR-024-3: another writer changed settings while nothing was being edited here, so the page adopted them rather than going on to overwrite them."
   },
   "rulePreview": {
@@ -412,7 +486,7 @@
     }
   },
   "ruleProblemPatternBacktracks": {
-    "message": "this pattern can backtrack catastrophically and would hang the extension — $DETAIL$. Rewrite the repeated group so its parts cannot match the same text.",
+    "message": "this pattern can backtrack catastrophically and would hang the extension. $DETAIL$. Rewrite the repeated group so its parts cannot match the same text.",
     "description": "FR-070, NFR-009. The detail names the offending construct and is not translated.",
     "placeholders": {
       "detail": {
@@ -426,7 +500,7 @@
     "description": "FR-067. Unticking all six is one click away in the editor and produces a rule that looks finished and is dead."
   },
   "ruleProblemTemplateInvalid": {
-    "message": "the template cannot be read — $DETAIL$. Fix the placeholder, or remove the braces to use the text literally.",
+    "message": "the template cannot be read. $DETAIL$. Fix the placeholder, or remove the braces to use the text literally.",
     "description": "FR-070. The detail names the offending placeholder and is not translated.",
     "placeholders": {
       "detail": {
@@ -436,7 +510,7 @@
     }
   },
   "ruleProblemRegexUngeneratable": {
-    "message": "no value can be generated from this pattern — $DETAIL$. Generation supports literals, character classes, groups, alternation and quantifiers; replace anything else.",
+    "message": "nothing can be generated from this pattern. $DETAIL$. Generation supports literals, character classes, groups, alternation and quantifiers. Replace anything else.",
     "description": "FR-021, FR-070. A pattern can be valid to match with and impossible to generate from.",
     "placeholders": {
       "detail": {
@@ -446,7 +520,7 @@
     }
   },
   "ruleProblemGeneratorBacktracks": {
-    "message": "this pattern can backtrack catastrophically — $DETAIL$. Rewrite the repeated group so its parts cannot match the same text.",
+    "message": "this pattern can backtrack catastrophically. $DETAIL$. Rewrite the repeated group so its parts cannot match the same text.",
     "description": "FR-070, NFR-009, for the generator's own pattern rather than the matcher's.",
     "placeholders": {
       "detail": {
@@ -564,7 +638,7 @@
     "description": "Date generator: the output format."
   },
   "genFormatHint": {
-    "message": "YYYY, YY, MMM, MM, DD, HH, mm and ss are replaced. Everything else is kept as written.",
+    "message": "The extension replaces YYYY, YY, MMM, MM, DD, HH, mm and ss. Everything else stays as written.",
     "description": "Documents the date tokens (our own grammar, not moment's)."
   },
   "genFrom": {
@@ -588,7 +662,7 @@
     "description": "Alphanumeric generator: the pattern to expand."
   },
   "genTemplateHint": {
-    "message": "Placeholders are braced and named: {digit:4}, {upper:2}, {letter}, {consonant}, {vowel}, {alnum}, {symbol}. Anything outside braces is kept as written.",
+    "message": "Braced, named placeholders: {digit:4}, {upper:2}, {letter}, {consonant}, {vowel}, {alnum}, {symbol}. Anything outside braces stays as written.",
     "description": "Documents the template grammar (FR-020)."
   },
   "genPattern": {
@@ -596,7 +670,7 @@
     "description": "Regex generator: the expression to generate from."
   },
   "genPatternHint": {
-    "message": "Supports literals, character classes, groups, alternation and quantifiers. Lookahead and backreferences cannot be generated from and are refused.",
+    "message": "Supports literals, character classes, groups, alternation and quantifiers. The extension refuses lookahead and backreferences, because nothing can be generated from them.",
     "description": "Documents the bounded regex subset (FR-021)."
   },
   "genItems": {
@@ -624,7 +698,7 @@
     "description": "The default locale option: resolve against the browser's own UI language."
   },
   "localeHint": {
-    "message": "Which country's names, addresses and phone numbers a fill draws from. Following the browser is right for most people; choose a locale explicitly if you test forms for a market your browser is not set to.",
+    "message": "Which country's names, addresses and phone numbers a fill draws from. Following the browser suits most people. Pick a locale yourself if you test forms for a market your browser is not set to.",
     "description": "Hint under the locale control."
   },
   "localeChanged": {
@@ -642,12 +716,12 @@
     "description": "Options page section heading for UC-018."
   },
   "sourcesIntro": {
-    "message": "Which parts of a field's markup rules are allowed to match against. A source switched off here is off for every rule, including rules that name it.",
+    "message": "Which parts of a field's markup a rule may match against. Switching a source off here switches it off for every rule, including rules that name it.",
     "description": "Intro paragraph for the matching sources section (FR-028). States that the setting is a bound, not a default."
   },
   "sourcesLegend": {
-    "message": "Sources rules may match against",
-    "description": "Fieldset legend grouping the six source checkboxes."
+    "message": "Sources a rule may match against",
+    "description": "Fieldset legend grouping the seven source checkboxes."
   },
   "sourcesEnabledCount": {
     "message": "$ENABLED$ of $TOTAL$ sources enabled.",
@@ -659,12 +733,12 @@
       },
       "total": {
         "content": "$2",
-        "example": "6"
+        "example": "7"
       }
     }
   },
   "sourcesNoneEnabled": {
-    "message": "No sources are enabled, so no rule can match anything. Fields are still filled by the built-in generator.",
+    "message": "No sources are enabled, so no rule can match anything. The built-in generators still fill every field.",
     "description": "Shown instead of the count when every source is off. Says what still works, so the state reads as configured rather than broken."
   },
   "sourceEnabled": {
@@ -692,7 +766,7 @@
     "description": "Options page section heading for UC-020."
   },
   "fieldExclusionsIntro": {
-    "message": "Controls matching any of these are left exactly as they are. CAPTCHAs, coupon codes and anything else a generated value would spoil.",
+    "message": "The extension leaves a control matching any of these exactly as it is. CAPTCHAs, coupon codes and anything else a generated value would spoil.",
     "description": "Intro paragraph for the field exclusions section (FR-036)."
   },
   "exclusionsEmpty": {
@@ -708,7 +782,7 @@
     "description": "Label for a field exclusion's pattern box."
   },
   "exclusionPatternHint": {
-    "message": "Matched against the same sources rules use, case-insensitively.",
+    "message": "An exclusion matches against the same sources a rule does, ignoring case.",
     "description": "Hint under a field exclusion's pattern box."
   },
   "exclusionRemove": {
@@ -728,7 +802,7 @@
     "description": "Options page section heading for UC-021."
   },
   "domainExclusionsIntro": {
-    "message": "On these sites the extension does nothing at all — every way of asking for a fill is refused, and the toolbar badge says so. Production and banking sites belong here.",
+    "message": "On these sites the extension does nothing at all. It refuses every way of asking for a fill, and the toolbar badge says so. Production and banking sites belong here.",
     "description": "Intro paragraph for the domain exclusions section (FR-037, FR-074, BR-008-4)."
   },
   "domainsEmpty": {
@@ -744,7 +818,7 @@
     "description": "Label for a domain exclusion's pattern box."
   },
   "domainPatternHint": {
-    "message": "* stands for any run of characters; everything else is literal. The port is ignored. For example: *.example.com/* or localhost/*",
+    "message": "* stands for any run of characters. Everything else is literal, and the port does not count. For example: *.example.com/* or localhost/*",
     "description": "Hint under a domain exclusion's pattern box. Names the vocabulary rather than calling it a regular expression, which it is not."
   },
   "domainRemoved": {
@@ -772,7 +846,7 @@
     "description": "Label for the event dispatch toggle (FR-014). Says what it does rather than naming the DOM events."
   },
   "behaviourDispatchEventsHint": {
-    "message": "Sends the same input and change events a person typing would. Turn this off only for pages whose handlers misbehave — React, Vue and Angular forms need it to notice the value at all.",
+    "message": "Sends the same input and change events a person typing would. Turn it off only for pages whose handlers misbehave. React, Vue and Angular forms need it to notice the value at all.",
     "description": "Hint under the event dispatch toggle. Names the cost of turning it off."
   },
   "behaviourSkipHidden": {
@@ -780,7 +854,7 @@
     "description": "Label for the hidden-control toggle (FR-034)."
   },
   "behaviourSkipHiddenHint": {
-    "message": "On by default. Filling an invisible field is how a honeypot catches a bot, and the field is invisible precisely so that a person would not fill it.",
+    "message": "On by default. Filling an invisible field is how a honeypot catches a bot. The field is invisible so that a person would not fill it.",
     "description": "Hint under the hidden-control toggle (FR-071)."
   },
   "behaviourSkipPreFilled": {
@@ -796,7 +870,7 @@
     "description": "Fieldset legend for the per-kind length caps (FR-065)."
   },
   "behaviourLengthHint": {
-    "message": "Leave empty for no limit. A control declaring its own maxlength is bound by that instead.",
+    "message": "Leave empty for no limit. A control that declares its own maxlength follows that instead.",
     "description": "Hint under each length cap box. States that the page wins (ND-11)."
   },
   "behaviourConsentKeywords": {
@@ -804,7 +878,7 @@
     "description": "Label for the consent keyword list (FR-015)."
   },
   "behaviourConsentKeywordsHint": {
-    "message": "One per line. A checkbox whose markup contains any of these is always ticked, so a terms gate never blocks a test submission. Required checkboxes are ticked regardless.",
+    "message": "One per line. The extension always ticks a checkbox whose markup contains any of these, so a terms gate never blocks a test submission. It ticks required checkboxes either way.",
     "description": "Hint under the consent keyword list. Names the rule that is not configurable."
   },
   "behaviourConfirmationKeywords": {
@@ -812,7 +886,7 @@
     "description": "Label for the confirmation keyword list (FR-024)."
   },
   "behaviourConfirmationKeywordsHint": {
-    "message": "One per line. A field whose markup contains any of these repeats the value of the field it confirms. A trailing 2 — password2 beside password — also counts, and is built in.",
+    "message": "One per line. A field whose markup contains any of these repeats the value of the field it confirms. A trailing 2, as in password2 beside password, also counts and is built in.",
     "description": "Hint under the confirmation keyword list. States the part that is not configurable (UC-022)."
   },
   "kindText": {
@@ -836,7 +910,7 @@
     "description": "Options page section heading for UC-019."
   },
   "passwordsIntro": {
-    "message": "The policy a generated password starts from. A field's own pattern, minlength and maxlength are applied on top, and the field always wins.",
+    "message": "The policy a generated password starts from. A field's own pattern, minlength and maxlength apply on top, and the field always wins.",
     "description": "Intro paragraph for the password section (FR-025, FR-072)."
   },
   "passwordLength": {
@@ -844,7 +918,7 @@
     "description": "Label for the password length box."
   },
   "passwordLengthHint": {
-    "message": "How long a generated password is before the field's own limits are applied.",
+    "message": "How long a generated password is before the field's own limits apply.",
     "description": "Hint under the password length box."
   },
   "passwordClassesLegend": {
@@ -872,19 +946,19 @@
     "description": "Heading above the sample password."
   },
   "passwordNoClasses": {
-    "message": "With nothing ticked there is nothing to build a password from, so lowercase letters are used.",
+    "message": "With nothing ticked there is nothing to build a password from, so the extension falls back to lowercase letters.",
     "description": "Shown above the sample when every character class is off (UC-019 A1). States the fallback rather than leaving it to be inferred."
   },
   "triggersHeading": {
-    "message": "How fills are invoked",
+    "message": "How to start a fill",
     "description": "Options page section heading for UC-023."
   },
   "triggersIntro": {
-    "message": "Three ways to ask for a fill. Which one you use changes only which scopes it can offer, never what a fill does.",
+    "message": "Three ways to ask for a fill. The one you pick changes which scopes you can choose from. It never changes what a fill does.",
     "description": "Intro paragraph for the triggers section (BR-001-6, BR-023-3)."
   },
   "triggerToolbarAlways": {
-    "message": "The toolbar button always fills the whole page. It has no setting: it is the one route that needs no setup.",
+    "message": "The toolbar button always fills the whole page. It has no setting, because it needs no setup.",
     "description": "Statement that the toolbar trigger carries no control (BR-023-2)."
   },
   "triggerContextMenu": {
@@ -904,7 +978,7 @@
     "description": "Announced politely when the context menu is switched off."
   },
   "triggerShortcutsRoute": {
-    "message": "Keyboard shortcuts are assigned by the browser, not here. Open $ADDRESS$ to see or change them.",
+    "message": "The browser assigns keyboard shortcuts, not this page. Open $ADDRESS$ to see or change them.",
     "description": "Route to the browser's own shortcut settings (BR-023-1). Worded as an address to visit rather than a control that rebinds anything.",
     "placeholders": {
       "address": {
@@ -932,7 +1006,7 @@
     "description": "Options page section heading for UC-014..UC-016."
   },
   "profilesIntro": {
-    "message": "A named set of rules that applies only to the pages you scope it to. Its rules are tried before your global ones; the first profile whose address pattern matches the page is the one that governs it.",
+    "message": "A named set of rules that applies only to the pages you scope it to. Its rules run before your global ones. Where several profiles match a page, the first one wins.",
     "description": "Intro paragraph for the profiles section. States both precedence rules (FR-031, BR-014-2) because neither is guessable from the list."
   },
   "profilesEmpty": {
@@ -948,7 +1022,7 @@
     "description": "Label for a profile's name box."
   },
   "profileLabelHint": {
-    "message": "Shown in the fill report, so you can tell which profile ran.",
+    "message": "The fill report shows this, so you can tell which profile ran.",
     "description": "Hint under a profile's name box (FR-047)."
   },
   "profileEnabled": {
@@ -976,12 +1050,34 @@
     "description": "Heading above a profile's own rule list."
   },
   "profileRulesHint": {
-    "message": "Tried before your global rules on a page this profile matches. Everything else about a rule works exactly as it does below.",
+    "message": "These run before your global rules on a page this profile matches. Everything else about a rule works exactly as it does below.",
     "description": "Hint above a profile's rule editor, distinguishing it from the global list on the same page (FR-031)."
   },
   "profileUnnamed": {
     "message": "this unnamed profile",
     "description": "Stands in for a profile's name in a button's accessible name while it is still blank."
+  },
+  "profileSummary": {
+    "message": "$URLS$ · $COUNT$ rule(s)",
+    "description": "One collapsed profile, in the list (UC-014). Which pages a profile claims is the whole of what distinguishes it, and the row showed only its name.",
+    "placeholders": {
+      "urls": {
+        "content": "$1",
+        "example": "*.staging.example.com/*, localhost:3000/*"
+      },
+      "count": {
+        "content": "$2",
+        "example": "3"
+      }
+    }
+  },
+  "profileNoUrlsShort": {
+    "message": "No address patterns, so it matches no page",
+    "description": "Stands in for the whole of profileSummary when a profile has no address patterns (UC-014 A2). It replaces the line rather than filling a slot in it: a profile that matches no page has no interesting rule count, and \"No address patterns, so it matches no page, 0 rule(s)\" read as one run-on."
+  },
+  "profileUnnamedTitle": {
+    "message": "Unnamed profile",
+    "description": "Stands in for a profile's name as the row's visible title, the way ruleUnnamed does for a rule (BR-009-3). Distinct from profileUnnamed, which is written to sit inside a button's accessible name (\"Remove: this unnamed profile\") and reads wrong as a heading."
   },
   "profileDelete": {
     "message": "Delete",
@@ -1042,5 +1138,383 @@
         "example": "3"
       }
     }
+  },
+  "exportHeading": {
+    "message": "Export your settings",
+    "description": "Options page section heading for UC-025."
+  },
+  "exportIntro": {
+    "message": "Your whole configuration as one JSON file, plain enough to diff and to keep in version control with the rest of your team's setup.",
+    "description": "Intro paragraph for the export section (ND-12: plain JSON, chosen so a backup can be read)."
+  },
+  "exportButton": {
+    "message": "Export to a file",
+    "description": "Primary action of the export section (FR-052)."
+  },
+  "exportClipboardButton": {
+    "message": "Copy to the clipboard",
+    "description": "Second export route (UC-025 A2). Offered always, because a download the browser refuses never reports back to the page."
+  },
+  "exportStoredNote": {
+    "message": "The file holds your saved settings. A rule you are still writing is not in it until it is valid enough to save.",
+    "description": "Note under the export buttons: the file holds what was saved, not what is on screen. Said on the surface so the difference is not discovered on the machine the file was imported onto (UC-025 A1)."
+  },
+  "exportPrivacyNote": {
+    "message": "Nothing in the file is a secret. It carries your password policy, meaning the length and the character classes, and never a password. The extension generates each password for one fill and stores none of them. The file holds no page content and no addresses you have visited.",
+    "description": "Note under the export buttons, answering the first question the feature raises: is this safe to commit to a shared repository? (BR-025-5)."
+  },
+  "exportOffered": {
+    "message": "Your saved settings were handed to the browser as $FILE$. If no file appeared, use \"Copy to the clipboard\" instead.",
+    "description": "Announced politely after the file export. Worded as offered rather than saved: the browser decides what happens to a download and never tells the page, so a message claiming the file was written would be a guess (UC-025 step 4).",
+    "placeholders": {
+      "file": {
+        "content": "$1",
+        "example": "fieldfiller-settings-v1.json"
+      }
+    }
+  },
+  "exportFailed": {
+    "message": "The export did not happen, because $REASON$. Your settings are unchanged, since an export only reads them. Try \"Copy to the clipboard\".",
+    "description": "Announced politely when the export could not be started at all — the stored configuration could not be read (UC-025 A4), or the file could not be constructed. $REASON$ is the browser’s own wording and is not translated; nothing is added to diagnose it (UC-025 A2). A download the browser declines after the click is not this message, because it never reports back.",
+    "placeholders": {
+      "reason": {
+        "content": "$1",
+        "example": "settings could not be read"
+      }
+    }
+  },
+  "exportCopied": {
+    "message": "Your saved settings were copied to the clipboard as JSON.",
+    "description": "Announced politely when the clipboard route succeeded (UC-025 A2)."
+  },
+  "exportCopyFailed": {
+    "message": "The clipboard could not be written, because $REASON$. Your settings are unchanged.",
+    "description": "Announced politely when the clipboard write was refused — unlike a download, that failure does report itself, so the user is told which route is unavailable rather than guessing that both are (UC-025 A2).",
+    "placeholders": {
+      "reason": {
+        "content": "$1",
+        "example": "the document is not focused"
+      }
+    }
+  },
+  "importHeading": {
+    "message": "Import settings",
+    "description": "Options page section heading for UC-026."
+  },
+  "importIntro": {
+    "message": "Read a configuration back from a file. An import replaces everything you have now, including rules, profiles and every setting, so this page shows you what it would do before anything changes.",
+    "description": "Intro paragraph for the import section. States that an import replaces rather than merges (BR-026-1) and that it is confirmed first (BR-026-5)."
+  },
+  "importFileLabel": {
+    "message": "Settings file",
+    "description": "Label for the file picker in the import section."
+  },
+  "importPlanSummary": {
+    "message": "This would replace your $NOWRULES$ rule(s) and $NOWPROFILES$ profile(s) with the $NEWRULES$ rule(s) and $NEWPROFILES$ profile(s) in $FILE$.",
+    "description": "Shown after a file is chosen and before anything is written: both sides of the replacement in one sentence (BR-026-5).",
+    "placeholders": {
+      "nowrules": {
+        "content": "$1",
+        "example": "12"
+      },
+      "nowprofiles": {
+        "content": "$2",
+        "example": "2"
+      },
+      "newrules": {
+        "content": "$3",
+        "example": "30"
+      },
+      "newprofiles": {
+        "content": "$4",
+        "example": "4"
+      },
+      "file": {
+        "content": "$5",
+        "example": "fieldfiller-settings-v1.json"
+      }
+    }
+  },
+  "importPlanMigrated": {
+    "message": "This file uses an older version of the settings format, so the extension brings it up to date as it reads it. Anything this version has no place for appears below.",
+    "description": "Shown when the file states an older schema version, or none at all (UC-026 A3, A4). Says the file was changed on the way in, because the user is entitled to know that."
+  },
+  "importPlanDropped": {
+    "message": "$COUNT$ thing(s) in this file cannot be kept and will not be imported:",
+    "description": "Heading above the list of entries the import would drop (UC-026 A6). Shown before the write, never after — a report afterwards names what the user can no longer recover (BR-026-3).",
+    "placeholders": {
+      "count": {
+        "content": "$1",
+        "example": "3"
+      }
+    }
+  },
+  "importDroppedRule": {
+    "message": "Rule \"$NAME$\" could not be read.",
+    "description": "One dropped rule in the import preview. $NAME$ is the rule’s own label from the file, or its pattern, or its position.",
+    "placeholders": {
+      "name": {
+        "content": "$1",
+        "example": "Postcode"
+      }
+    }
+  },
+  "importDroppedRuleRefused": {
+    "message": "Rule \"$NAME$\" cannot be stored: $PROBLEM$",
+    "description": "A rule the file states perfectly readably that the editor would refuse to save (FR-070) \u2014 a pattern that backtracks catastrophically, an impossible range, a list generator with no items. Distinct from importDroppedRule, where the file itself could not be read: nothing is wrong with the JSON, and saying so would send the user to fix the wrong thing. $PROBLEM$ is a whole sentence resolved from a ruleProblem* key, never prose assembled in code.",
+    "placeholders": {
+      "name": {
+        "content": "$1",
+        "example": "Postcode"
+      },
+      "problem": {
+        "content": "$2",
+        "example": "this pattern can backtrack catastrophically and would hang the extension."
+      }
+    }
+  },
+  "importDroppedProfile": {
+    "message": "Profile \"$NAME$\" could not be read.",
+    "description": "One dropped profile in the import preview.",
+    "placeholders": {
+      "name": {
+        "content": "$1",
+        "example": "Staging"
+      }
+    }
+  },
+  "importDroppedProfileRule": {
+    "message": "In profile \"$PROFILE$\", rule \"$NAME$\" could not be read.",
+    "description": "A rule dropped from inside a profile that is itself kept. Named separately because the profile’s own count would otherwise hide it.",
+    "placeholders": {
+      "profile": {
+        "content": "$1",
+        "example": "Staging"
+      },
+      "name": {
+        "content": "$2",
+        "example": "Postcode"
+      }
+    }
+  },
+  "importDroppedProfileRuleRefused": {
+    "message": "In profile \"$PROFILE$\", rule \"$NAME$\" cannot be stored: $PROBLEM$",
+    "description": "importDroppedRuleRefused for a rule inside a profile that is itself kept.",
+    "placeholders": {
+      "profile": {
+        "content": "$1",
+        "example": "Staging"
+      },
+      "name": {
+        "content": "$2",
+        "example": "Postcode"
+      },
+      "problem": {
+        "content": "$3",
+        "example": "this pattern can backtrack catastrophically and would hang the extension."
+      }
+    }
+  },
+  "importDroppedShape": {
+    "message": "$PATH$ is not the shape this version keeps there, so the built-in default was used instead.",
+    "description": "A known section or field whose value is the wrong kind — a number where the schema keeps a section, a string where it keeps a list (UC-026 step 4). Distinct from importDroppedKey: the name was recognised, the value was not, and what replaced it is a default rather than nothing.",
+    "placeholders": {
+      "path": {
+        "content": "$1",
+        "example": "behaviour"
+      }
+    }
+  },
+  "importDroppedKey": {
+    "message": "$PATH$ is not a setting this version has.",
+    "description": "An unrecognised key in an otherwise readable file (BR-026-7), named by path so that “I added that by hand and it did nothing” has an answer.",
+    "placeholders": {
+      "path": {
+        "content": "$1",
+        "example": "behaviour.wobble"
+      }
+    }
+  },
+  "importPlanNoted": {
+    "message": "$COUNT$ thing(s) in this file will be imported and need your attention:",
+    "description": "Heading above the list of entries the import keeps and flags (UC-026 A8, BR-026-3). Deliberately not worded like importPlanDropped: these entries do arrive, and saying so is the point of a second list.",
+    "placeholders": {
+      "count": {
+        "content": "$1",
+        "example": "1"
+      }
+    }
+  },
+  "importNotedExclusion": {
+    "message": "Field exclusion “$PATTERN$” is imported as it is: $PROBLEM$",
+    "description": "A field exclusion the import stores with a fault (UC-005 A5). Not refused, because the exclusion editor stores a half-typed pattern on purpose and an import must not be stricter than the screen that authors them — so this says what arrived and what is wrong with it, and the exclusion list below repeats the fault beside the field that fixes it. $PROBLEM$ is a ruleProblem* sentence, which is written to read after a colon.",
+    "placeholders": {
+      "pattern": {
+        "content": "$1",
+        "example": "(a+)+b"
+      },
+      "problem": {
+        "content": "$2",
+        "example": "this pattern can backtrack catastrophically and would hang the extension."
+      }
+    }
+  },
+  "importNotedRuleCoerced": {
+    "message": "Rule “$NAME$” is imported with values this version changed: $CHANGES$. Check it is still the rule you meant — the editor would not have saved it as the file states it.",
+    "description": "A rule the import stores after the parser changed something inside its generator (UC-026 A10): a number or word range stated backwards is reordered, and a date field that is not a string is replaced with the default. The changes are shown as `key was → is`, in JSON, and are values from the file rather than prose to translate.",
+    "placeholders": {
+      "name": {
+        "content": "$1",
+        "example": "Amount"
+      },
+      "changes": {
+        "content": "$2",
+        "example": "min 50 → 10; max 10 → 50"
+      }
+    }
+  },
+  "importNotedProfileRuleCoerced": {
+    "message": "In profile “$PROFILE$”, rule “$NAME$” is imported with values this version changed: $CHANGES$. Check it is still the rule you meant.",
+    "description": "importNotedRuleCoerced for a rule inside a profile, named with the profile because a profile's rules are edited through their own list.",
+    "placeholders": {
+      "profile": {
+        "content": "$1",
+        "example": "Staging"
+      },
+      "name": {
+        "content": "$2",
+        "example": "Amount"
+      },
+      "changes": {
+        "content": "$3",
+        "example": "min 50 → 10; max 10 → 50"
+      }
+    }
+  },
+  "importNotedDuplicateId": {
+    "message": "Rules $NAMES$ share one identity (“$ID$”), so the rule list will treat them as one: editing either changes both, and deleting either deletes both. Give them different “id” values in the file.",
+    "description": "Two or more rules in the file claim the same id (BR-010-2). Noted rather than dropped: both rules are imported, and choosing which one to discard would be choosing what the user meant. The correction is in the file, because the rule editor cannot change an id.",
+    "placeholders": {
+      "names": {
+        "content": "$1",
+        "example": "Postcode; Postal code"
+      },
+      "id": {
+        "content": "$2",
+        "example": "postcode"
+      }
+    }
+  },
+  "importNotedProfileDuplicateId": {
+    "message": "In profile “$PROFILE$”, rules $NAMES$ share one identity (“$ID$”), so that profile’s list will treat them as one: editing either changes both, and deleting either deletes both. Give them different “id” values in the file.",
+    "description": "importNotedDuplicateId for rules inside a profile. Named with the profile because a profile's rules are edited through their own list, which is the scope an id has to be unique in.",
+    "placeholders": {
+      "profile": {
+        "content": "$1",
+        "example": "Staging"
+      },
+      "names": {
+        "content": "$2",
+        "example": "Postcode; Postal code"
+      },
+      "id": {
+        "content": "$3",
+        "example": "postcode"
+      }
+    }
+  },
+  "importConfirm": {
+    "message": "Replace my settings",
+    "description": "The action that applies the import. Worded as what it does to the user’s configuration rather than as “Import”, because replacing is the part worth being sure about (BR-026-1)."
+  },
+  "importDismiss": {
+    "message": "Dismiss",
+    "description": "Clears a refused file and its message. Not a bypass (BR-026-2): it imports nothing and offers nothing — it is how the user puts down a file the extension will not read, which otherwise stays on screen through every redraw until the page is reloaded."
+  },
+  "importDismissed": {
+    "message": "The file was discarded. Your settings are unchanged.",
+    "description": "Announced politely when a refused file is dismissed. Worded apart from importCancelled because the two are not the same event: a cancelled import could have happened, a dismissed one never could."
+  },
+  "importCancel": {
+    "message": "Cancel",
+    "description": "Discards the chosen file without importing it."
+  },
+  "importCancelled": {
+    "message": "Import cancelled. Your settings are unchanged.",
+    "description": "Announced politely when the chosen file is discarded."
+  },
+  "importDone": {
+    "message": "Imported $NEWRULES$ rule(s) and $NEWPROFILES$ profile(s) from $FILE$. These replace your previous settings, and the next fill in every open tab uses them.",
+    "description": "Announced politely after the import is written (UC-026 step 8). Says the settings are already live, which is UC-024’s propagation.",
+    "placeholders": {
+      "newrules": {
+        "content": "$1",
+        "example": "30"
+      },
+      "newprofiles": {
+        "content": "$2",
+        "example": "4"
+      },
+      "file": {
+        "content": "$3",
+        "example": "fieldfiller-settings-v1.json"
+      }
+    }
+  },
+  "importUnreadable": {
+    "message": "That file could not be read, because $REASON$. Nothing was imported and your settings are unchanged.",
+    "description": "The file was chosen and then could not be read at all — moved or removed since. Distinct from a file that read fine and is not a settings file.",
+    "placeholders": {
+      "reason": {
+        "content": "$1",
+        "example": "NotFoundError"
+      }
+    }
+  },
+  "importRefusedTooLarge": {
+    "message": "That file is $SIZE$ KB, and this reads settings files up to $LIMIT$ KB. Nothing was imported and your settings are unchanged. A settings file this size is not one this extension wrote — the largest configuration it can hold is a fraction of it.",
+    "description": "UC-026 A9. Refused on size before the file is read at all, because reading it is what would freeze the page. The bound is measured against the largest plausible configuration (see MAX_IMPORT_SIZE), so the sentence says what the limit is rather than only that one was hit.",
+    "placeholders": {
+      "size": {
+        "content": "$1",
+        "example": "524288"
+      },
+      "limit": {
+        "content": "$2",
+        "example": "8192"
+      }
+    }
+  },
+  "importRefusedNotJson": {
+    "message": "That file is not JSON, so nothing was imported. $DETAIL$. Your settings are unchanged.",
+    "description": "UC-026 A1. $DETAIL$ is the JSON parser’s own complaint, which names the position and is not translated.",
+    "placeholders": {
+      "detail": {
+        "content": "$1",
+        "example": "Unexpected token n in JSON at position 2"
+      }
+    }
+  },
+  "importRefusedNotObject": {
+    "message": "That file is valid JSON but not a settings file. A settings file is a single JSON object. Nothing was imported and your settings are unchanged.",
+    "description": "UC-026 A1, for a file that parsed and is an array, a number or a string. Separated from the syntax failure because the correction is a different one."
+  },
+  "importRefusedNewer": {
+    "message": "A newer version of this extension wrote that file (settings format $FILEVERSION$; this version reads $OURS$). Nothing was imported. Update the extension and try again. Do not change the version inside the file. This version cannot read the parts it does not know about, and would drop them without being able to say which.",
+    "description": "UC-026 A2. There is no override (ND-13), so the message names the fix and closes the door on the workaround the user would otherwise reach for.",
+    "placeholders": {
+      "fileversion": {
+        "content": "$1",
+        "example": "2"
+      },
+      "ours": {
+        "content": "$2",
+        "example": "1"
+      }
+    }
+  },
+  "importRefusedNothingOurs": {
+    "message": "Nothing in that file is a setting this extension knows, so it was not imported and your settings are unchanged. If it is a backup from a different form filler, bringing it across needs a converter this version does not have yet.",
+    "description": "UC-026 A5. The refusal exists because the tolerant parser would otherwise succeed and return a full set of defaults, reporting a successful import of an empty configuration. Worded on what can be proved — no setting of ours is present — rather than naming a product the code cannot actually identify; UC-027 owns that."
   }
 }

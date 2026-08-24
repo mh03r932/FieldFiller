@@ -90,6 +90,16 @@ function page(initial: Settings): {
       announce: (text) => {
         announcements.push(text);
       },
+      // UC-026's two additions. Nothing in this file imports, so they are the
+      // smallest honest stand-ins: `replace` writes the way the page's does and
+      // resolves, and `redraw` is a no-op because no test here has a page to
+      // draw. A throwing stub would be the wrong shape — these are not
+      // unsupported, they are unused.
+      replace: (next) => {
+        settings = next;
+        return Promise.resolve();
+      },
+      redraw: () => undefined,
     },
     current: () => settings,
     // What the page's storage listener does with another writer's state once it

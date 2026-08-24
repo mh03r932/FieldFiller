@@ -88,10 +88,14 @@ export function noteDescriptors(
  * page: the label is what sits beside the field, and `name` or `id` are what the
  * developer called it — useful, but not what the user sees. `className` is never
  * used, because it identifies a style and not a field.
+ *
+ * `testId` sits ahead of `id` because the `id` it displaces is usually a
+ * framework's own — `:r3:` names nothing to anybody, where `billing-postcode`
+ * was written by a person for a person to read (FR-083).
  */
 export function identityOf(descriptor: FieldDescriptor): string {
-  const { label, ariaLabel, placeholder, name, id } = descriptor.sources;
-  return first(label, ariaLabel, placeholder, name, id) ?? `${descriptor.kind} field`;
+  const { label, ariaLabel, placeholder, name, testId, id } = descriptor.sources;
+  return first(label, ariaLabel, placeholder, name, testId, id) ?? `${descriptor.kind} field`;
 }
 
 function first(...candidates: ReadonlyArray<string | undefined>): string | undefined {
@@ -164,6 +168,7 @@ export type ResultMessageKey =
   | 'resultCapTimeBudget'
   | 'resultCapValuesUnavailable'
   | 'resultRulesSkipped'
+  | 'resultExclusionsSkipped'
   | 'resultRefusedNoForm'
   | 'resultRefusedNoAnchor'
   | 'reportScopeChosenBy'
@@ -188,7 +193,10 @@ export type Translate = (key: ResultMessageKey, substitutions?: readonly string[
  *
  * A rule that could not run is appended rather than given its own surface,
  * because it is a fact about the configuration rather than about this page, and
- * DD-006 gave the transient surfaces no room for a fourth fact (DD-005).
+ * DD-006 gave the transient surfaces no room for a fourth fact (DD-005). An
+ * exclusion that could not run is appended on the same terms and in a sentence
+ * of its own — same reason it is a separate field on the report, and the reason
+ * is that the two fail in opposite directions.
  */
 export function resultSentence(report: FillReport, translate: Translate): string {
   // A refusal is not a fill that found nothing (UC-002 A3, UC-003 A2). It gets
@@ -214,11 +222,31 @@ export function resultSentence(report: FillReport, translate: Translate): string
           translate(capKey(report.capped)),
         ]);
 
-  if (report.skippedRules.length === 0) return sentence;
-  return `${sentence} ${translate('resultRulesSkipped', [
-    String(report.skippedRules.length),
-    report.skippedRules.join('; '),
-  ])}`;
+  const notes = [sentence];
+
+  if (report.skippedRules.length > 0) {
+    notes.push(
+      translate('resultRulesSkipped', [
+        String(report.skippedRules.length),
+        report.skippedRules.join('; '),
+      ]),
+    );
+  }
+
+  // Its own sentence beside the rules', not folded into theirs. A rule that
+  // could not run left a field with a default value; an exclusion that could not
+  // run left a field *filled* that the user had asked to be left alone, and that
+  // is the one they may need to undo by hand.
+  if (report.skippedExclusions.length > 0) {
+    notes.push(
+      translate('resultExclusionsSkipped', [
+        String(report.skippedExclusions.length),
+        report.skippedExclusions.join('; '),
+      ]),
+    );
+  }
+
+  return notes.join(' ');
 }
 
 /**

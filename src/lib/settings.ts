@@ -1,5 +1,10 @@
 import {type Locale, LOCALES} from './persona/corpus/corpus';
 import type {AgentSettings, ControlKind} from './protocol';
+// `validate` imports only *types* back from here, so this is a cycle in the type
+// graph and not in the module graph. It is background-side either way: nothing
+// in the page agent imports this file, which is what keeps `redos.ts` out of the
+// content script (ND-4, and `scripts/check-imports.mjs` enforces it).
+import {validateMatcher, type RuleProblem} from './rules/validate';
 
 /**
  * The settings state, its defaults, and the coercion that reads it back.
@@ -39,16 +44,38 @@ export type MatchMode = 'contains' | 'exact' | 'regex';
 /**
  * The identity sources a pattern may be compared against (FR-027, FR-028).
  *
- * Exactly the six the page agent puts on a descriptor. `autocomplete` is not
+ * Exactly the seven the page agent puts on a descriptor. `autocomplete` is not
  * here: it is a controlled vocabulary rather than free text, and matching a
  * regex against it would invite rules that duplicate what the generator already
  * reads from it directly.
+ *
+ * `testId` is the test-automation attribute a component-rendered form usually
+ * carries — `data-testid` and its five common spellings, resolved to one value
+ * by the page agent (FR-083). It is one source rather than a family of them
+ * because a control carries one such attribute in practice, and because a
+ * separate toggle per spelling would be a settings screen about somebody's
+ * house style rather than about matching.
  */
-export type MatchSource = 'name' | 'id' | 'className' | 'label' | 'placeholder' | 'ariaLabel';
+export type MatchSource =
+  | 'name'
+  | 'id'
+  | 'testId'
+  | 'className'
+  | 'label'
+  | 'placeholder'
+  | 'ariaLabel';
 
+/**
+ * Order is provenance, not precedence (see `selectRule`): a rule whose pattern
+ * matches on two sources always reports the same one. `testId` sits beside `id`
+ * because that is where it belongs when a reader scans the list, and ahead of
+ * it a match is worth reporting — a `data-testid` is a deliberate identity
+ * somebody wrote for a machine, where a `class` is usually a side effect.
+ */
 export const MATCH_SOURCES: readonly MatchSource[] = [
   'name',
   'id',
+  'testId',
   'className',
   'label',
   'placeholder',
@@ -306,9 +333,18 @@ export type Settings = {
   readonly triggers: Triggers;
 };
 
+/**
+ * `className` ships off and everything else ships on (BR-018-2).
+ *
+ * `testId` ships on with the rest. It is the opposite of `className` on the one
+ * axis that decided that switch: the attribute exists only where somebody put it
+ * there on purpose, so on a page without test ids the source is absent rather
+ * than noisy, and on a page with them it is the most reliable identity present.
+ */
 export const DEFAULT_SOURCES: SourceToggles = {
   name: true,
   id: true,
+  testId: true,
   className: false,
   label: true,
   placeholder: true,
@@ -434,8 +470,72 @@ export function agentSettings(settings: Settings): AgentSettings {
     dispatchEvents: settings.behaviour.dispatchEvents,
     skipHidden: settings.behaviour.skipHidden,
     skipPreFilled: settings.behaviour.skipPreFilled,
-    ignorePatterns: settings.exclusions.fields.map(patternSource),
+    ignorePatterns: fillableExclusions(settings.exclusions.fields).runnable.map(patternSource),
   };
+}
+
+/** A field exclusion that will not be sent to a page, and the fault that stopped it. */
+export type RefusedExclusion = { readonly pattern: string; readonly problem: RuleProblem };
+
+/**
+ * Which field exclusions a page may evaluate, and which this build will not ask
+ * it to (NFR-009, UC-005 A5, UC-026 A8).
+ *
+ * *Stored* and *run* are different questions, and until 2026-08-24 only the
+ * first had an answer. The exclusion editor stores a pattern while it is still
+ * being typed, on purpose, and an import stores one out of a file and names it
+ * rather than refusing it — both right, and neither a reason to hand the pattern
+ * to a page. `matchesIgnorePattern` tests every stored pattern against every
+ * source of every control on every pass, and the sources are the page's:
+ * `className` verbatim, the joined label text. A pattern the editor already
+ * flags as catastrophic met that input and hung the tab.
+ *
+ * Measured on 2026-08-24, `^(\s*[\w-]+)+$` — a shape a shared configuration
+ * could plausibly carry — against ordinary utility class strings:
+ *
+ *   6 classes /  30 chars      18 ms
+ *   8 classes /  40 chars     287 ms
+ *   9 classes /  45 chars     2.3 s
+ *  10 classes /  50 chars    18.9 s
+ *  16 classes /  86 chars    55.7 s
+ *
+ * That is one call, for one control. Note where those inputs sit: NFR-032 asks
+ * for identity to be truncated to 1,024 characters, and every row above is an
+ * order of magnitude *under* that bound. Truncation is worth having and it would
+ * not have prevented any of this — backtracking is exponential in length, so a
+ * cut only helps below the cliff, and the cliff here is about 40 characters,
+ * which is shorter than a great many honest labels. The 250 ms budget cannot
+ * pre-empt an overrun either; it decides whether to start the *next* pattern,
+ * 55 seconds later.
+ *
+ * So the containment is here, before the page is involved at all: a pattern
+ * `validateMatcher` refuses is not sent. The information was always available —
+ * the same function draws the warning beside the field in the exclusion editor —
+ * and the fill path simply never asked.
+ *
+ * Refused, never silently dropped. The caller reports what was left out, because
+ * an exclusion that does not run is a field the user asked to be left alone and
+ * that gets filled anyway (BR-005-6's habit: a skip is visible or it is a bug).
+ *
+ * Here rather than in the agent because the agent stays thin (NFR-003, ND-4):
+ * `validateMatcher` reaches `redos.ts` and `regex-subset.ts`, and the background
+ * already has them. The agent keeps its own `try`/`catch` around compilation as
+ * a backstop, which is where an uncompilable pattern was already stopping.
+ */
+export function fillableExclusions(fields: readonly Matcher[]): {
+  readonly runnable: readonly Matcher[];
+  readonly refused: readonly RefusedExclusion[];
+} {
+  const runnable: Matcher[] = [];
+  const refused: RefusedExclusion[] = [];
+
+  for (const matcher of fields) {
+    const problem = validateMatcher(matcher)[0];
+    if (problem === undefined) runnable.push(matcher);
+    else refused.push({ pattern: matcher.pattern, problem });
+  }
+
+  return { runnable, refused };
 }
 
 /**
@@ -623,14 +723,19 @@ function parseRules(stored: unknown): readonly Rule[] {
   if (!Array.isArray(stored)) return [];
 
   const rules: Rule[] = [];
-  for (const entry of stored) {
-    const rule = parseRule(entry);
+  // The position is carried in because the id fallback needs it — see
+  // `parseRule`. It is the entry's place in the file, so a rule the parser could
+  // not read leaves a gap in the numbering rather than shifting every rule after
+  // it: the alternative renumbers survivors according to what was *dropped*,
+  // which is a worse thing for an id to depend on.
+  for (const [index, entry] of stored.entries()) {
+    const rule = parseRule(entry, index);
     if (rule !== undefined) rules.push(rule);
   }
   return rules;
 }
 
-function parseRule(stored: unknown): Rule | undefined {
+function parseRule(stored: unknown, index: number): Rule | undefined {
   if (typeof stored !== 'object' || stored === null) return undefined;
 
   const candidate = stored as Record<string, unknown>;
@@ -640,7 +745,22 @@ function parseRule(stored: unknown): Rule | undefined {
 
   const sources = parseSourceList(candidate['sources']);
   return {
-    id: typeof candidate['id'] === 'string' ? candidate['id'] : match.pattern,
+    // A rule that states no `id` is given one made from its pattern *and its
+    // position*, because the pattern alone is not unique and every editor write
+    // is keyed on the id. Two rules matching `email` in a hand-written file
+    // arrived carrying the same one, and `replaceRule` maps *all* matches while
+    // `removeRule` filters all: editing one relabelled both, deleting one
+    // deleted both. Fills never noticed — matching walks the list in order and
+    // takes the first hit — which is exactly why it survived to be found by
+    // review rather than by use.
+    //
+    // Position is enough here and no more than enough. It is unique within the
+    // list it was read from, and stable across reads of the same stored state,
+    // which is what an id has to be. A file that *repeats* an explicit id still
+    // collides: that is a file saying two entries are the same rule, and a
+    // parser that quietly renamed one would be overruling the file rather than
+    // reading it. The importer is where a file's own contradictions get named.
+    id: typeof candidate['id'] === 'string' ? candidate['id'] : `${match.pattern}#${index}`,
     label: typeof candidate['label'] === 'string' ? candidate['label'] : match.pattern,
     enabled: boolean(candidate['enabled'], true),
     match,

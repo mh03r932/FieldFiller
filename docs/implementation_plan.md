@@ -132,6 +132,14 @@ same 128.** Three moved, all from `Open`: FR-045, FR-046 and FR-047.
 **And again the same day, after the Firefox engine harness: 87 Done, 5 Partial, 35 Open, 1
 Deferred.** NFR-014 moved from `Partial`, having been the longest-standing one in the table.
 
+**Recounted 2026-08-22 after UC-025: 88 Done, 5 Partial, 34 Open, 1 Deferred, over the same
+128.** One row moved — FR-052, the export — and it is recorded here rather than left to be
+inferred because the denominator is the part of this tally that has been wrong before.
+
+**And after UC-026 the same day: 90 Done, 5 Partial, 32 Open, 1 Deferred.** FR-053 and FR-054
+moved from `Open`. FR-073 deliberately did not move: the ladder it asks for is still not built,
+and what UC-026 added is a report of what the parser dropped in its place.
+
 The denominator moved too, from 132 to 128, and that is a *counting* correction rather than
 four requirements disappearing. Four rows in the "Guarantees held by construction" table begin
 with `FR-` or `NFR-` and carry a description of the check that would enforce them, not a status
@@ -473,8 +481,8 @@ argument available for keeping both harnesses rather than picking one.
 
 *Goal: configuration can leave, arrive, and travel between devices.*
 
-- **UC-025** Export Settings — plain JSON (ND-12)
-- **UC-026** Import Settings — validation plus the migration ladder, no bypass (ND-13)
+- ~~**UC-025** Export Settings — plain JSON (ND-12)~~ **Built 2026-08-22.** `lib/settings-file.ts` and the options page's export section, with `scripts/e2e-export.mjs` watching a file land on disk. FR-052 `Done`
+- ~~**UC-026** Import Settings — validation, no bypass (ND-13)~~ **Built 2026-08-22.** `lib/settings-import.ts` plans an import before it happens; the page shows both sides and every dropped entry, then writes once. FR-053 and FR-054 `Done`. **The migration ladder is still not built** — this phase's line has said "plus the migration ladder" since the first draft, and what landed is DD-005's tolerant parser with its losses *reported* instead. FR-073 stays `Partial`
 - **UC-028** Restore Default Settings
 - **UC-027** Migrate Settings from Fake Filler — with an unmapped-items report
 - **UC-029** Synchronise Settings Across Devices — DD-002 resolved to sharding at eight rules a key, ~399 rules of capacity, last-writer-wins accepted and said out loud*
@@ -497,12 +505,15 @@ users switch — but it is also the piece most damaged by a moving schema. It st
 - Attribution and licence surface (FR-062, C-009)
 - Store listings, privacy disclosures, screenshots — all original (C-010, C-011)
 - Full NFR verification pass: latency, bundle size, zero-network, accessibility, coverage
-- **A Firefox end-to-end fill**, which NFR-014 asks for and CI does not have. `smoke:firefox`
-  proves the add-on installs and that `gecko.id` is honoured; it fills nothing, and there is no
-  `e2e:firefox` or `cascade:firefox` to run. Corrected from Done to Partial on 2026-08-15 —
-  every claim about cross-browser *behaviour* currently rests on one browser plus a shared
-  source tree. The harness exists in outline: `smoke-firefox.mjs` already drives Firefox over
-  WebDriver BiDi, so what is missing is the fill trigger and the assertions, not the transport
+- **NFR-032's evaluation bound**, narrowed on 2026-08-24 from "unbuilt" to "still owed". The hole
+  it was the only guard against is closed: a field exclusion whose pattern `validateMatcher`
+  refuses is no longer sent to the page, and the fill report names it (UC-005 A5) — which matters
+  because an exclusion is stored while faulty on purpose and imported the same way, so authoring
+  was never going to be where it was contained. What the requirement itself asks for is not built:
+  identity truncated to 1,024 characters and a 250 ms budget, in both `selectRule` and
+  `matchesIgnorePattern`. Neither half is what closed the hole, and the measurements say why —
+  the patterns that hang the tab do it at 40 to 86 characters, an order of magnitude under the
+  truncation bound, and a running regex cannot be interrupted to enforce a budget
 
 ---
 

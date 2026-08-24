@@ -8,8 +8,18 @@
  * the cheapest possible proof of that: the artwork's entire provenance is these
  * ~40 lines of geometry.
  *
- * These are placeholders in intent, not in quality — good enough to ship a
- * prototype, and expected to be replaced before the first store submission.
+ * **The geometry is laid out on the 16 px grid, not on a designer's canvas.**
+ * 16 px is the size that matters — it is the toolbar, which is where a user sees
+ * this mark all day, and it leaves about eleven pixels of usable interior once
+ * the corner radius is paid for. So every horizontal edge below is an exact
+ * sixteenth: the bars land on rows 3-5, 7-9 and 11-13 of a 16 px render, two
+ * pixels each with two clear pixels between them and three of margin. Nothing
+ * needs to be rounded into place, so nothing blurs. Sizes above 16 inherit the
+ * proportions rather than the other way round, which is the opposite of how this
+ * usually goes and the reason the small render survives.
+ *
+ * That constraint is also why there is nothing else in the frame. A mark with
+ * four elements has one at 16 px and noise around it.
  *
  * Output is byte-deterministic (fixed palette, fixed geometry, fixed deflate
  * level, no timestamp chunk), so regenerating never dirties the tree and never
@@ -31,14 +41,29 @@ const SIZES = [16, 32, 48, 96, 128];
 const SAMPLES = 4;
 
 const TILE = { color: [0x2f, 0x6f, 0xed], inset: 0.03, radius: 0.22 };
+
+/**
+ * Every edge is a multiple of 1/16, so a 16 px render lands on whole pixels.
+ * Bars occupy rows 3-5, 7-9 and 11-13; columns 3-13. Changing any number here to
+ * something that is not n/16 costs the small render its crispness, which is the
+ * only render this mark is actually judged on.
+ */
 const BARS = [
-  { top: 0.26, bottom: 0.36, left: 0.22, right: 0.78, alpha: 1 },
-  { top: 0.45, bottom: 0.55, left: 0.22, right: 0.78, alpha: 1 },
-  // Part-filled: the tool's whole subject is a field mid-fill.
-  { top: 0.64, bottom: 0.74, left: 0.22, right: 0.53, alpha: 1 },
-  { top: 0.64, bottom: 0.74, left: 0.53, right: 0.78, alpha: 0.34 },
+  { top: 3 / 16, bottom: 5 / 16, left: 3 / 16, right: 13 / 16, alpha: 1 },
+  { top: 7 / 16, bottom: 9 / 16, left: 3 / 16, right: 13 / 16, alpha: 1 },
+
+  // The third bar is the tool's whole subject: a field caught mid-fill. It is
+  // drawn as a fill over its own track rather than as two abutting segments —
+  // two pills meeting at a seam taper to a point on both sides of it and pinch
+  // the bar in the middle, which at 16 px reads as a gap rather than as a
+  // boundary. `sample` returns on first match, so the fill must precede the
+  // track it sits inside.
+  { top: 11 / 16, bottom: 13 / 16, left: 3 / 16, right: 9 / 16, alpha: 1 },
+  { top: 11 / 16, bottom: 13 / 16, left: 3 / 16, right: 13 / 16, alpha: 0.34 },
 ];
-const BAR_RADIUS = 0.05;
+
+/** Half the bar height, which makes every bar a pill rather than a rectangle. */
+const BAR_RADIUS = 1 / 16;
 
 /** Signed-distance test for a rounded rectangle, in unit coordinates. */
 function insideRoundedRect(x, y, left, top, right, bottom, radius) {

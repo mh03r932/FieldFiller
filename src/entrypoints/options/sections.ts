@@ -11,6 +11,7 @@ import { LOCALES } from '@/lib/persona/corpus/corpus';
 import { createPersona, seededRandom } from '@/lib/persona/persona';
 import { appendAt, newExclusion, removeAt, replaceAt } from '@/lib/exclusions';
 import { validateDomainPattern, validateMatcher } from '@/lib/rules/validate';
+import { problemText } from './problems';
 import type { ControlKind } from '@/lib/protocol';
 import {
   checkbox,
@@ -23,6 +24,8 @@ import {
   textInput,
 } from './controls';
 import type { OptionsHost } from './host';
+import { renderExport } from './export-section';
+import { renderImport } from './import-section';
 import { renderProfiles } from './profiles-section';
 import { rowAt, rowMovedUnderYou } from './rows';
 
@@ -87,16 +90,30 @@ export function renderGeneral(host: OptionsHost, into: HTMLElement): void {
  *
  * The same table the rule editor uses, and deliberately the same strings: a
  * source called "CSS class" in one section and `className` in another reads as
- * two different settings. Declared as a total record so a seventh source is a
+ * two different settings. Declared as a total record so an eighth source is a
  * compile error here rather than a raw identifier on screen.
  */
 const SOURCE_LABELS: Record<MatchSource, MessageKey> = {
   name: 'sourceName',
   id: 'sourceId',
+  testId: 'sourceTestId',
   className: 'sourceClassName',
   label: 'sourceLabel',
   placeholder: 'sourcePlaceholder',
   ariaLabel: 'sourceAriaLabel',
+};
+
+/**
+ * The sources whose name does not say what is read.
+ *
+ * Only `testId` needs one: "Name attribute" names an attribute, and "Test ID
+ * attribute" names a convention with six spellings. Without the list on screen,
+ * deciding whether this toggle does anything on your application means reading
+ * the extension's source. Partial rather than total on purpose — a hint under
+ * every box is a paragraph nobody reads.
+ */
+const SOURCE_HINTS: Partial<Record<MatchSource, MessageKey>> = {
+  testId: 'sourceTestIdHint',
 };
 
 /**
@@ -113,7 +130,11 @@ const SOURCE_LABELS: Record<MatchSource, MessageKey> = {
  * half of real markup names its fields there and nowhere else, which is why it
  * is offered at all rather than dropped.
  *
- * Turning all six off is allowed. It leaves every rule inert and the built-in
+ * `testId` ships on, for the opposite reason: the attribute is only ever there
+ * because somebody put it there deliberately, so it is silent on a page without
+ * test ids and the best identity present on a page with them.
+ *
+ * Turning all seven off is allowed. It leaves every rule inert and the built-in
  * generator untouched, which is a legible state rather than a broken one: rules
  * off, everything else as it was. The count beneath the boxes is what makes it
  * visible instead of something the user infers from rules that stopped working.
@@ -129,17 +150,24 @@ export function renderSources(host: OptionsHost, into: HTMLElement): void {
 
   for (const source of MATCH_SOURCES) {
     const label = message(SOURCE_LABELS[source]);
-    const box = checkbox(label, settings.sources[source], (value) => {
-      // `host.settings()`, not the `settings` captured above: six checkboxes
-      // sharing one snapshot means the second tick is computed from the state
-      // before the first, so ticking two in a row loses the first — the stale
-      // closure the rule editor was fixed for, which is easy to reintroduce
-      // exactly here because nothing re-renders between the two clicks.
-      const current = host.settings();
-      host.save({ ...current, sources: { ...current.sources, [source]: value } });
-      host.announce(message(value ? 'sourceEnabled' : 'sourceDisabled', [label]));
-      countSources(host, into);
-    });
+    const hintKey = SOURCE_HINTS[source];
+    const hint = hintKey === undefined ? undefined : message(hintKey);
+    const box = checkbox(
+      label,
+      settings.sources[source],
+      (value) => {
+        // `host.settings()`, not the `settings` captured above: seven checkboxes
+        // sharing one snapshot means the second tick is computed from the state
+        // before the first, so ticking two in a row loses the first — the stale
+        // closure the rule editor was fixed for, which is easy to reintroduce
+        // exactly here because nothing re-renders between the two clicks.
+        const current = host.settings();
+        host.save({ ...current, sources: { ...current.sources, [source]: value } });
+        host.announce(message(value ? 'sourceEnabled' : 'sourceDisabled', [label]));
+        countSources(host, into);
+      },
+      hint,
+    );
     box.dataset['source'] = source;
     group.append(box);
   }
@@ -325,10 +353,7 @@ function matcherProblems(matcher: Matcher): HTMLElement {
   for (const problem of validateMatcher(matcher)) {
     const line = document.createElement('p');
     line.className = 'problem';
-    line.textContent =
-      problem.params === undefined
-        ? message(problem.code)
-        : message(problem.code, problem.params);
+    line.textContent = problemText(problem);
     box.append(line);
   }
   return box;
@@ -488,6 +513,16 @@ export function renderBehaviour(host: OptionsHost, into: HTMLElement): void {
   const legend = document.createElement('legend');
   legend.textContent = message('behaviourLengthsLegend');
   lengths.append(legend);
+
+  // Once, above the four boxes, rather than under each. The sentence is the same
+  // for every kind and does not depend on which one is being capped, so printing
+  // it four times put three lines of hint between every pair of controls and
+  // made the group twice as tall as the settings in it.
+  const hint = document.createElement('p');
+  hint.className = 'hint';
+  hint.textContent = message('behaviourLengthHint');
+  lengths.append(hint);
+
   for (const [kind, key] of CAPPED_KINDS) {
     lengths.append(
       field(
@@ -502,7 +537,6 @@ export function renderBehaviour(host: OptionsHost, into: HTMLElement): void {
           else caps[kind] = value;
           saveBehaviour(host, { maxLengths: caps });
         }),
-        message('behaviourLengthHint'),
       ),
     );
   }
@@ -736,11 +770,23 @@ export const SECTIONS: ReadonlyArray<{
   readonly render: (host: OptionsHost, into: HTMLElement) => void;
 }> = [
   { id: 'general', render: renderGeneral },
-  { id: 'profiles', render: renderProfiles },
+  // Before the rules it bounds, matching the page. A source switched off here is
+  // off for every rule, so meeting this after the rule editor meant reading
+  // "whatever is enabled globally" with no idea what that was, and a rule could
+  // be silently dead because of a checkbox three sections further down.
   { id: 'sources', render: renderSources },
+  { id: 'profiles', render: renderProfiles },
   { id: 'field-exclusions', render: renderFieldExclusions },
   { id: 'domain-exclusions', render: renderDomainExclusions },
   { id: 'behaviour', render: renderBehaviour },
   { id: 'passwords', render: renderPasswords },
   { id: 'triggers', render: renderTriggers },
+  // UC-025. Last, and after the settings it serialises rather than among
+  // them: it configures nothing, and a reader working down the page has seen
+  // everything the file will contain by the time they reach it.
+  { id: 'export', render: renderExport },
+  // UC-026, after the export it reads. The page reads top to bottom as
+  // "configure, then take a copy, then put one back", and an import replaces
+  // everything above it — which is a reason to meet it last rather than first.
+  { id: 'import', render: renderImport },
 ];

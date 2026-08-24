@@ -84,7 +84,7 @@ export function findChrome() {
  */
 export function derivedExtensionId(absolutePath) {
   const hash = createHash('sha256').update(absolutePath).digest('hex').slice(0, 32);
-  return [...hash].map((digit) => String.fromCharCode(97 + parseInt(digit, 16))).join('');
+  return [...hash].map((digit) => String.fromCodePoint(97 + Number.parseInt(digit, 16))).join('');
 }
 
 /**
@@ -370,7 +370,15 @@ async function waitForBindings(cdp, session) {
 }
 
 /**
- * Waits until the page agent is listening in the tab about to be filled.
+ * The frame every harness asserts against, and the only one this waits for.
+ *
+ * Named rather than written as a bare `0` at the call below, because the number
+ * is the whole argument of the paragraph in `waitForAgent` that follows it.
+ */
+const TOP_FRAME = 0;
+
+/**
+ * Waits until the page agent is listening in the top frame about to be filled.
  *
  * Readiness as a condition, not a sleep. A fixed wait before the trigger is the
  * thinnest margin any of these harnesses has: ample on an idle machine, and on a
@@ -385,6 +393,26 @@ async function waitForBindings(cdp, session) {
  * not do: the agent registers at `document_idle`, which Chrome may place
  * *after* the load event.
  *
+ * The ping is *addressed to the top frame*, and until 2026-08-24 it was not —
+ * which made this a weaker condition than every caller reads it as. The agent
+ * registers per frame (`allFrames: true`), `tabs.sendMessage` broadcasts, and
+ * the reply is whichever frame answers first: an unaddressed ping is therefore
+ * satisfied by any frame in the tab, including one whose fields nothing here
+ * asserts on. The frames get there first. Measured on Chrome for Testing 151 in
+ * a one-CPU Linux container, on the reference fixture, the tab answered from
+ * `about:blank` or `about:srcdoc` 13–85 ms before the top document had an agent
+ * at all — on seven runs out of eight.
+ *
+ * Dispatching the trigger inside that window fills the frames and leaves the top
+ * document untouched: `startFill` broadcasts once, and a frame that had no agent
+ * when it went out cannot join an operation it never heard of. The harness then
+ * waits out its own timeout against a page whose fields never arrive, and says
+ * so as "the … fill never produced a complete record" — which reads as the
+ * corpus or the engine being at fault, and is neither. `locale:chrome` failed
+ * exactly that way on CI on 2026-08-24, and reproduced in 2 runs out of 8 in
+ * that container; dispatched into the window deliberately it reproduced in 4 out
+ * of 5.
+ *
  * The tab is left to the caller to identify, because the harnesses legitimately
  * differ on that — one navigates the only tab and relies on it, another looks
  * for the active one — and pinging a tab the fill will not target proves
@@ -398,7 +426,7 @@ export async function waitForAgent(cdp, workerSession, tabExpression) {
         expression: `chrome.tabs.query({}).then((tabs) => {
           const tab = ${tabExpression};
           if (tab === undefined) return 'no tab among ' + tabs.length;
-          return chrome.tabs.sendMessage(tab.id, { kind: 'ping' })
+          return chrome.tabs.sendMessage(tab.id, { kind: 'ping' }, { frameId: ${TOP_FRAME} })
             .then((reply) => reply !== undefined && reply.kind === 'pong'
               ? 'pong'
               : 'answered without a pong: ' + JSON.stringify(reply))
@@ -412,7 +440,7 @@ export async function waitForAgent(cdp, workerSession, tabExpression) {
     if (pinged.result.value === 'pong') return;
     await sleep(100);
   }
-  throw new Error('the page agent never answered a ping within 10 s of navigation');
+  throw new Error("the page agent never answered a ping in the page's top frame within 10 s of navigation");
 }
 
 /**
@@ -444,3 +472,73 @@ export async function closeChromium({ chrome, cdp, profileDir }) {
     console.warn(`  (left a temp profile behind: ${profileDir})`);
   }
 }
+
+/**
+ * A click the browser counts as a real user gesture.
+ *
+ * `element.click()` is enough for most of what these harnesses do, and it is
+ * what most of them use. It is not enough where a download is involved:
+ * Chromium allows one download from a page that has seen no user interaction
+ * and silently blocks the rest, so a second export wrote no file at all and
+ * read as the feature being broken rather than as the harness being too clever.
+ * Dispatching the press and the release puts the gesture where the browser
+ * looks for it — which is also what a person does.
+ *
+ * Owned here rather than in one harness because the export and import harnesses
+ * both need it, and a second copy of a workaround is how the *reason* for the
+ * workaround gets lost.
+ */
+export async function clickWithGesture(cdp, session, selector) {
+  const { result } = await cdp.send(
+    'Runtime.evaluate',
+    {
+      expression:
+        '(() => {' +
+          `const element = document.querySelector(${JSON.stringify(selector)});` +
+          'if (element === null) return null;' +
+          "element.scrollIntoView({ block: 'center' });" +
+          'const box = element.getBoundingClientRect();' +
+          'return { x: box.left + box.width / 2, y: box.top + box.height / 2 };' +
+        '})()',
+      returnByValue: true,
+    },
+    session,
+  );
+
+  const at = result.value;
+  if (at === null || at === undefined) throw new Error(`nothing to click for \`${selector}\``);
+
+  for (const type of ['mousePressed', 'mouseReleased']) {
+    await cdp.send(
+      'Input.dispatchMouseEvent',
+      { type, x: at.x, y: at.y, button: 'left', clickCount: 1 },
+      session,
+    );
+  }
+}
+
+/**
+ * A settings state as a string that depends on its content and not on its order.
+ *
+ * `chrome.storage.local` hands an object back with its keys in **alphabetical**
+ * order, at every level, rather than the order they were written in — measured
+ * when a harness assertion that nothing had touched storage failed against a
+ * state nothing had touched. Any harness comparing a stored state against the
+ * one it seeded needs this, and comparing `JSON.stringify` of the two is the
+ * trap it exists to keep people out of.
+ *
+ * It is also the shortest statement of why `lib/settings-file.ts` restates the
+ * schema's key order itself: every configuration the extension exports has been
+ * through this round trip.
+ */
+export function canonicalState(value) {
+  if (Array.isArray(value)) return `[${value.map(canonicalState).join(',')}]`;
+  if (value !== null && typeof value === 'object') {
+    return `{${Object.keys(value)
+      .sort((a, b) => a.localeCompare(b))
+      .map((key) => `${JSON.stringify(key)}:${canonicalState(value[key])}`)
+      .join(',')}}`;
+  }
+  return JSON.stringify(value);
+}
+

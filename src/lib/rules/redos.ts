@@ -53,7 +53,7 @@ export function analysePattern(pattern: string): readonly PatternProblem[] {
     if (hasTopLevelUnboundedQuantifier(body)) {
       problems.push({
         shape: 'nested-quantifier',
-        detail: `"(${body})${quantifier}" repeats a group that already repeats — the classic (a+)+ shape`,
+        detail: `"(${body})${quantifier}" repeats a group that already repeats, which is the classic (a+)+ shape`,
       });
       continue;
     }

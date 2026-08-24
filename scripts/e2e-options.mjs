@@ -221,7 +221,7 @@ try {
     'the new type’s own fields never appeared');
 
   // The same question for the other structural control, on the same not-yet-
-  // valid rule: unticking "whatever is enabled globally" has to reveal the six.
+  // valid rule: unticking "whatever is enabled globally" has to reveal the seven.
   await inPage(`(() => {
     const box = document.querySelector('#rules .rule-body fieldset.sources input.sources-all');
     box.checked = false;
@@ -230,7 +230,7 @@ try {
   })()`);
   await sleep(250);
   check('per-rule scoping is reachable before the rule is valid',
-    (await inPage(`document.querySelectorAll('#rules .rule-body fieldset.sources input').length`)) === 7,
+    (await inPage(`document.querySelectorAll('#rules .rule-body fieldset.sources input').length`)) === 8,
     `${await inPage(`document.querySelectorAll('#rules .rule-body fieldset.sources input').length`)} checkboxes`);
 
   // And text already typed into the open editor survives a structural edit made
@@ -356,7 +356,7 @@ try {
   // ── Per-rule source scoping, which changes the field set (FR-067) ───────────
   // The same defect class as the generator type, in the other control that
   // decides which fields exist. Clearing "Whatever is enabled globally" gives the
-  // rule its own list of sources, which is six checkboxes that exist only when
+  // rule its own list of sources, which is seven checkboxes that exist only when
   // that list does — and until 2026-08-17 the edit was not structural, so the
   // list was written to storage and nothing appeared. Per-rule scoping was
   // unreachable from the editor, with no error and no clue.
@@ -379,13 +379,13 @@ try {
 
   const revealed = await sourceBoxes();
   check('clearing it reveals a checkbox per source, so the scoping can be reached',
-    revealed === 7, `${revealed} checkboxes — expected the "all" box plus one per source`);
+    revealed === 8, `${revealed} checkboxes — expected the "all" box plus one per source`);
   check('and the rule now carries its own source list',
     Array.isArray((await storedRules())[0]?.sources) &&
-      (await storedRules())[0]?.sources?.length === 6,
+      (await storedRules())[0]?.sources?.length === 7,
     `sources=${JSON.stringify((await storedRules())[0]?.sources)}`);
 
-  // The six are labelled for a reader, not with the identifiers the code uses
+  // The seven are labelled for a reader, not with the identifiers the code uses
   // (NFR-018). They were passed straight in as labels until 2026-08-17, so this
   // screen said "className" and "ariaLabel" to somebody who never wrote either.
   const sourceLabels = await inPage(`JSON.stringify(
@@ -395,7 +395,7 @@ try {
   )`);
   const labels = JSON.parse(sourceLabels);
   check('the sources are labelled in words, not in identifiers',
-    labels.length === 6 && !labels.some((label) => /^[a-z]+[A-Z]/.test(label)),
+    labels.length === 7 && !labels.some((label) => /^[a-z]+[A-Z]/.test(label)),
     `labels=${sourceLabels}`);
 
   // Narrowing it is the point of the feature, and the checkboxes have to be live
@@ -416,7 +416,7 @@ try {
   await untick('CSS classes');
   check('unchecking one source narrows the stored list',
     !((await storedRules())[0]?.sources ?? []).includes('className') &&
-      ((await storedRules())[0]?.sources ?? []).length === 5,
+      ((await storedRules())[0]?.sources ?? []).length === 6,
     `sources=${JSON.stringify((await storedRules())[0]?.sources)}`);
 
   // Unticking the *last* one is the case that had no answer: an empty list is
@@ -424,16 +424,23 @@ try {
   // was written to storage looking finished and was dead. The preview cannot
   // reveal it — it draws from the generator, which is fine — so validation has
   // to, and the write has to be refused like any other invalid edit (FR-070).
-  for (const label of ['Name attribute', 'ID attribute', 'Label text', 'Placeholder text', 'Accessible name']) {
+  for (const label of [
+    'Name attribute',
+    'ID attribute',
+    'Test ID attribute',
+    'Label text',
+    'Placeholder text',
+    'Accessible name',
+  ]) {
     await untick(label);
   }
 
   const noSourceProblem = await inPage(
-    `document.querySelector('#rules .rule-body .problems')?.textContent?.trim() ?? ''`,
+    `document.querySelector('#rules .rule-body .problems-sources')?.textContent?.trim() ?? ''`,
   );
   check('unticking every source states that the rule could never fire',
     noSourceProblem.includes('never fire'), `problems="${noSourceProblem}"`);
-  // The last source standing, not the five we began with: every untick down to
+  // The last source standing, not the six we began with: every untick down to
   // one is a valid narrowing and is written as it happens, which is the whole
   // no-Save-button contract. Only the step to nothing is refused, so storage
   // stops one short of the edit on screen.
@@ -441,7 +448,7 @@ try {
     ((await storedRules())[0]?.sources ?? []).length === 1,
     `sources=${JSON.stringify((await storedRules())[0]?.sources)}`);
 
-  // And back: re-checking "all" has to remove the six, not leave them on screen
+  // And back: re-checking "all" has to remove the seven, not leave them on screen
   // editing a list the rule no longer has.
   await inPage(`(() => {
     const box = document.querySelector('#rules .rule-body fieldset.sources input.sources-all');
@@ -666,6 +673,18 @@ try {
     `#report has no rows — text was ${JSON.stringify(
       String(await inPage(`document.querySelector('#report')?.textContent?.slice(0, 90) ?? ''`)),
     )}`);
+
+  // FR-083, end to end: the fixture's component-rendered field carries a
+  // generated `id` and a `data-testid` and nothing else, so the row it produces
+  // is proof that the real page agent read the attribute, the descriptor carried
+  // it across the round trip, and the report preferred it to `:r3:`. In jsdom
+  // this is three unit tests; only here is it the shipped content script.
+  const reportNames = String(await inPage(`JSON.stringify(
+    [...document.querySelectorAll('#report tbody tr th')].map((cell) => cell.textContent.trim()),
+  )`));
+  check('a field identified only by its test id is named by it in the report (FR-083)',
+    JSON.parse(reportNames).includes('billing-reference'),
+    `report headings=${reportNames}`);
 
   await clickDisclosure('Second');
   check('a rule is open for the concurrent-writer check',
