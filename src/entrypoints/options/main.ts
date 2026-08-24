@@ -97,12 +97,30 @@ async function mountSettings(): Promise<void> {
      * import did not happen, and the section keeps its plan on screen so the
      * user can try again. Announced here, so a rejected write is worded the
      * same however it was made.
+     *
+     * **And memory goes back, which `save` does not do.** A7's "still in force"
+     * has to be true of the page as well as of storage: `settings()` is what
+     * every other section computes its next write from, so a failed import that
+     * left the imported state in memory would be applied by the next keystroke
+     * anywhere on the page — a checkbox in the behaviour section writing a whole
+     * configuration the user was told had not been imported. UC-024 A2 accepts
+     * that divergence for a single field, where the next write re-states the
+     * same field; it is a different bargain when what is left in memory is every
+     * rule and every profile the user still has.
+     *
+     * Only if nothing else has taken memory in the meantime. The adopt listener
+     * below runs on storage events and can land during the await, and its state
+     * came from storage — restoring over it would revert a write this page did
+     * not make and could not see, which is BR-024-3's defect committed by the
+     * rollback meant to prevent one.
      */
     replace: async (next) => {
+      const previous = settings;
       settings = next;
       try {
         await saveSettings(next);
       } catch (error: unknown) {
+        if (settings === next) settings = previous;
         announce(message('settingsSaveFailed', [reason(error)]));
         throw error;
       }

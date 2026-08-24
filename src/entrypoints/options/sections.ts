@@ -11,6 +11,7 @@ import { LOCALES } from '@/lib/persona/corpus/corpus';
 import { createPersona, seededRandom } from '@/lib/persona/persona';
 import { appendAt, newExclusion, removeAt, replaceAt } from '@/lib/exclusions';
 import { validateDomainPattern, validateMatcher } from '@/lib/rules/validate';
+import { problemText } from './problems';
 import type { ControlKind } from '@/lib/protocol';
 import {
   checkbox,
@@ -352,10 +353,7 @@ function matcherProblems(matcher: Matcher): HTMLElement {
   for (const problem of validateMatcher(matcher)) {
     const line = document.createElement('p');
     line.className = 'problem';
-    line.textContent =
-      problem.params === undefined
-        ? message(problem.code)
-        : message(problem.code, problem.params);
+    line.textContent = problemText(problem);
     box.append(line);
   }
   return box;

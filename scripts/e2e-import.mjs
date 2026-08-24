@@ -266,7 +266,44 @@ try {
       canonicalState(await stored()) === canonicalState(OTHER),
     'cancel left the preview up, or wrote something');
 
+  // ── BR-026-8: a file may not store a rule the editor refuses ───────────────
+  // The one drop that is not about a file being malformed. This file is perfect
+  // JSON, perfectly shaped, and carries a pattern the rule editor will not let
+  // anybody type — so what is being checked is that the *importer* applies
+  // FR-070 too, and that the pattern never reaches storage, where the next fill
+  // would compile it and run it against text the page controls (NFR-009).
+  await seed(OTHER);
+  await openOptions();
+  await choose('unsafe.json', JSON.stringify({
+    version: 1,
+    rules: [rule('kept'), rule('redos', { label: 'Catastrophic', match: { mode: 'regex', pattern: '(a+)+b' } })],
+  }));
+  await waitFor(`document.querySelector('#import .import-dropped') !== null`, 'a backtracking rule was not reported');
+
+  const unsafeText = await textOf('#import .import-dropped');
+  check('a rule FR-070 refuses is named before the write (BR-026-8)',
+    unsafeText.includes('Catastrophic'), `dropped=${JSON.stringify(unsafeText)}`);
+  // Worded as the editor words it. "Could not be read" would be false about this
+  // file and would send the user to fix syntax that is already correct.
+  check('and it is named with the fault, not as a file that could not be read',
+    unsafeText.includes('cannot be stored') && unsafeText.includes('backtrack'),
+    `dropped=${JSON.stringify(unsafeText)}`);
+
+  await clickWithGesture(cdp, page, '#import .import-confirm');
+  await sleep(500);
+  const afterUnsafe = await stored();
+  check('the refused rule is not in storage after the import (NFR-009)',
+    Array.isArray(afterUnsafe.rules) &&
+      afterUnsafe.rules.length === 1 &&
+      afterUnsafe.rules[0]?.id === 'kept',
+    `rules=${JSON.stringify(afterUnsafe.rules)}`);
+
   // ── The refusals, each with no way past it (BR-026-2) ──────────────────────
+  // Back to a known configuration first: the block above is the only one that
+  // confirms an import, and every check below asserts that a refused file left
+  // what was already there alone.
+  await seed(OTHER);
+
   const refusals = [
     ['A1 · not JSON', 'broken.json', '{ not json', 'not JSON'],
     ['A1 · JSON that is not an object', 'array.json', '[1, 2, 3]', 'single JSON object'],

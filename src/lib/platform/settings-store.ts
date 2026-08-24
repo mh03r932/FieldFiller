@@ -90,9 +90,12 @@ browser.storage.onChanged.addListener((changes, areaName) => {
  * state into the current types; it does not apply FR-070, so a rule whose regex
  * will not compile is well-shaped and passes through here untouched. Keeping
  * invalid rules out of storage is the rule editor's doing — it commits only what
- * `validateRule` accepts — which means a future writer that is not the editor
- * has to validate for itself. BR-024-7 states the boundary and why filtering
- * here was considered and declined.
+ * `validateRule` accepts — which means a writer that is not the editor has to
+ * validate for itself. There is one, the importer, and it does: `analyseImport`
+ * puts every rule it reads out of a file through the same function and stores
+ * what is left (BR-026-8). It went a while without, which is what this paragraph
+ * was warning about. BR-024-7 states the boundary and why filtering here was
+ * considered and declined.
  *
  * The cache is not updated here. `onChanged` drops it and the next read
  * repopulates from storage, so storage stays the source of truth even for a

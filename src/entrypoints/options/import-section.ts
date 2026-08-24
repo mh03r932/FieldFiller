@@ -2,6 +2,7 @@ import { message, type MessageKey } from '@/lib/platform/i18n';
 import { analyseImport, type ImportDrop, type ImportPlan, type ImportRefusal } from '@/lib/settings-import';
 import type { OptionsHost } from './host';
 import { focusIn } from './controls';
+import { problemText } from './problems';
 import { reason } from './reason';
 
 /**
@@ -189,7 +190,15 @@ function planView(host: OptionsHost, into: HTMLElement, name: string, plan: Impo
   return view;
 }
 
-/** A6 and BR-026-7: every entry named, before the write rather than after it. */
+/**
+ * A6 and BR-026-7: every entry named, before the write rather than after it.
+ *
+ * A drop that carries a `problem` says why in the file's own terms — a rule the
+ * parser read and FR-070 will not store — and the fault is resolved here rather
+ * than in the analysis, which has no catalog to resolve it against. It is
+ * appended to the drop's own substitutions, so the message decides where in the
+ * sentence it lands (NFR-018) rather than this concatenating one.
+ */
 function droppedView(dropped: readonly ImportDrop[]): HTMLElement {
   const section = document.createElement('div');
   section.className = 'import-dropped';
@@ -203,7 +212,10 @@ function droppedView(dropped: readonly ImportDrop[]): HTMLElement {
     const item = document.createElement('li');
     // Every parameter here came out of the file, so it is written as text and
     // can never become markup — a rule labelled `<img onerror=…>` is a label.
-    item.textContent = message(drop.code, drop.params);
+    item.textContent = message(
+      drop.code,
+      drop.problem === undefined ? drop.params : [...drop.params, problemText(drop.problem)],
+    );
     list.append(item);
   }
 

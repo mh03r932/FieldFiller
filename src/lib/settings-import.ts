@@ -1,4 +1,5 @@
-import { DEFAULT_SETTINGS, MATCH_SOURCES, parseSettings, type Settings } from './settings';
+import { DEFAULT_SETTINGS, MATCH_SOURCES, parseSettings, type Rule, type Settings } from './settings';
+import { validateRule, type RuleProblem } from './rules/validate';
 
 /**
  * Reading a configuration back in (UC-026, FR-053, FR-054, ND-13).
@@ -18,6 +19,25 @@ import { DEFAULT_SETTINGS, MATCH_SOURCES, parseSettings, type Settings } from '.
  * `parseSettings` about one entry at a time and reports what came back. It is
  * strictly an *observer* of the parser: if the parser changes, the report
  * changes with it, and neither can be right while the other is wrong.
+ *
+ * **Readable is not the same as storable, and this is the only other writer.**
+ * The parser says what a state *is*; FR-070 says what may be written, and the
+ * two are not the same set — `(a+)+b` is a perfectly well-shaped match pattern
+ * and the editor refuses it beside the field it was typed into, because
+ * `compileRules` compiles it once per fill and `selectRule` then runs it against
+ * identity text the *page* controls (NFR-009). Nothing between a file and
+ * storage applied that check, so a file could store a rule no editor would
+ * write, and `validate.ts` and the settings store both already said this module
+ * was where it happens. It now does: `validateRule` runs on every rule the
+ * parser hands back, a rule that fails is named in `dropped` with its own fault,
+ * and `settings` is what is left. The module's one invariant is unchanged —
+ * `settings` is what would be stored, exactly.
+ *
+ * Field exclusions are deliberately *not* checked the same way. The exclusion
+ * editor stores a pattern while it is still invalid on purpose (UC-005 A5: a
+ * half-typed pattern is invalid on the way to being valid, and refusing it would
+ * lose the keystroke), so validating them here would make an import stricter
+ * than the screen that authors them — which is a different defect, not a fix.
  */
 
 /** The schema version this build writes and reads. */
@@ -44,11 +64,28 @@ export type ImportRefusal = {
 export type ImportDrop = {
   readonly code:
     | 'importDroppedRule'
+    | 'importDroppedRuleRefused'
     | 'importDroppedProfile'
     | 'importDroppedProfileRule'
+    | 'importDroppedProfileRuleRefused'
     | 'importDroppedKey'
     | 'importDroppedShape';
   readonly params: readonly string[];
+  /**
+   * The fault behind the two `…Refused` codes, carried rather than worded.
+   *
+   * A `RuleProblem` is already a catalog key and its substitutions, for the same
+   * reason `code` above is one — so the surface resolves the fault and drops it
+   * into the drop's own sentence, and this module still says nothing in English.
+   * The alternative was a drop that read "could not be read" about a rule that
+   * was read perfectly well and refused for a reason the user is entitled to.
+   *
+   * The first fault only. A refused rule is not being corrected here the way it
+   * would be in the editor, where every problem is listed beside the field that
+   * fixes it; this is a line in a list saying why one entry of a file is not
+   * arriving, and the first reason is enough to make it findable.
+   */
+  readonly problem?: RuleProblem;
 };
 
 /**
@@ -139,6 +176,7 @@ const RULE_KEYS: ReadonlySet<string> = new Set([
   'fromPersona',
 ]);
 const PROFILE_KEYS: ReadonlySet<string> = new Set(['id', 'label', 'enabled', 'urls', 'rules']);
+
 const SECTION_SHAPES: readonly (readonly [string, ReadonlySet<string>])[] = [
   ['exclusions', new Set(['fields', 'domains'])],
   [
@@ -161,6 +199,33 @@ const SECTION_SHAPES: readonly (readonly [string, ReadonlySet<string>])[] = [
   ['sources', new Set<string>(MATCH_SOURCES)],
   ['triggers', new Set(['contextMenu'])],
 ];
+
+/**
+ * A rule and a profile with every field present and of the kind the schema keeps
+ * there, for the shape check below.
+ *
+ * Taken from the parser rather than written out here, for the reason
+ * `SECTION_KEYS` and the `sources` row are derived: a table of field types
+ * copied out by hand is a second statement of the schema, and the one that goes
+ * out of date is always the copy. Feeding the parser a minimal entry and keeping
+ * what it hands back gives a witness that cannot disagree with it — the same
+ * argument `mistypedShapes` makes for reading root shapes off `DEFAULT_SETTINGS`,
+ * which holds no rule and no profile to read these from.
+ *
+ * The rule states `sources` explicitly because that field is optional and a
+ * witness without it would have nothing to compare against — which is exactly
+ * the field whose wrong shape is worst: `parseSourceList` answers a string with
+ * `undefined`, and `undefined` means "whatever is enabled globally", so a rule
+ * pinned to one source arrives on the importing machine matching all of them.
+ */
+const RULE_WITNESS: Record<string, unknown> = {
+  ...parseSettings({
+    rules: [{ match: { mode: 'contains', pattern: 'x' }, generator: { type: 'email' }, sources: [] }],
+  }).rules[0],
+};
+const PROFILE_WITNESS: Record<string, unknown> = {
+  ...parseSettings({ profiles: [{ id: 'x' }] }).profiles[0],
+};
 
 /**
  * Reads a file and works out what importing it would do.
@@ -207,7 +272,7 @@ export function analyseImport(text: string, current: Settings): ImportOutcome {
     return refuse('importRefusedNothingOurs', []);
   }
 
-  const settings = parseSettings(file);
+  const settings = storable(parseSettings(file));
   const shapes = mistypedShapes(file);
   return {
     ok: true,
@@ -229,7 +294,35 @@ function refuse(code: ImportRefusal['code'], params: readonly string[]): ImportO
 }
 
 /**
- * Every rule and profile in the file that the parser will not keep.
+ * What the plan would actually store: read by the parser, allowed by FR-070.
+ *
+ * The filter is the second half of the module note at the top, and it has to
+ * happen here rather than in the report, because `settings` is the plan — the
+ * user confirms this state, and a rule named as dropped that then arrived in
+ * storage would make every other line of the report worthless too.
+ *
+ * `validateRule` is asked, never re-implemented, exactly as `parseSettings` is:
+ * one function decides what the editor will write and what an import will store,
+ * so the two cannot come to disagree about the same rule.
+ */
+function storable(parsed: Settings): Settings {
+  return {
+    ...parsed,
+    rules: parsed.rules.filter(allowed),
+    profiles: parsed.profiles.map((profile) => ({
+      ...profile,
+      rules: profile.rules.filter(allowed),
+    })),
+  };
+}
+
+function allowed(rule: Rule): boolean {
+  return validateRule(rule).length === 0;
+}
+
+/**
+ * Every rule and profile in the file that the import will not store, and what
+ * survives it holding a field of the wrong kind.
  *
  * Each entry is put to `parseSettings` **on its own**, inside an otherwise empty
  * state, and kept or dropped according to what comes back. Asking the real
@@ -241,12 +334,33 @@ function refuse(code: ImportRefusal['code'], params: readonly string[]): ImportO
  * entries. `parseRule` falls back to the match pattern when a rule states no
  * `id`, so two rules in one file can arrive carrying the same one, and a diff
  * keyed on it would report a survivor as dropped.
+ *
+ * One pass per entry, reporting all three things that can be wrong with it,
+ * because they are ordered rather than independent: a rule the parser could not
+ * read has no fields worth checking the shape of and nothing to validate, and a
+ * rule FR-070 refuses is not going to be stored, so naming its wrongly shaped
+ * `sources` too would be describing a default that is never reached.
  */
 function droppedEntries(file: Record<string, unknown>): readonly ImportDrop[] {
   const drops: ImportDrop[] = [];
 
   for (const [index, entry] of listAt(file, 'rules').entries()) {
-    if (!keepsRule(entry)) drops.push({ code: 'importDroppedRule', params: [nameOf(entry, index)] });
+    const verdict = verdictOn(entry, `rules[${index}].`);
+    switch (verdict.kept) {
+      case 'unreadable':
+        drops.push({ code: 'importDroppedRule', params: [nameOf(entry, index)] });
+        break;
+      case 'refused':
+        drops.push({
+          code: 'importDroppedRuleRefused',
+          params: [nameOf(entry, index)],
+          problem: verdict.problem,
+        });
+        break;
+      case 'stored':
+        drops.push(...verdict.mistyped);
+        break;
+    }
   }
 
   for (const [index, entry] of listAt(file, 'profiles').entries()) {
@@ -255,22 +369,64 @@ function droppedEntries(file: Record<string, unknown>): readonly ImportDrop[] {
       continue;
     }
 
-    // The profile survives; its own rules are parsed by the same function and
-    // can be dropped individually, which the profile's count alone would hide.
+    drops.push(...mistypedFields(entry, PROFILE_WITNESS, `profiles[${index}].`));
+
+    // The profile survives; its own rules go through the same parser and the
+    // same validation and can be dropped individually, which the profile's count
+    // alone would hide.
     for (const [at, rule] of listAt(record(entry), 'rules').entries()) {
-      if (keepsRule(rule)) continue;
-      drops.push({
-        code: 'importDroppedProfileRule',
-        params: [nameOf(entry, index), nameOf(rule, at)],
-      });
+      const verdict = verdictOn(rule, `profiles[${index}].rules[${at}].`);
+      switch (verdict.kept) {
+        case 'unreadable':
+          drops.push({
+            code: 'importDroppedProfileRule',
+            params: [nameOf(entry, index), nameOf(rule, at)],
+          });
+          break;
+        case 'refused':
+          drops.push({
+            code: 'importDroppedProfileRuleRefused',
+            params: [nameOf(entry, index), nameOf(rule, at)],
+            problem: verdict.problem,
+          });
+          break;
+        case 'stored':
+          drops.push(...verdict.mistyped);
+          break;
+      }
     }
   }
 
   return drops;
 }
 
-function keepsRule(entry: unknown): boolean {
-  return parseSettings({ rules: [entry] }).rules.length === 1;
+/**
+ * What becomes of one rule in the file, and why.
+ *
+ * Three outcomes rather than a boolean, because the two ways of losing a rule
+ * are not the same thing to the user: one file said something this build cannot
+ * read, the other said something this build reads perfectly and will not write.
+ * Telling a user their `(a+)+b` rule "could not be read" would be false, and
+ * would send them to fix a file that has nothing wrong with its syntax.
+ *
+ * The caller supplies the message codes, because those are all that differ
+ * between a rule at the top level and the same rule inside a profile — a
+ * profile's rule is named with the profile, and no other part of this decision
+ * knows or cares where the rule was found.
+ */
+type RuleVerdict =
+  | { readonly kept: 'unreadable' }
+  | { readonly kept: 'refused'; readonly problem: RuleProblem }
+  | { readonly kept: 'stored'; readonly mistyped: readonly ImportDrop[] };
+
+function verdictOn(entry: unknown, path: string): RuleVerdict {
+  const rule = parseSettings({ rules: [entry] }).rules[0];
+  if (rule === undefined) return { kept: 'unreadable' };
+
+  const problem = validateRule(rule)[0];
+  if (problem !== undefined) return { kept: 'refused', problem };
+
+  return { kept: 'stored', mistyped: mistypedFields(entry, RULE_WITNESS, path) };
 }
 
 /**
@@ -298,7 +454,14 @@ function keepsRule(entry: unknown): boolean {
  * the parser's business, and reporting it from here would mean keeping a second
  * copy of the parser's rules, which the note at the top of this file refuses.
  * The ladder FR-073 asks for is what would report those; until it exists they
- * are coerced silently, as A3 already says.
+ * are coerced silently, as A3 already says. A rule refused by FR-070 is the one
+ * exception and is not one of these: it is not coerced, it is not stored, and
+ * `droppedEntries` names it with the fault itself.
+ *
+ * Root sections only. The same check inside a rule or a profile is
+ * `mistypedFields`, called from the walk that already knows which entries
+ * survive — a shape note about a rule that is not being stored would be
+ * describing a default nothing ever reaches.
  */
 function mistypedShapes(file: Record<string, unknown>): {
   readonly drops: readonly ImportDrop[];
@@ -318,15 +481,40 @@ function mistypedShapes(file: Record<string, unknown>): {
 
   for (const [section] of SECTION_SHAPES) {
     if (mistyped.has(section)) continue;
-    const witness = record(defaults[section]);
-    for (const [key, given] of Object.entries(record(file[section]))) {
-      const expected = witness[key];
-      if (expected === undefined || kindOf(given) === kindOf(expected)) continue;
-      drops.push({ code: 'importDroppedShape', params: [`${section}.${key}`] });
-    }
+    drops.push(...mistypedFields(file[section], record(defaults[section]), `${section}.`));
   }
 
   return { drops, mistyped };
+}
+
+/**
+ * The fields of one shape whose value is not the kind the witness holds there.
+ *
+ * The same comparison for a section, a rule and a profile, because it is the
+ * same question asked three times — and because the rule and profile halves
+ * arrived late. Until they did, the report descended into a rule only to check
+ * its *key names*: `rules[0].sources: "name"` was a key the build knows holding
+ * a value the schema does not keep, so both halves of the analysis looked at it
+ * and neither had anything to say. It imported as a clean rule that quietly
+ * matched every source instead of the one it named, and
+ * `profiles[0].rules: 42` imported as a profile with no rules in it at all.
+ *
+ * A key with no witness is left alone: `unknownKeys` is what speaks for a name
+ * the schema cannot place, and saying it twice in two different ways would make
+ * the count in step 5 an overstatement.
+ */
+function mistypedFields(
+  value: unknown,
+  witness: Record<string, unknown>,
+  path: string,
+): readonly ImportDrop[] {
+  const drops: ImportDrop[] = [];
+  for (const [key, given] of Object.entries(record(value))) {
+    const expected = witness[key];
+    if (expected === undefined || kindOf(given) === kindOf(expected)) continue;
+    drops.push({ code: 'importDroppedShape', params: [`${path}${key}`] });
+  }
+  return drops;
 }
 
 /**

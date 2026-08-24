@@ -334,4 +334,177 @@ describe('naming what will not be kept', () => {
     if (!outcome.ok) return;
     expect(outcome.plan.migrated).toBe(true);
   });
+
+  it('names a field of a rule whose value is the wrong kind (BR-026-7)', () => {
+    // The shape check used to stop at the root, where the shipped defaults hold
+    // no rule to compare a field against. `sources` is the field that made the
+    // silence expensive: a string is not a list, `parseSourceList` answers it
+    // with `undefined`, and `undefined` means "whatever is enabled globally" —
+    // so a rule pinned to one source arrives matching all seven, reported as a
+    // clean import.
+    const outcome = analyse({
+      version: SCHEMA_VERSION,
+      rules: [{ ...rule('pinned'), sources: 'name' }],
+    });
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.plan.dropped).toContainEqual({
+      code: 'importDroppedShape',
+      params: ['rules[0].sources'],
+    });
+    expect(outcome.plan.settings.rules[0]?.sources).toBeUndefined();
+  });
+
+  it('names a field of a profile whose value is the wrong kind (BR-026-7)', () => {
+    // Both losses are total and both were silent: a profile whose `rules` is not
+    // a list arrives with no rules in it, and one whose `urls` is a bare string
+    // matches no page at all. Neither shows up in the summary's counts, which
+    // do not break out a profile's own rules.
+    const outcome = analyse({
+      version: SCHEMA_VERSION,
+      profiles: [{ id: 'p1', label: 'Staging', urls: 'https://staging.example.com/*', rules: 42 }],
+    });
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.plan.dropped).toEqual(
+      expect.arrayContaining([
+        { code: 'importDroppedShape', params: ['profiles[0].urls'] },
+        { code: 'importDroppedShape', params: ['profiles[0].rules'] },
+      ]),
+    );
+    expect(outcome.plan.settings.profiles[0]?.urls).toEqual([]);
+    expect(outcome.plan.settings.profiles[0]?.rules).toEqual([]);
+  });
+
+  it('says nothing about a rule whose fields are all the right kind', () => {
+    // The other half of the two above, and the one that guards the witness
+    // itself: the shapes those compare against are taken from the parser rather
+    // than written out, so a witness that came back empty would report nothing
+    // at all and every check above would pass with it.
+    const outcome = analyse({
+      version: SCHEMA_VERSION,
+      rules: [{ ...rule('a'), sources: ['name', 'id'] }],
+      profiles: [{ id: 'p1', label: 'Staging', urls: ['https://x/*'], rules: [rule('b')] }],
+    });
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.plan.dropped).toEqual([]);
+  });
+});
+
+/**
+ * BR-026-8 — the importer is the only writer of rules that is not the editor.
+ *
+ * FR-070 rejects a rule when it is saved, and until this existed a file was a
+ * way round that: well-shaped is not the same as valid, so a rule the editor
+ * refuses beside the field it was typed into imported without comment. The
+ * pattern below is the reason the rule is a safety rule rather than a
+ * consistency one — `compileRules` compiles it once per fill and `selectRule`
+ * runs it against identity text the page controls, in the background worker.
+ */
+describe('refusing a rule the editor would not save', () => {
+  const backtracking = { ...rule('redos'), label: 'Catastrophic', match: { mode: 'regex', pattern: '(a+)+b' } };
+
+  it('does not store a catastrophically backtracking pattern (NFR-009)', () => {
+    const outcome = analyse({ version: SCHEMA_VERSION, rules: [rule('fine'), backtracking] });
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.plan.settings.rules.map((kept) => kept.id)).toEqual(['fine']);
+    expect(outcome.plan.incoming.rules).toBe(1);
+  });
+
+  it('names it with the fault itself, not as a file it could not read (A6)', () => {
+    // The distinction the user acts on: there is nothing wrong with this file's
+    // syntax, and "could not be read" would send them to correct it.
+    const outcome = analyse({ version: SCHEMA_VERSION, rules: [backtracking] });
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    const [drop] = outcome.plan.dropped;
+    expect(drop?.code).toBe('importDroppedRuleRefused');
+    expect(drop?.params).toEqual(['Catastrophic']);
+    expect(drop?.problem?.code).toBe('ruleProblemPatternBacktracks');
+  });
+
+  it('separates a rule it cannot read from one it will not store', () => {
+    const outcome = analyse({
+      version: SCHEMA_VERSION,
+      rules: [{ label: 'Unreadable' }, backtracking],
+    });
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.plan.dropped.map((drop) => drop.code)).toEqual([
+      'importDroppedRule',
+      'importDroppedRuleRefused',
+    ]);
+  });
+
+  it('refuses one inside a profile that survives, naming the profile', () => {
+    const outcome = analyse({
+      version: SCHEMA_VERSION,
+      profiles: [{ id: 'p1', label: 'Staging', urls: [], rules: [rule('ok'), backtracking] }],
+    });
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.plan.settings.profiles[0]?.rules.map((kept) => kept.id)).toEqual(['ok']);
+    const [drop] = outcome.plan.dropped;
+    expect(drop?.code).toBe('importDroppedProfileRuleRefused');
+    expect(drop?.params).toEqual(['Staging', 'Catastrophic']);
+    expect(drop?.problem?.code).toBe('ruleProblemPatternBacktracks');
+  });
+
+  it('applies every check the editor applies, not only the pattern', () => {
+    // Nothing here is about regular expressions: an unreadable template, a date
+    // range that starts after it ends and a rule pinned to no source at all are
+    // each refused beside the field that fixes them, and each imported clean
+    // before this. Two neighbours of theirs are deliberately absent, because the
+    // parser already refuses them and they arrive as `importDroppedRule`: an
+    // empty list generator is not a list generator at all, and `parseGenerator`
+    // sorts a number range's two bounds so an impossible one cannot exist. This
+    // handles what the parser deliberately does not.
+    const outcome = analyse({
+      version: SCHEMA_VERSION,
+      rules: [
+        {
+          ...rule('template'),
+          label: 'Bad template',
+          generator: { type: 'alphanumeric', template: '{nosuchthing}' },
+        },
+        {
+          ...rule('range'),
+          label: 'Backwards',
+          generator: { type: 'date', format: 'YYYY-MM-DD', from: '2030-01-01', to: '2020-01-01' },
+        },
+        { ...rule('nowhere'), label: 'No sources', sources: [] },
+      ],
+    });
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.plan.settings.rules).toEqual([]);
+    expect(outcome.plan.dropped.map((drop) => drop.problem?.code)).toEqual([
+      'ruleProblemTemplateInvalid',
+      'ruleProblemDateRange',
+      'ruleProblemNoSources',
+    ]);
+  });
+
+  it('does not report a refused rule twice over its own field shapes', () => {
+    // A rule that is not being stored has no defaults anyone will reach, so a
+    // shape note about it would be describing something that never happens.
+    const outcome = analyse({
+      version: SCHEMA_VERSION,
+      rules: [{ ...backtracking, fromPersona: 'yes' }],
+    });
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.plan.dropped).toHaveLength(1);
+  });
 });

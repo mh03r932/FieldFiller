@@ -10,6 +10,7 @@ import {
   sampleRule,
 } from '@/lib/rules/editing';
 import { validateRule, type RuleProblem } from '@/lib/rules/validate';
+import { problemText } from './problems';
 import { checkbox, field, focusIn, numberInput, select, textArea, textInput } from './controls';
 import type { OptionsHost } from './host';
 import type { Locale } from '@/lib/persona/persona';
@@ -946,12 +947,8 @@ function preview(rule: Rule, locale: Locale): HTMLElement {
  * The box is rendered even when empty, because `rerenderBody` replaces it in
  * place: a box that exists only while it has content could never gain any.
  *
- * `problem.code` goes straight into `message`, whose parameter type is the union
- * of keys WXT generates from the catalog — so a code without a message does not
- * compile, and the pairing needs no test to hold. What used to be here was
- * `message('ruleInvalid', [problem.message])`, where `problem.message` was an
- * English literal from `lib/rules/validate.ts`: the frame was translatable and
- * the sentence inside it never could be.
+ * The sentence itself is resolved by `problemText`, which the exclusion list and
+ * the import preview also use; only the frame around it belongs to this screen.
  */
 function problemList(
   part: RuleProblem['field'],
@@ -976,12 +973,6 @@ function problemList(
   }
   return box;
 }
-function problemText(problem: RuleProblem): string {
-  return problem.params === undefined
-    ? message(problem.code)
-    : message(problem.code, problem.params);
-}
-
 /* ------------------------------------------------------------ small builders */
 
 /**

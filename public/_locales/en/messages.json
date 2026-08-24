@@ -1245,6 +1245,20 @@
       }
     }
   },
+  "importDroppedRuleRefused": {
+    "message": "Rule \"$NAME$\" cannot be stored: $PROBLEM$",
+    "description": "A rule the file states perfectly readably that the editor would refuse to save (FR-070) \u2014 a pattern that backtracks catastrophically, an impossible range, a list generator with no items. Distinct from importDroppedRule, where the file itself could not be read: nothing is wrong with the JSON, and saying so would send the user to fix the wrong thing. $PROBLEM$ is a whole sentence resolved from a ruleProblem* key, never prose assembled in code.",
+    "placeholders": {
+      "name": {
+        "content": "$1",
+        "example": "Postcode"
+      },
+      "problem": {
+        "content": "$2",
+        "example": "this pattern can backtrack catastrophically and would hang the extension."
+      }
+    }
+  },
   "importDroppedProfile": {
     "message": "Profile \"$NAME$\" could not be read.",
     "description": "One dropped profile in the import preview.",
@@ -1266,6 +1280,24 @@
       "name": {
         "content": "$2",
         "example": "Postcode"
+      }
+    }
+  },
+  "importDroppedProfileRuleRefused": {
+    "message": "In profile \"$PROFILE$\", rule \"$NAME$\" cannot be stored: $PROBLEM$",
+    "description": "importDroppedRuleRefused for a rule inside a profile that is itself kept.",
+    "placeholders": {
+      "profile": {
+        "content": "$1",
+        "example": "Staging"
+      },
+      "name": {
+        "content": "$2",
+        "example": "Postcode"
+      },
+      "problem": {
+        "content": "$3",
+        "example": "this pattern can backtrack catastrophically and would hang the extension."
       }
     }
   },
