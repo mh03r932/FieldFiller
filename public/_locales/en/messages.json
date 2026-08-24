@@ -107,6 +107,20 @@
     "message": "the extension could not be reached",
     "description": "Why a fill stopped: the background did not answer a descriptor batch."
   },
+  "resultExclusionsSkipped": {
+    "message": "$COUNT$ field exclusion(s) not applied, so fields they cover were filled — $DETAIL$. Correct the pattern in Field exclusions.",
+    "description": "Appended when a stored exclusion was not sent to the page because its pattern would hang the fill (NFR-009). Worded around the consequence rather than the cause: an exclusion that does not run means a field the user asked to be left alone was filled, which is the part they may need to undo. Distinct from resultRulesSkipped, which fails in the opposite direction — there a field got a default value instead of a configured one.",
+    "placeholders": {
+      "count": {
+        "content": "$1",
+        "example": "1"
+      },
+      "detail": {
+        "content": "$2",
+        "example": "^(\\s*[\\w-]+)+$"
+      }
+    }
+  },
   "resultRulesSkipped": {
     "message": "$COUNT$ rule(s) skipped — $DETAIL$",
     "description": "Appended when a configured rule could not run (DD-005).",
@@ -1342,6 +1356,70 @@
       "problem": {
         "content": "$2",
         "example": "this pattern can backtrack catastrophically and would hang the extension."
+      }
+    }
+  },
+  "importNotedRuleCoerced": {
+    "message": "Rule “$NAME$” is imported with values this version changed: $CHANGES$. Check it is still the rule you meant — the editor would not have saved it as the file states it.",
+    "description": "A rule the import stores after the parser changed something inside its generator (UC-026 A10): a number or word range stated backwards is reordered, and a date field that is not a string is replaced with the default. The changes are shown as `key was → is`, in JSON, and are values from the file rather than prose to translate.",
+    "placeholders": {
+      "name": {
+        "content": "$1",
+        "example": "Amount"
+      },
+      "changes": {
+        "content": "$2",
+        "example": "min 50 → 10; max 10 → 50"
+      }
+    }
+  },
+  "importNotedProfileRuleCoerced": {
+    "message": "In profile “$PROFILE$”, rule “$NAME$” is imported with values this version changed: $CHANGES$. Check it is still the rule you meant.",
+    "description": "importNotedRuleCoerced for a rule inside a profile, named with the profile because a profile's rules are edited through their own list.",
+    "placeholders": {
+      "profile": {
+        "content": "$1",
+        "example": "Staging"
+      },
+      "name": {
+        "content": "$2",
+        "example": "Amount"
+      },
+      "changes": {
+        "content": "$3",
+        "example": "min 50 → 10; max 10 → 50"
+      }
+    }
+  },
+  "importNotedDuplicateId": {
+    "message": "Rules $NAMES$ share one identity (“$ID$”), so the rule list will treat them as one: editing either changes both, and deleting either deletes both. Give them different “id” values in the file.",
+    "description": "Two or more rules in the file claim the same id (BR-010-2). Noted rather than dropped: both rules are imported, and choosing which one to discard would be choosing what the user meant. The correction is in the file, because the rule editor cannot change an id.",
+    "placeholders": {
+      "names": {
+        "content": "$1",
+        "example": "Postcode; Postal code"
+      },
+      "id": {
+        "content": "$2",
+        "example": "postcode"
+      }
+    }
+  },
+  "importNotedProfileDuplicateId": {
+    "message": "In profile “$PROFILE$”, rules $NAMES$ share one identity (“$ID$”), so that profile’s list will treat them as one: editing either changes both, and deleting either deletes both. Give them different “id” values in the file.",
+    "description": "importNotedDuplicateId for rules inside a profile. Named with the profile because a profile's rules are edited through their own list, which is the scope an id has to be unique in.",
+    "placeholders": {
+      "profile": {
+        "content": "$1",
+        "example": "Staging"
+      },
+      "names": {
+        "content": "$2",
+        "example": "Postcode; Postal code"
+      },
+      "id": {
+        "content": "$3",
+        "example": "postcode"
       }
     }
   },

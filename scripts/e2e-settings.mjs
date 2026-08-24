@@ -108,6 +108,17 @@ try {
       `chrome.storage.local.get('settings').then((s) => JSON.stringify(s.settings ?? null))`,
     )));
 
+  /**
+   * Writes a whole settings state, for the one check that cannot be typed.
+   *
+   * Everything else in this file drives the screen, on purpose — a setting the
+   * user cannot reach is not a setting. NFR-009's check is the exception: what
+   * it exercises is a *stored* pattern reaching a fill, and the editor's own
+   * refusal to run one is what UC-020's checks above already cover.
+   */
+  const writeSettings = async (settings) =>
+    inWorker(`chrome.storage.local.set({ settings: ${JSON.stringify(settings)} }).then(() => true)`);
+
   const announced = async () =>
     String(await inPage(`document.querySelector('#announcements')?.textContent ?? ''`));
 
@@ -201,9 +212,13 @@ try {
    * a count when the fill completes, `off` when it is refused — so one condition
    * covers both and neither can be mistaken for a fill that never started.
    */
-  const fillAndRead = async (fields) => {
+  const fillAndRead = async (fields, beforeTrigger) => {
     await cdp.send('Page.navigate', { url: pageUrl }, page);
     await waitForAgent(cdp, workerSession, TAB);
+    // After the page exists and before the fill is asked for, which is the only
+    // window in which a caller can arrange what the page looks like to this
+    // fill. Optional, because one check needs it and the rest do not.
+    if (beforeTrigger !== undefined) await beforeTrigger();
     // Cleared first, so what is read below belongs to this fill. Navigation
     // clears it too, but on its own terms — waiting on someone else's clear is
     // how a stale mark gets read as a fresh one.
@@ -413,6 +428,43 @@ try {
     excluded.notes === '', `notes=${JSON.stringify(excluded.notes)} — the exclusion did not reach the fill`);
   check('and the rest of the form is still filled',
     excluded.password.length > 0, 'nothing was filled at all, so the check above proves nothing');
+
+  // ── NFR-009: a stored exclusion that would hang a fill is not run ──────────
+  // The one check here that fails by *timing out* rather than by asserting, and
+  // that is the point: before 2026-08-24 this pattern reached the page, and
+  // `matchesIgnorePattern` tested it against the class attribute below on every
+  // control of every pass. Measured at 55 seconds for a single call on an
+  // 86-character class string — so an unfixed build cannot finish inside
+  // `fillAndRead`'s 14-second window, and a hang is exactly the symptom a user
+  // would report.
+  const restore = (await stored()).exclusions.fields;
+  await writeSettings({
+    ...(await stored()),
+    exclusions: { ...(await stored()).exclusions, fields: [{ mode: 'regex', pattern: '^(\\s*[\\w-]+)+$' }] },
+  });
+
+  // A class attribute the way a utility-CSS page writes one, put on the page
+  // rather than into the fixture: it is *page-controlled* input, which is the
+  // half of this that no stored setting can bound. Applied after the navigation
+  // inside `fillAndRead` would be too late, so the fill is driven here with the
+  // attribute set between the two.
+  const hung = await fillAndRead(['password', 'notes'], async () => {
+    await inPage(`(document.querySelector('[name=notes]').className =
+      Array.from({ length: 16 }, (_, n) => 'px-' + n).join(' ') + '!', true)`);
+  });
+
+  check('a catastrophic exclusion does not stop the fill (NFR-009)',
+    hung.password.length > 0, 'nothing was filled, so the pattern was evaluated after all');
+  check('and the report says the exclusion was not applied',
+    hung.badge.title.includes('field exclusion') && hung.badge.title.includes('(\\s*[\\w-]+)+'),
+    `title=${JSON.stringify(hung.badge.title)}`);
+  // The exclusion did not run, so the field it would have covered is filled —
+  // which is what the sentence above is warning the user about, asserted rather
+  // than assumed.
+  check('so a field that pattern would have excluded is filled, as the report says',
+    hung.notes.length > 0, `notes=${JSON.stringify(hung.notes)}`);
+
+  await writeSettings({ ...(await stored()), exclusions: { ...(await stored()).exclusions, fields: restore } });
 
   // ── UC-023: the context menu, observed on the browser's own menu ───────────
   await openOptions();

@@ -416,6 +416,17 @@ export type FillReport = {
   /** Rules that could not run, by label and reason (DD-005). */
   readonly skippedRules: readonly string[];
   /**
+   * Field exclusions the fill declined to evaluate, by pattern (NFR-009).
+   *
+   * Separate from `skippedRules` because the consequence is the opposite one. A
+   * rule that could not run means a field got a *default* value instead of the
+   * one the user configured; an exclusion that did not run means a field the
+   * user asked to be left alone was **filled**. Folding the two into one
+   * sentence would tell somebody their configuration was partly ignored without
+   * telling them which direction it failed in.
+   */
+  readonly skippedExclusions: readonly string[];
+  /**
    * Set when the scope refused to resolve, and why (UC-002 A3, UC-003 A2).
    *
    * Distinct from a fill that found nothing: refusing to widen a scope the user

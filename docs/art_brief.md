@@ -305,15 +305,24 @@ reproducibility claim standing behind them.
 
 The listing *copy* — the store description, the single-purpose statement, the permission
 justifications, the privacy disclosure — is C-011 and C-012, not C-010, and none of it is
-art. It is a separate deliverable and it is still unwritten.
+art. It was still unwritten when this brief was drafted; `docs/store_listing.md` and
+`PRIVACY.md` were written on the same branch shortly afterwards.
 
-Two things found while surveying this that are release blockers and are not artwork:
+Two things found while surveying this were release blockers and were not artwork. **Both were
+acted on after this section was written, and it is corrected here rather than left to be
+rediscovered** — a stale blocker sends the next reader to re-fix something that is already
+fixed, or teaches them to distrust the manifest:
 
-- **The Firefox package is missing `data_collection_permissions`.** The build warns on every
-  `pnpm build:firefox` run: AMO has required the key for new extensions since 3 November
-  2025. For an extension that collects nothing it is `required: ["none"]` in
-  `browser_specific_settings.gecko`, and without it a new submission is rejected.
-- **No privacy policy exists**, and the Chrome Web Store will not accept a listing without a
-  publicly reachable URL for one. The only git remote is self-hosted Gitea, so where this is
-  hosted is an open question — and C-014 separately requires the source to be public at the
-  tagged commit.
+- ~~**The Firefox package is missing `data_collection_permissions`.**~~ **Declared.**
+  `wxt.config.ts` sets `data_collection_permissions: { required: ['none'] }` inside
+  `browser_specific_settings.gecko`, and the build no longer warns. AMO has required the key
+  for new extensions since 3 November 2025, and `none` is its literal value for "collects
+  nothing" rather than a summary of a longer list. The claim is the one `gate:network` already
+  enforces in code, so the manifest now states to a reviewer what CI states to us.
+  `docs/store_listing.md` §3.4 says the same thing to whoever fills in the listing form.
+- **A privacy policy now exists and still has nowhere to live.** `PRIVACY.md` is written; what
+  the Chrome Web Store needs is a *publicly reachable URL* for it, and the only git remote is
+  self-hosted Gitea. Its Contact section carries a `[REPOSITORY URL]` placeholder for exactly
+  that reason, and so does the changelog's compare link. **This half is still a blocker**, and
+  it is the same open question C-014 raises separately: the source has to be public at the
+  tagged commit, and nothing has decided where.

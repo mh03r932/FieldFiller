@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   agentSettings,
+  fillableExclusions,
   DEFAULT_PASSWORD_POLICY,
   DEFAULT_SETTINGS,
   DEFAULT_SOURCES,
@@ -456,6 +457,55 @@ describe('agentSettings', () => {
       },
     });
     expect(agent.ignorePatterns).toEqual(['^card\\.number$', 'csrf', '^tok(en)?$']);
+  });
+
+  it('does not send a pattern the editor already flags (NFR-009)', () => {
+    // Stored and run are different questions. The exclusion editor keeps a
+    // half-typed pattern on purpose (UC-005 A5) and an import keeps one out of a
+    // file (UC-026 A8) — neither is a reason to hand it to a page, where
+    // `matchesIgnorePattern` tests it against `className` and label text on
+    // every control of every pass. Measured before this existed: a catastrophic
+    // pattern against an 86-character utility class string took 55 seconds.
+    const agent = agentSettings({
+      ...DEFAULT_SETTINGS,
+      exclusions: {
+        fields: [
+          { mode: 'regex', pattern: 'csrf' },
+          { mode: 'regex', pattern: '(a+)+b' },
+          { mode: 'regex', pattern: '(unclosed' },
+          { mode: 'regex', pattern: '^tok(en)?$' },
+        ],
+        domains: [],
+      },
+    });
+
+    expect(agent.ignorePatterns).toEqual(['csrf', '^tok(en)?$']);
+  });
+
+  it('keeps a literal pattern that would be catastrophic as a regex', () => {
+    // `contains` and `exact` are escaped before they are compiled, so `(a+)+b`
+    // in either mode is six harmless characters and must not be caught by the
+    // check above.
+    const agent = agentSettings({
+      ...DEFAULT_SETTINGS,
+      exclusions: { fields: [{ mode: 'contains', pattern: '(a+)+b' }], domains: [] },
+    });
+
+    expect(agent.ignorePatterns).toEqual(['\\(a\\+\\)\\+b']);
+  });
+});
+
+describe('fillableExclusions', () => {
+  it('separates what a page may evaluate from what it may not, with the fault', () => {
+    const { runnable, refused } = fillableExclusions([
+      { mode: 'regex', pattern: 'csrf' },
+      { mode: 'regex', pattern: '(a+)+b' },
+    ]);
+
+    expect(runnable).toEqual([{ mode: 'regex', pattern: 'csrf' }]);
+    expect(refused).toHaveLength(1);
+    expect(refused[0]?.pattern).toBe('(a+)+b');
+    expect(refused[0]?.problem.code).toBe('ruleProblemPatternBacktracks');
   });
 });
 

@@ -528,7 +528,7 @@ describe('naming what arrives faulty and is kept anyway (A8)', () => {
     const [note] = outcome.plan.noted;
     expect(note?.code).toBe('importNotedExclusion');
     expect(note?.params).toEqual(['(a+)+b']);
-    expect(note?.problem.code).toBe('ruleProblemPatternBacktracks');
+    expect(note?.problem?.code).toBe('ruleProblemPatternBacktracks');
   });
 
   it('names one that will not compile', () => {
@@ -536,7 +536,7 @@ describe('naming what arrives faulty and is kept anyway (A8)', () => {
 
     expect(outcome.ok).toBe(true);
     if (!outcome.ok) return;
-    expect(outcome.plan.noted.map((note) => note.problem.code)).toEqual(['ruleProblemPatternInvalid']);
+    expect(outcome.plan.noted.map((note) => note.problem?.code)).toEqual(['ruleProblemPatternInvalid']);
     // Kept, because the exclusion editor keeps a half-typed pattern on purpose
     // (UC-005 A5) and an import must not be stricter than the screen that
     // authors them. The agent skips it at fill time with the rest of the list
@@ -689,6 +689,193 @@ describe('reporting one loss once', () => {
     expect(outcome.plan.dropped.map((drop) => `${drop.code}:${drop.params.join('/')}`)).toEqual([
       'importDroppedProfileRule:Staging/inner',
       'importDroppedKey:profiles[0].junk',
+    ]);
+  });
+});
+
+describe('naming two rules that claim to be one (BR-010-2)', () => {
+  const shared = (label: string) => ({
+    id: 'same',
+    label,
+    match: { mode: 'contains', pattern: 'email' },
+    generator: { type: 'email' },
+  });
+
+  it('names the collision, and imports both rules', () => {
+    // Both arrive: refusing one would be choosing which of the two the user
+    // meant, and the file is where the contradiction is fixed.
+    const outcome = analyse({ version: SCHEMA_VERSION, rules: [shared('First'), shared('Second')] });
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.plan.settings.rules).toHaveLength(2);
+    expect(outcome.plan.dropped).toEqual([]);
+    expect(outcome.plan.noted).toEqual([
+      { code: 'importNotedDuplicateId', params: ['First; Second', 'same'] },
+    ]);
+  });
+
+  it('names it inside a profile, with the profile', () => {
+    const outcome = analyse({
+      version: SCHEMA_VERSION,
+      profiles: [
+        { id: 'p1', label: 'Staging', urls: ['https://staging.example.com/*'], rules: [shared('First'), shared('Second')] },
+      ],
+    });
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.plan.noted).toEqual([
+      { code: 'importNotedProfileDuplicateId', params: ['Staging', 'First; Second', 'same'] },
+    ]);
+  });
+
+  it('says nothing when a global rule and a profile rule share an id', () => {
+    // Not a collision anything can act on: the rule editor works through a lens
+    // over one list at a time, so these two are never in the same list.
+    const outcome = analyse({
+      version: SCHEMA_VERSION,
+      rules: [shared('Global')],
+      profiles: [{ id: 'p1', label: 'Staging', urls: [], rules: [shared('Scoped')] }],
+    });
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.plan.noted).toEqual([]);
+  });
+
+  it('says nothing about a file that states no ids at all', () => {
+    // The parser's fallback is unique by position, so the shape that used to
+    // collide — two rules with one pattern and no id — no longer does.
+    const outcome = analyse({
+      version: SCHEMA_VERSION,
+      rules: [
+        { label: 'First', match: { mode: 'contains', pattern: 'email' }, generator: { type: 'email' } },
+        { label: 'Second', match: { mode: 'contains', pattern: 'email' }, generator: { type: 'email' } },
+      ],
+    });
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.plan.noted).toEqual([]);
+    expect(outcome.plan.settings.rules.map((kept) => kept.id)).toEqual(['email#0', 'email#1']);
+  });
+});
+
+describe('naming a rule the parser changed on the way in (A10)', () => {
+  const withGenerator = (generator: unknown) => ({
+    version: SCHEMA_VERSION,
+    rules: [{ id: 'r', label: 'Amount', match: { mode: 'contains', pattern: 'amount' }, generator }],
+  });
+
+  it('names a range the file stated backwards, which the editor would refuse', () => {
+    // The asymmetry this closes. `validateRule` answers about the rule *as it
+    // would be stored*, and the parser has already swapped the bounds by then —
+    // so a rule the editor rejects with ruleProblemNumberRange imported clean,
+    // silently holding a different rule than the file states.
+    const outcome = analyse(withGenerator({ type: 'number', min: 50, max: 10 }));
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.plan.dropped).toEqual([]);
+    expect(outcome.plan.noted).toEqual([
+      { code: 'importNotedRuleCoerced', params: ['Amount', 'min 50 → 10; max 10 → 50'] },
+    ]);
+    expect(outcome.plan.settings.rules[0]?.generator).toEqual({
+      type: 'number',
+      min: 10,
+      max: 50,
+      decimals: 0,
+    });
+  });
+
+  it('names word counts, defaulted date fields and a filtered list', () => {
+    const changes = (generator: unknown) => {
+      const outcome = analyse(withGenerator(generator));
+      if (!outcome.ok) throw new Error('refused');
+      return outcome.plan.noted.map((note) => note.params[1]);
+    };
+
+    expect(changes({ type: 'text', minWords: 30, maxWords: 2 })) //
+      .toEqual(['minWords 30 → 2; maxWords 2 → 30']);
+    // Not a shape check: nothing descends into a generator, so a `format` of 42
+    // reached storage as the default with nothing said at all.
+    expect(changes({ type: 'date', format: 42, from: false, to: null })) //
+      .toEqual(['format 42 → "YYYY-MM-DD"; from false → "1970-01-01"; to null → "2035-12-31"']);
+    expect(changes({ type: 'list', items: ['a', 3, 'b'] })).toEqual(['items ["a",3,"b"] → ["a","b"]']);
+  });
+
+  it('names a bound that was clamped or truncated rather than reordered', () => {
+    const outcome = analyse(withGenerator({ type: 'number', min: 2.7, max: 1e18 }));
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.plan.noted[0]?.params[1]) //
+      .toBe('min 2.7 → 2; max 1000000000000000000 → 1000000000000000');
+  });
+
+  it('says nothing about a generator the parser kept as stated', () => {
+    expect(analysedNotes(withGenerator({ type: 'number', min: 1, max: 10 }))).toEqual([]);
+    expect(analysedNotes(withGenerator({ type: 'email' }))).toEqual([]);
+    // Round-tripping a configuration this build wrote must stay silent: every
+    // value in it has already been through the parser once.
+    expect(analysedNotes(serialisedDefaults())).toEqual([]);
+  });
+
+  it('names the profile when the rule is inside one', () => {
+    const outcome = analyse({
+      version: SCHEMA_VERSION,
+      profiles: [{
+        id: 'p1',
+        label: 'Staging',
+        urls: ['https://staging.example.com/*'],
+        rules: [{ id: 'r', label: 'Amount', match: { mode: 'contains', pattern: 'amount' }, generator: { type: 'number', min: 50, max: 10 } }],
+      }],
+    });
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.plan.noted).toEqual([
+      { code: 'importNotedProfileRuleCoerced', params: ['Staging', 'Amount', 'min 50 → 10; max 10 → 50'] },
+    ]);
+  });
+
+  it('says nothing about a rule that is not being stored', () => {
+    // A refused rule is named once, with its fault. A second line about values
+    // inside a generator that will never reach storage describes nothing.
+    const outcome = analyse({
+      version: SCHEMA_VERSION,
+      rules: [{
+        label: 'Catastrophic',
+        match: { mode: 'regex', pattern: '(a+)+b' },
+        generator: { type: 'number', min: 50, max: 10 },
+      }],
+    });
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.plan.dropped.map((drop) => drop.code)).toEqual(['importDroppedRuleRefused']);
+    expect(outcome.plan.noted).toEqual([]);
+  });
+});
+
+describe('naming a rule that has no name', () => {
+  it('falls back to the pattern rather than printing an empty gap', () => {
+    // `parseRule` keeps a stated empty label — the editor lets a user clear one
+    // — so the note read "Rules ; Postcode share one identity", which is the one
+    // line in this report that can come out unreadable.
+    const one = (label: string) => ({
+      id: 'same',
+      label,
+      match: { mode: 'contains', pattern: 'email' },
+      generator: { type: 'email' },
+    });
+    const outcome = analyse({ version: SCHEMA_VERSION, rules: [one(''), one('Postcode')] });
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.plan.noted).toEqual([
+      { code: 'importNotedDuplicateId', params: ['email; Postcode', 'same'] },
     ]);
   });
 });

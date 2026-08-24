@@ -2,7 +2,7 @@ import { defineBackground } from 'wxt/utils/define-background';
 import { browser } from 'wxt/browser';
 import { message, type MessageKey } from '@/lib/platform/i18n';
 import { getSettings } from '@/lib/platform/settings-store';
-import { agentSettings } from '@/lib/settings';
+import { agentSettings, fillableExclusions } from '@/lib/settings';
 import {
   createPersona,
   seededRandom,
@@ -140,6 +140,14 @@ type Operation = {
   readonly profile: string | undefined;
   /** Rules that could not run, by label, so the user is told (DD-005). */
   readonly skippedRules: Set<string>;
+  /**
+   * Exclusions this fill did not send to the page, by pattern (NFR-009).
+   *
+   * A list rather than a set, and fixed at the start rather than accumulated:
+   * every frame in the operation was sent the same settings, so this is a fact
+   * about the fill and not something the frames report back.
+   */
+  readonly skippedExclusions: readonly string[];
   /** Set when the frame refused to resolve a scope (UC-002 A3, UC-003 A2). */
   refused: ScopeRefusal | undefined;
   /**
@@ -414,6 +422,12 @@ async function startFill(target: Target, scope: FillScope, trigger: FillTrigger)
         maxLengths: settings.behaviour.maxLengths,
       },
       skippedRules: new Set(),
+      // Decided once, here, rather than asked again when the report is built:
+      // the settings could have changed under a fill that is still running, and
+      // what the report has to name is what *this* fill declined to send.
+      skippedExclusions: fillableExclusions(settings.exclusions.fields).refused.map(
+        (refusal) => refusal.pattern,
+      ),
       timeout: setTimeout(() => {
         trace(`fill ${operationId} timed out with no report; abandoning`);
         finish(operationId, tabId);
@@ -666,6 +680,7 @@ function complete(operationId: OperationId): void {
     capped: operation.capped,
     stale: operation.stale,
     skippedRules: [...operation.skippedRules],
+    skippedExclusions: operation.skippedExclusions,
     refused: operation.refused,
     scopeRule: operation.scopeRule,
     profile: operation.profile,

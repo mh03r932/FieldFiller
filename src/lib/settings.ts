@@ -1,5 +1,10 @@
 import {type Locale, LOCALES} from './persona/corpus/corpus';
 import type {AgentSettings, ControlKind} from './protocol';
+// `validate` imports only *types* back from here, so this is a cycle in the type
+// graph and not in the module graph. It is background-side either way: nothing
+// in the page agent imports this file, which is what keeps `redos.ts` out of the
+// content script (ND-4, and `scripts/check-imports.mjs` enforces it).
+import {validateMatcher, type RuleProblem} from './rules/validate';
 
 /**
  * The settings state, its defaults, and the coercion that reads it back.
@@ -465,8 +470,72 @@ export function agentSettings(settings: Settings): AgentSettings {
     dispatchEvents: settings.behaviour.dispatchEvents,
     skipHidden: settings.behaviour.skipHidden,
     skipPreFilled: settings.behaviour.skipPreFilled,
-    ignorePatterns: settings.exclusions.fields.map(patternSource),
+    ignorePatterns: fillableExclusions(settings.exclusions.fields).runnable.map(patternSource),
   };
+}
+
+/** A field exclusion that will not be sent to a page, and the fault that stopped it. */
+export type RefusedExclusion = { readonly pattern: string; readonly problem: RuleProblem };
+
+/**
+ * Which field exclusions a page may evaluate, and which this build will not ask
+ * it to (NFR-009, UC-005 A5, UC-026 A8).
+ *
+ * *Stored* and *run* are different questions, and until 2026-08-24 only the
+ * first had an answer. The exclusion editor stores a pattern while it is still
+ * being typed, on purpose, and an import stores one out of a file and names it
+ * rather than refusing it — both right, and neither a reason to hand the pattern
+ * to a page. `matchesIgnorePattern` tests every stored pattern against every
+ * source of every control on every pass, and the sources are the page's:
+ * `className` verbatim, the joined label text. A pattern the editor already
+ * flags as catastrophic met that input and hung the tab.
+ *
+ * Measured on 2026-08-24, `^(\s*[\w-]+)+$` — a shape a shared configuration
+ * could plausibly carry — against ordinary utility class strings:
+ *
+ *   6 classes /  30 chars      18 ms
+ *   8 classes /  40 chars     287 ms
+ *   9 classes /  45 chars     2.3 s
+ *  10 classes /  50 chars    18.9 s
+ *  16 classes /  86 chars    55.7 s
+ *
+ * That is one call, for one control. Note where those inputs sit: NFR-032 asks
+ * for identity to be truncated to 1,024 characters, and every row above is an
+ * order of magnitude *under* that bound. Truncation is worth having and it would
+ * not have prevented any of this — backtracking is exponential in length, so a
+ * cut only helps below the cliff, and the cliff here is about 40 characters,
+ * which is shorter than a great many honest labels. The 250 ms budget cannot
+ * pre-empt an overrun either; it decides whether to start the *next* pattern,
+ * 55 seconds later.
+ *
+ * So the containment is here, before the page is involved at all: a pattern
+ * `validateMatcher` refuses is not sent. The information was always available —
+ * the same function draws the warning beside the field in the exclusion editor —
+ * and the fill path simply never asked.
+ *
+ * Refused, never silently dropped. The caller reports what was left out, because
+ * an exclusion that does not run is a field the user asked to be left alone and
+ * that gets filled anyway (BR-005-6's habit: a skip is visible or it is a bug).
+ *
+ * Here rather than in the agent because the agent stays thin (NFR-003, ND-4):
+ * `validateMatcher` reaches `redos.ts` and `regex-subset.ts`, and the background
+ * already has them. The agent keeps its own `try`/`catch` around compilation as
+ * a backstop, which is where an uncompilable pattern was already stopping.
+ */
+export function fillableExclusions(fields: readonly Matcher[]): {
+  readonly runnable: readonly Matcher[];
+  readonly refused: readonly RefusedExclusion[];
+} {
+  const runnable: Matcher[] = [];
+  const refused: RefusedExclusion[] = [];
+
+  for (const matcher of fields) {
+    const problem = validateMatcher(matcher)[0];
+    if (problem === undefined) runnable.push(matcher);
+    else refused.push({ pattern: matcher.pattern, problem });
+  }
+
+  return { runnable, refused };
 }
 
 /**

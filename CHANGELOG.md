@@ -66,6 +66,9 @@ rather than a set of changes to it.
   over the global rules rather than replacing them.
 - Field exclusions by pattern, and domain exclusions that turn the extension off entirely
   for sites where a stray fill would be costly.
+- A stored field exclusion whose pattern could hang the extension is never evaluated against a
+  page, and the fill report says which one was not applied — the exclusion editor keeps a
+  half-typed pattern while you are typing it, and keeping one is not the same as running it.
 - Password policy: length, and which character classes must appear.
 - Behaviour toggles for which events are dispatched after a write, whether hidden fields are
   skipped, and whether fields that already have a value are left alone.
@@ -86,8 +89,10 @@ rather than a set of changes to it.
   settings file at all, is refused with a specific reason and leaves existing settings
   untouched. Before anything is written, the import says
   what it would do: what is being replaced, everything in the file that cannot be kept, and
-  anything that arrives carrying a fault — a field exclusion whose pattern will not compile,
-  for instance, which is imported as it stands and flagged rather than quietly dropped.
+  anything that arrives carrying a fault or changed — a field exclusion whose pattern will not
+  compile, imported as it stands and flagged rather than quietly dropped; a number range the
+  file states backwards, imported the right way round and said so; two rules claiming one
+  identity, which the rule list would otherwise treat as a single rule.
 
 **Privacy and verifiability**
 

@@ -291,9 +291,15 @@ function notedView(noted: readonly ImportNote[]): HTMLElement {
   const list = document.createElement('ul');
   for (const note of noted) {
     const item = document.createElement('li');
-    // As in `droppedView`: the pattern came out of the file, so it is written as
-    // text and can never become markup.
-    item.textContent = message(note.code, [...note.params, problemText(note.problem)]);
+    // As in `droppedView`: every parameter came out of the file, so it is
+    // written as text and can never become markup. The fault is appended only
+    // where there is one — a note about two entries claiming the same identity
+    // has no `RuleProblem` behind it, because the contradiction is between them
+    // rather than inside either.
+    item.textContent = message(
+      note.code,
+      note.problem === undefined ? note.params : [...note.params, problemText(note.problem)],
+    );
     list.append(item);
   }
 

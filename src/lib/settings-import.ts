@@ -1,5 +1,6 @@
 import { DEFAULT_SETTINGS, MATCH_SOURCES, parseSettings, type Rule, type Settings } from './settings';
 import { validateMatcher, validateRule, type RuleProblem } from './rules/validate';
+import { profileName } from './profiles';
 
 /**
  * Reading a configuration back in (UC-026, FR-053, FR-054, ND-13).
@@ -45,6 +46,20 @@ import { validateMatcher, validateRule, type RuleProblem } from './rules/validat
  * They are now reported in `noted` — kept, stored, and stated before the write,
  * which is what BR-026-3 asks for and what the exclusion list already does
  * beside every row.
+ *
+ * **A rule can also arrive *changed* rather than faulty, and that is reported
+ * too** (A10). `validateRule` is asked about the rule as it *would be stored*,
+ * which is the only rule there is to judge — and it means the parser has already
+ * reordered a reversed range or replaced an unreadable date field by the time
+ * the question is put. So `{ min: 50, max: 10 }`, which the editor refuses
+ * outright, imported clean with the bounds swapped. Refusing it here would make
+ * an import stricter than storage, which reads the same file the same way on
+ * every load; saying nothing left the promise above — one function decides what
+ * the editor writes and what an import stores — true only of the rules the
+ * parser did not quietly fix first. `coercedGenerator` closes that by comparing
+ * the file's own values against the stored ones, which is observation rather
+ * than a second opinion: naming a value *wrong* would need a rule, naming it
+ * *changed* needs only both sides.
  */
 
 /** The schema version this build writes and reads. */
@@ -156,15 +171,25 @@ export type ImportDrop = {
  * it and this module still says nothing in English (NFR-018).
  */
 export type ImportNote = {
-  readonly code: 'importNotedExclusion';
+  readonly code:
+    | 'importNotedExclusion'
+    | 'importNotedRuleCoerced'
+    | 'importNotedProfileRuleCoerced'
+    | 'importNotedDuplicateId'
+    | 'importNotedProfileDuplicateId';
   readonly params: readonly string[];
   /**
    * The first fault only, for the reason a drop carries only its first: this is
    * a line in a list making a problem findable, not the editor listing every
    * problem beside the field that fixes it. The exclusion list does that, and it
    * is where this line is sending the user.
+   *
+   * Absent for a note whose fault is not a *rule's*. Two entries sharing an id
+   * is a contradiction between them rather than a property of either, so there
+   * is nothing for `validateRule` to have said about it and nothing to carry:
+   * the note's own sentence is the whole of it.
    */
-  readonly problem: RuleProblem;
+  readonly problem?: RuleProblem;
 };
 
 /**
@@ -375,7 +400,7 @@ export function analyseImport(text: string, current: Settings): ImportOutcome {
         ...unknownKeys(file, shapes.mistyped, entries.reported),
         ...shapes.drops,
       ],
-      noted: notedExclusions(settings),
+      noted: [...notedExclusions(settings), ...entries.notes, ...notedDuplicateIds(settings)],
       // A3 and A4 are the same fact to the user — the file did not come from
       // this schema and was changed on the way in — and today they are also the
       // same mechanism, since the tolerant parser stands in for the ladder.
@@ -415,6 +440,78 @@ function notedExclusions(settings: Settings): readonly ImportNote[] {
     }
   }
   return notes;
+}
+
+/**
+ * Rules the plan would store that claim to be the same rule (BR-010-2).
+ *
+ * A rule's id is its identity to every editor operation: `replaceRule` maps
+ * *all* matches and `removeRule` filters all, so two rules sharing one give the
+ * user a list where editing the first relabels both and deleting the first
+ * deletes both. Fills are unaffected — matching walks the list in order and
+ * takes the first hit — so nothing else in the system can notice this, and
+ * nothing else will tell them.
+ *
+ * Only a file can produce it. The editor mints a fresh id per rule, and since
+ * 2026-08-24 the parser's fallback for a rule that states none is unique by
+ * position — what is left is a file that *repeats* an id, which a parser has no
+ * business rewriting: it is the file saying two entries are the same rule. So it
+ * is named here, which is what `parseRule`'s own comment has promised since the
+ * fallback changed, and until now did not deliver.
+ *
+ * Noted rather than dropped, on the same terms as a faulty exclusion: both rules
+ * arrive, and refusing one would be choosing which of the two the user meant.
+ *
+ * Per list, because that is the scope an id has to be unique in — the rule
+ * editor works through a lens over one list at a time, so a global rule and a
+ * profile's rule sharing an id is not a collision anything can act on.
+ */
+function notedDuplicateIds(settings: Settings): readonly ImportNote[] {
+  const notes: ImportNote[] = [];
+
+  for (const [id, names] of collisions(settings.rules)) {
+    notes.push({ code: 'importNotedDuplicateId', params: [names.join('; '), id] });
+  }
+
+  for (const [index, profile] of settings.profiles.entries()) {
+    for (const [id, names] of collisions(profile.rules)) {
+      notes.push({
+        code: 'importNotedProfileDuplicateId',
+        params: [profileName(profile) ?? `#${String(index + 1)}`, names.join('; '), id],
+      });
+    }
+  }
+
+  return notes;
+}
+
+/** Ids held by more than one rule in a list, each with the rules holding it. */
+function collisions(rules: readonly Rule[]): ReadonlyMap<string, readonly string[]> {
+  const byId = new Map<string, string[]>();
+  for (const [index, rule] of rules.entries()) {
+    const held = byId.get(rule.id) ?? [];
+    held.push(ruleName(rule, index));
+    byId.set(rule.id, held);
+  }
+  return new Map([...byId].filter(([, held]) => held.length > 1));
+}
+
+/**
+ * What to call a stored rule in a report line.
+ *
+ * `nameOf` above answers the same question about a *file entry*; this one is its
+ * counterpart for a rule that made it through the parser, and it falls back the
+ * same way for the same reason. A comment here used to claim the label was
+ * enough — "it falls back to the pattern in the parser, so it is never the empty
+ * string here" — which is true of a rule that states *no* label and false of one
+ * that states an empty one: `parseRule` keeps a stated `""` rather than
+ * replacing it, because an empty label is a thing a user can type in the editor
+ * and get back. The note then read "Rules ; Postcode share one identity", which
+ * is the one line in this report that can come out unreadable.
+ */
+function ruleName(rule: Rule, index: number): string {
+  if (rule.label.trim() !== '') return rule.label;
+  return rule.match.pattern.trim() === '' ? `#${String(index + 1)}` : rule.match.pattern;
 }
 
 /**
@@ -471,6 +568,14 @@ function allowed(rule: Rule): boolean {
 function droppedEntries(file: Record<string, unknown>): {
   readonly drops: readonly ImportDrop[];
   /**
+   * Rules that arrive with values the parser changed (BR-026-3).
+   *
+   * Collected on this walk rather than on a second one, because the comparison
+   * needs the file entry and the stored rule side by side and this is the only
+   * place that has both.
+   */
+  readonly notes: readonly ImportNote[];
+  /**
    * The entries this already reported as losses, by the path prefix
    * `unknownKeys` would scan them under.
    *
@@ -482,6 +587,7 @@ function droppedEntries(file: Record<string, unknown>): {
   readonly reported: ReadonlySet<string>;
 } {
   const drops: ImportDrop[] = [];
+  const notes: ImportNote[] = [];
   const reported = new Set<string>();
 
   for (const [index, entry] of listAt(file, 'rules').entries()) {
@@ -502,6 +608,12 @@ function droppedEntries(file: Record<string, unknown>): {
         break;
       case 'stored':
         drops.push(...verdict.mistyped);
+        if (verdict.coerced.length > 0) {
+          notes.push({
+            code: 'importNotedRuleCoerced',
+            params: [verdict.name, verdict.coerced.join('; ')],
+          });
+        }
         break;
     }
   }
@@ -543,12 +655,18 @@ function droppedEntries(file: Record<string, unknown>): {
           break;
         case 'stored':
           drops.push(...verdict.mistyped);
+          if (verdict.coerced.length > 0) {
+            notes.push({
+              code: 'importNotedProfileRuleCoerced',
+              params: [nameOf(entry, index), verdict.name, verdict.coerced.join('; ')],
+            });
+          }
           break;
       }
     }
   }
 
-  return { drops, reported };
+  return { drops, notes, reported };
 }
 
 /**
@@ -568,8 +686,27 @@ function droppedEntries(file: Record<string, unknown>): {
 type RuleVerdict =
   | { readonly kept: 'unreadable' }
   | { readonly kept: 'refused'; readonly problem: RuleProblem }
-  | { readonly kept: 'stored'; readonly mistyped: readonly ImportDrop[] };
+  | {
+      readonly kept: 'stored';
+      readonly mistyped: readonly ImportDrop[];
+      /** Generator values the parser changed on the way in, as `key was → is`. */
+      readonly coerced: readonly string[];
+      readonly name: string;
+    };
 
+/**
+ * What becomes of one rule in the file, and why.
+ *
+ * `validateRule` is asked about the rule *as it would be stored*, which is the
+ * only rule there is to have an opinion about — but it means the answer can be
+ * "fine" about a file the editor would have refused, because the parser fixed it
+ * first. `{ type: 'number', min: 50, max: 10 }` is `ruleProblemNumberRange` in
+ * the editor and a clean import with the bounds swapped, and until 2026-08-24
+ * nothing said so. `coerced` is that difference, observed rather than judged: it
+ * compares what the file stated against what the parser produced, so it needs no
+ * second opinion about what a valid generator is and cannot fall out of step
+ * with one.
+ */
 function verdictOn(entry: unknown, path: string): RuleVerdict {
   const rule = parseSettings({ rules: [entry] }).rules[0];
   if (rule === undefined) return { kept: 'unreadable' };
@@ -577,7 +714,53 @@ function verdictOn(entry: unknown, path: string): RuleVerdict {
   const problem = validateRule(rule)[0];
   if (problem !== undefined) return { kept: 'refused', problem };
 
-  return { kept: 'stored', mistyped: mistypedFields(entry, RULE_WITNESS, path) };
+  return {
+    kept: 'stored',
+    mistyped: mistypedFields(entry, RULE_WITNESS, path),
+    coerced: coercedGenerator(entry, rule),
+    name: ruleName(rule, 0),
+  };
+}
+
+/**
+ * Generator values the file stated and the plan will not store (BR-026-3).
+ *
+ * The generator is the one part of a rule with no shape check over it:
+ * `mistypedFields` compares a rule's own keys against a witness, and both sides
+ * have an *object* at `generator`, so nothing descends into it. What is inside
+ * is coerced in two different ways — `min`/`max` and `minWords`/`maxWords` are
+ * reordered, `date`'s three fields are replaced with defaults when they are not
+ * strings — while `list`, `alphanumeric`, `regex` and `constant` refuse and take
+ * the whole rule with them. That inconsistency is `parseGenerator`'s and this
+ * does not try to correct it; it reports the half that arrives changed, which is
+ * the half nothing else can see.
+ *
+ * A value comparison, not a rule: anything the file stated for a key the stored
+ * generator also has, where the two differ. Kind is not consulted, because a
+ * `format` of `42` and a `min` of `50` are the same event from the user's side —
+ * the file said one thing and storage will hold another.
+ *
+ * A key the stored generator does *not* have is left alone. That is a key this
+ * version has no place for, which is BR-026-7's subject rather than this one's —
+ * and `unknownKeys` does not descend into a generator either, so it is a gap
+ * both of them leave. It is named in UC-026's notes rather than papered over
+ * here.
+ */
+function coercedGenerator(entry: unknown, stored: Rule): readonly string[] {
+  const stated = record(record(entry)['generator']);
+  const kept = stored.generator as unknown as Record<string, unknown>;
+
+  const changes: string[] = [];
+  for (const [key, value] of Object.entries(stated)) {
+    if (!(key in kept)) continue;
+    const after = kept[key];
+    // JSON on both sides so a list is compared by contents rather than by
+    // reference, and so the report shows `"YYYY-MM-DD"` rather than an
+    // unquoted string that reads like a field name.
+    if (JSON.stringify(value) === JSON.stringify(after)) continue;
+    changes.push(`${key} ${JSON.stringify(value)} → ${JSON.stringify(after)}`);
+  }
+  return changes;
 }
 
 /**
