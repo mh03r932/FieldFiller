@@ -351,6 +351,20 @@ try {
       JSON.stringify({ fields: [{ type: 'text', name: 'email' }], ignoredFields: ['captcha'] }),
       'Nothing in that file',
     ],
+    // A9, and the only refusal here that the unit tests cannot reach: this one
+    // is decided from `File.size` before `text()` is called at all, so what is
+    // under test is the page declining to read the file rather than the analysis
+    // declining to parse the string. Deliberately valid JSON — a size refusal
+    // that only fires on malformed content would be a shape check wearing the
+    // wrong sentence. Just over the 8 MB bound, since the point is the boundary
+    // and not the extreme: the extreme is what a bound exists to keep off this
+    // thread, and writing 500 MB here would test the harness's disk.
+    [
+      'A9 · too big to be one of ours',
+      'enormous.json',
+      JSON.stringify({ version: 1, locale: 'en-US', label: 'x'.repeat(8 * 1024 * 1024) }),
+      'this reads settings files up to',
+    ],
   ];
 
   for (const [name, file, contents, expected] of refusals) {

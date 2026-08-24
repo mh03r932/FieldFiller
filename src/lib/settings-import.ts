@@ -51,6 +51,51 @@ import { validateMatcher, validateRule, type RuleProblem } from './rules/validat
 export const SCHEMA_VERSION = DEFAULT_SETTINGS.version;
 
 /**
+ * The largest file this will look at, measured rather than chosen (A9).
+ *
+ * Everything below runs on the options page's own thread: the file is read into
+ * a string, `JSON.parse` walks it, and the analysis walks it again — and a
+ * pending file is re-analysed on every render, so the cost is paid more than
+ * once. None of that is bounded by anything in the file itself, and the file is
+ * the one input here that nobody wrote for this extension.
+ *
+ * Measured on 2026-08-24, against configurations serialised by `settings-file`:
+ *
+ *   NFR-024's own scale, 500 rules                     0.31 MB    4 ms
+ *   500 rules + 50 profiles × 20 + 200 exclusions      1.05 MB    9 ms
+ *   ten times NFR-024, plus all of the above           3.86 MB   32 ms
+ *   8 MB of the smallest entries a file can hold      8.00 MB  ~100 ms
+ *
+ * The last row is the one that sets the bound: minimal entries buy the most
+ * *entries* per byte, and every entry costs a `parseSettings` call in
+ * `verdictOn`, so it is the worst shape a file of a given size can have. At the
+ * bound it costs about a tenth of a second, which is a real cost for a
+ * deliberate action and not a freeze.
+ *
+ * So 8 MB: twice the largest configuration anyone could plausibly hold, and an
+ * order of magnitude above the scale the requirements name. A file past it is
+ * refused *before* it is read, which is the only place a refusal is worth
+ * anything — the damage of a 500 MB file is done by `text()` and `JSON.parse`,
+ * long before any of this could have an opinion about its contents.
+ */
+export const MAX_IMPORT_SIZE = 8 * 1024 * 1024;
+
+/**
+ * The refusal for a file past that bound, worded in one place.
+ *
+ * Exported because two callers reach the bound from different sides and must say
+ * the same thing: the options page checks `File.size`, in bytes, before reading
+ * anything, and `analyseImport` below checks the text it was handed, in UTF-16
+ * code units. The two differ only for non-ASCII content and only by a factor a
+ * sanity bound does not care about — but the *message* must not differ, and a
+ * second copy of it is how that happens.
+ */
+export function oversizeRefusal(observed: number): ImportRefusal {
+  const kilobytes = (size: number): string => String(Math.ceil(size / 1024));
+  return { code: 'importRefusedTooLarge', params: [kilobytes(observed), kilobytes(MAX_IMPORT_SIZE)] };
+}
+
+/**
  * Why an import was refused, as a catalog key and its substitutions.
  *
  * A code rather than a sentence, for the reason `RuleProblemCode` is one: the
@@ -60,6 +105,7 @@ export const SCHEMA_VERSION = DEFAULT_SETTINGS.version;
  */
 export type ImportRefusal = {
   readonly code:
+    | 'importRefusedTooLarge'
     | 'importRefusedNotJson'
     | 'importRefusedNotObject'
     | 'importRefusedNewer'
@@ -273,6 +319,14 @@ const PROFILE_WITNESS: Record<string, unknown> = {
  * what it actually needs is a newer extension.
  */
 export function analyseImport(text: string, current: Settings): ImportOutcome {
+  // A9, and it is first because every line after it is unbounded work on a file
+  // nobody here wrote. The options page refuses an oversized file before reading
+  // it; this is the same bound for every other caller, and for the case where
+  // the two disagree — a `File` whose reported size is not what `text()` yielded.
+  if (text.length > MAX_IMPORT_SIZE) {
+    return { ok: false, refusal: oversizeRefusal(text.length) };
+  }
+
   let parsed: unknown;
   try {
     parsed = JSON.parse(text);
@@ -309,13 +363,18 @@ export function analyseImport(text: string, current: Settings): ImportOutcome {
 
   const settings = storable(parseSettings(file));
   const shapes = mistypedShapes(file);
+  const entries = droppedEntries(file);
   return {
     ok: true,
     plan: {
       settings,
       incoming: { rules: settings.rules.length, profiles: settings.profiles.length },
       current: { rules: current.rules.length, profiles: current.profiles.length },
-      dropped: [...droppedEntries(file), ...unknownKeys(file, shapes.mistyped), ...shapes.drops],
+      dropped: [
+        ...entries.drops,
+        ...unknownKeys(file, shapes.mistyped, entries.reported),
+        ...shapes.drops,
+      ],
       noted: notedExclusions(settings),
       // A3 and A4 are the same fact to the user — the file did not come from
       // this schema and was changed on the way in — and today they are also the
@@ -409,14 +468,29 @@ function allowed(rule: Rule): boolean {
  * rule FR-070 refuses is not going to be stored, so naming its wrongly shaped
  * `sources` too would be describing a default that is never reached.
  */
-function droppedEntries(file: Record<string, unknown>): readonly ImportDrop[] {
+function droppedEntries(file: Record<string, unknown>): {
+  readonly drops: readonly ImportDrop[];
+  /**
+   * The entries this already reported as losses, by the path prefix
+   * `unknownKeys` would scan them under.
+   *
+   * Handed on rather than recomputed, because the question "was this entry
+   * dropped?" is answered here by asking the parser and would have to be asked
+   * again — a second walk over the same entries, agreeing with this one by
+   * construction until the day it did not.
+   */
+  readonly reported: ReadonlySet<string>;
+} {
   const drops: ImportDrop[] = [];
+  const reported = new Set<string>();
 
   for (const [index, entry] of listAt(file, 'rules').entries()) {
-    const verdict = verdictOn(entry, `rules[${index}].`);
+    const path = `rules[${index}].`;
+    const verdict = verdictOn(entry, path);
     switch (verdict.kept) {
       case 'unreadable':
         drops.push({ code: 'importDroppedRule', params: [nameOf(entry, index)] });
+        reported.add(path);
         break;
       case 'refused':
         drops.push({
@@ -424,6 +498,7 @@ function droppedEntries(file: Record<string, unknown>): readonly ImportDrop[] {
           params: [nameOf(entry, index)],
           problem: verdict.problem,
         });
+        reported.add(path);
         break;
       case 'stored':
         drops.push(...verdict.mistyped);
@@ -432,24 +507,31 @@ function droppedEntries(file: Record<string, unknown>): readonly ImportDrop[] {
   }
 
   for (const [index, entry] of listAt(file, 'profiles').entries()) {
+    const path = `profiles[${index}].`;
     if (parseSettings({ profiles: [entry] }).profiles.length !== 1) {
       drops.push({ code: 'importDroppedProfile', params: [nameOf(entry, index)] });
+      // The profile and everything under it. Its rules are not being stored
+      // either, and they are not being reported one by one — the profile's own
+      // line is the loss.
+      reported.add(path);
       continue;
     }
 
-    drops.push(...mistypedFields(entry, PROFILE_WITNESS, `profiles[${index}].`));
+    drops.push(...mistypedFields(entry, PROFILE_WITNESS, path));
 
     // The profile survives; its own rules go through the same parser and the
     // same validation and can be dropped individually, which the profile's count
     // alone would hide.
     for (const [at, rule] of listAt(record(entry), 'rules').entries()) {
-      const verdict = verdictOn(rule, `profiles[${index}].rules[${at}].`);
+      const rulePath = `${path}rules[${at}].`;
+      const verdict = verdictOn(rule, rulePath);
       switch (verdict.kept) {
         case 'unreadable':
           drops.push({
             code: 'importDroppedProfileRule',
             params: [nameOf(entry, index), nameOf(rule, at)],
           });
+          reported.add(rulePath);
           break;
         case 'refused':
           drops.push({
@@ -457,6 +539,7 @@ function droppedEntries(file: Record<string, unknown>): readonly ImportDrop[] {
             params: [nameOf(entry, index), nameOf(rule, at)],
             problem: verdict.problem,
           });
+          reported.add(rulePath);
           break;
         case 'stored':
           drops.push(...verdict.mistyped);
@@ -465,7 +548,7 @@ function droppedEntries(file: Record<string, unknown>): readonly ImportDrop[] {
     }
   }
 
-  return drops;
+  return { drops, reported };
 }
 
 /**
@@ -611,6 +694,7 @@ function kindOf(value: unknown): string {
 function unknownKeys(
   file: Record<string, unknown>,
   mistyped: ReadonlySet<string>,
+  reported: ReadonlySet<string>,
 ): readonly ImportDrop[] {
   const drops: ImportDrop[] = [];
 
@@ -630,14 +714,32 @@ function unknownKeys(
     scan(file[section], known, `${section}.`);
   }
 
+  // An entry already reported as a loss is not picked over for what else was
+  // wrong with it. `mistypedFields` has always worked this way — a rule that is
+  // not being stored has no defaults anyone will reach, so a note about its
+  // field shapes describes something that never happens — and this pass was the
+  // exception that made the rule look like a preference: `{label: "Broken",
+  // junk: 1}` with no generator was named twice, once as a rule that could not
+  // be read and once as an unknown key inside it, which inflates the count the
+  // user is deciding on and answers a question nobody asked about a rule that is
+  // not arriving.
+  //
+  // The same skip covers a dropped profile's rules, by prefix: the profile's own
+  // line is the loss, and its rules were never reported individually either.
   for (const [index, rule] of listAt(file, 'rules').entries()) {
-    scan(rule, RULE_KEYS, `rules[${index}].`);
+    const path = `rules[${index}].`;
+    if (reported.has(path)) continue;
+    scan(rule, RULE_KEYS, path);
   }
 
   for (const [index, profile] of listAt(file, 'profiles').entries()) {
-    scan(profile, PROFILE_KEYS, `profiles[${index}].`);
+    const path = `profiles[${index}].`;
+    if (reported.has(path)) continue;
+    scan(profile, PROFILE_KEYS, path);
     for (const [at, rule] of listAt(record(profile), 'rules').entries()) {
-      scan(rule, RULE_KEYS, `profiles[${index}].rules[${at}].`);
+      const rulePath = `${path}rules[${at}].`;
+      if (reported.has(rulePath)) continue;
+      scan(rule, RULE_KEYS, rulePath);
     }
   }
 

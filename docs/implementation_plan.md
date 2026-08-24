@@ -505,6 +505,16 @@ users switch — but it is also the piece most damaged by a moving schema. It st
 - Attribution and licence surface (FR-062, C-009)
 - Store listings, privacy disclosures, screenshots — all original (C-010, C-011)
 - Full NFR verification pass: latency, bundle size, zero-network, accessibility, coverage
+- **NFR-032's evaluation bound**, which is the one security requirement still unbuilt and no
+  longer waiting on a phase. Its status said "needs the rule authoring path (Phase 4)" until
+  2026-08-24, and Phase 4 has landed: authoring now refuses a catastrophic pattern in a *rule*,
+  in the editor and on import alike (FR-070, BR-026-8). What it cannot cover is the case the
+  spec deliberately keeps open — a field exclusion is stored while still faulty (UC-005 A5) and
+  imported the same way, named rather than refused (UC-026 A8) — so the containment has to be at
+  evaluation, where nothing exists: no truncation and no budget, in either `selectRule` or
+  `matchesIgnorePattern`, both of which run stored patterns against text the page controls. The
+  250 ms half is retrospective by nature, since a running regex cannot be interrupted in
+  JavaScript; what is owed is truncation before each test and a budget between them
 - **A Firefox end-to-end fill**, which NFR-014 asks for and CI does not have. `smoke:firefox`
   proves the add-on installs and that `gecko.id` is honoured; it fills nothing, and there is no
   `e2e:firefox` or `cascade:firefox` to run. Corrected from Done to Partial on 2026-08-15 —

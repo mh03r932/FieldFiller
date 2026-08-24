@@ -1,8 +1,11 @@
 import { message, type MessageKey } from '@/lib/platform/i18n';
 import {
   analyseImport,
+  MAX_IMPORT_SIZE,
+  oversizeRefusal,
   type ImportDrop,
   type ImportNote,
+  type ImportOutcome,
   type ImportPlan,
   type ImportRefusal,
 } from '@/lib/settings-import';
@@ -37,14 +40,29 @@ import { reason } from './reason';
  *
  * Module scope, like the rule editor's open item, so it survives a re-render.
  */
-let pending: { readonly name: string; readonly text: string } | undefined;
+let pending: Pending | undefined;
+
+/**
+ * The chosen file, either read or refused for its size before being read.
+ *
+ * Two shapes rather than one, because A9's refusal is the one that cannot be
+ * expressed as text handed to `analyseImport`: the whole point of it is that the
+ * text was never produced. A `File` is not kept either — a handle to a file the
+ * user may have replaced since is a different thing from the bytes this section
+ * analysed, and the size is all the refusal needs to say.
+ */
+type Pending =
+  | { readonly kind: 'read'; readonly name: string; readonly text: string }
+  | { readonly kind: 'oversize'; readonly name: string; readonly size: number };
 
 export function renderImport(host: OptionsHost, into: HTMLElement): void {
   const chooser = document.createElement('input');
   chooser.type = 'file';
   chooser.className = 'import-file';
   // A hint to the picker, not a guarantee: a settings file renamed to `.txt` is
-  // still a settings file, and every real check happens after it is read.
+  // still a settings file, so every check of its *contents* happens after it is
+  // read. Its size is the one thing checked before that, because reading is the
+  // part that costs (A9).
   chooser.accept = 'application/json,.json';
   chooser.addEventListener('change', () => {
     void chosen(host, into, chooser.files?.[0]);
@@ -59,7 +77,10 @@ export function renderImport(host: OptionsHost, into: HTMLElement): void {
   into.replaceChildren(label);
 
   if (pending === undefined) return;
-  const outcome = analyseImport(pending.text, host.settings());
+  const outcome: ImportOutcome =
+    pending.kind === 'oversize'
+      ? { ok: false, refusal: oversizeRefusal(pending.size) }
+      : analyseImport(pending.text, host.settings());
   into.append(
     outcome.ok
       ? planView(host, into, pending.name, outcome.plan)
@@ -74,8 +95,18 @@ async function chosen(host: OptionsHost, into: HTMLElement, file: File | undefin
     return;
   }
 
+  // Before `text()`, which is the whole value of the check (A9). Reading a file
+  // of arbitrary size into a string on this thread is the damage; a bound
+  // applied to the string afterwards would be a report on damage already done.
+  // `size` is the browser's own, and costs nothing to ask for.
+  if (file.size > MAX_IMPORT_SIZE) {
+    pending = { kind: 'oversize', name: file.name, size: file.size };
+    renderImport(host, into);
+    return;
+  }
+
   try {
-    pending = { name: file.name, text: await file.text() };
+    pending = { kind: 'read', name: file.name, text: await file.text() };
   } catch (error) {
     // The file was picked and could not be read — removed since, or unreadable.
     // Distinct from a file that read fine and is not ours, which is A1's job.

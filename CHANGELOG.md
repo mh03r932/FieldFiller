@@ -82,8 +82,9 @@ rather than a set of changes to it.
 - Export the whole configuration to a plain, pretty-printed JSON file — diffable,
   reviewable, and suitable for keeping a team configuration in version control.
 - Import it back, with validation and a schema-migration path. A file that is not a settings
-  file, or was written by a newer version than the one reading it, is refused with a specific
-  reason and leaves existing settings untouched. Before anything is written, the import says
+  file, was written by a newer version than the one reading it, or is far too large to be a
+  settings file at all, is refused with a specific reason and leaves existing settings
+  untouched. Before anything is written, the import says
   what it would do: what is being replaced, everything in the file that cannot be kept, and
   anything that arrives carrying a fault — a field exclusion whose pattern will not compile,
   for instance, which is imported as it stands and flagged rather than quietly dropped.

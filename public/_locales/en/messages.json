@@ -1393,6 +1393,20 @@
       }
     }
   },
+  "importRefusedTooLarge": {
+    "message": "That file is $SIZE$ KB, and this reads settings files up to $LIMIT$ KB. Nothing was imported and your settings are unchanged. A settings file this size is not one this extension wrote — the largest configuration it can hold is a fraction of it.",
+    "description": "UC-026 A9. Refused on size before the file is read at all, because reading it is what would freeze the page. The bound is measured against the largest plausible configuration (see MAX_IMPORT_SIZE), so the sentence says what the limit is rather than only that one was hit.",
+    "placeholders": {
+      "size": {
+        "content": "$1",
+        "example": "524288"
+      },
+      "limit": {
+        "content": "$2",
+        "example": "8192"
+      }
+    }
+  },
   "importRefusedNotJson": {
     "message": "That file is not JSON, so nothing was imported. $DETAIL$. Your settings are unchanged.",
     "description": "UC-026 A1. $DETAIL$ is the JSON parser’s own complaint, which names the position and is not translated.",

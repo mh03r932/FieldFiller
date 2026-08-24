@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { analyseImport, SCHEMA_VERSION } from '@/lib/settings-import';
+import { analyseImport, MAX_IMPORT_SIZE, SCHEMA_VERSION } from '@/lib/settings-import';
 import { serialiseSettings } from '@/lib/settings-file';
 import { DEFAULT_SETTINGS, type Rule, type Settings } from '@/lib/settings';
 
@@ -580,3 +580,115 @@ function analysedNotes(file: unknown): readonly string[] {
 function serialisedDefaults(): unknown {
   return JSON.parse(serialiseSettings(configured()));
 }
+
+describe('refusing a file too big to be one of ours (A9)', () => {
+  /** A file of the given length that is otherwise a perfectly good import. */
+  const padded = (length: number): string => {
+    const settings = { version: SCHEMA_VERSION, rules: [rule('kept')], locale: 'en-US' };
+    const text = JSON.stringify(settings);
+    // Padding inside a string value, so the file stays valid JSON and the
+    // refusal is provably about size rather than about shape.
+    const padding = 'x'.repeat(Math.max(0, length - text.length - 12));
+    return JSON.stringify({ ...settings, label: padding });
+  };
+
+  it('refuses before it parses, naming the size and the bound', () => {
+    const outcome = analyseImport(padded(MAX_IMPORT_SIZE + 1024), current());
+
+    expect(outcome.ok).toBe(false);
+    if (outcome.ok) return;
+    expect(outcome.refusal.code).toBe('importRefusedTooLarge');
+    const [size, limit] = outcome.refusal.params;
+    expect(Number(limit)).toBe(MAX_IMPORT_SIZE / 1024);
+    expect(Number(size)).toBeGreaterThan(Number(limit));
+  });
+
+  it('reads a file that is merely large', () => {
+    // The bound is a sanity check on a file nobody here wrote, not a limit on
+    // how much configuration a user may have: ten times the scale NFR-024 names
+    // serialises to under 4 MB, and this is bigger than that and still read.
+    const outcome = analyseImport(padded(MAX_IMPORT_SIZE - 1024), current());
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.plan.settings.rules).toHaveLength(1);
+  });
+
+  it('refuses on size before it refuses on anything else', () => {
+    // An oversized file that is *also* not JSON. Size wins, because the other
+    // answer is only available after the work this is here to avoid.
+    const outcome = analyseImport('{ not json'.padEnd(MAX_IMPORT_SIZE + 1, ' '), current());
+
+    expect(outcome.ok).toBe(false);
+    if (outcome.ok) return;
+    expect(outcome.refusal.code).toBe('importRefusedTooLarge');
+  });
+});
+
+describe('reporting one loss once', () => {
+  it('does not pick over an unreadable rule for what else was wrong with it', () => {
+    // Both halves are true of this entry — it cannot be read, and it carries a
+    // key this version does not have — and only the first is worth a line: the
+    // rule is not arriving, so an unknown key inside it describes nothing that
+    // will ever be stored, and counting it twice inflates the number the user
+    // is deciding on.
+    const outcome = analyse({
+      version: SCHEMA_VERSION,
+      rules: [{ label: 'Broken rule', junk: 1 }],
+    });
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.plan.dropped).toEqual([{ code: 'importDroppedRule', params: ['Broken rule'] }]);
+  });
+
+  it('nor a rule it read and refuses to store', () => {
+    const outcome = analyse({
+      version: SCHEMA_VERSION,
+      rules: [{ ...rule('redos'), label: 'Catastrophic', match: { mode: 'regex', pattern: '(a+)+b' }, junk: 1 }],
+    });
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.plan.dropped.map((drop) => drop.code)).toEqual(['importDroppedRuleRefused']);
+  });
+
+  it('nor the rules inside a profile that was itself dropped', () => {
+    const outcome = analyse({
+      version: SCHEMA_VERSION,
+      profiles: [{ label: 'No id, so not a profile', junk: 1, rules: [{ label: 'inner', junk: 2 }] }],
+    });
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.plan.dropped.map((drop) => drop.code)).toEqual(['importDroppedProfile']);
+  });
+
+  it('still names an unknown key inside a rule it is keeping', () => {
+    // The other direction, and the one that makes the skip a rule about losses
+    // rather than a way of saying less: this rule arrives, so a key the file put
+    // inside it is a key that silently did nothing (BR-026-7).
+    const outcome = analyse({
+      version: SCHEMA_VERSION,
+      rules: [{ ...rule('kept'), junk: 1 }],
+    });
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.plan.dropped).toEqual([{ code: 'importDroppedKey', params: ['rules[0].junk'] }]);
+  });
+
+  it('and one inside a surviving profile whose rule was dropped', () => {
+    const outcome = analyse({
+      version: SCHEMA_VERSION,
+      profiles: [{ id: 'p1', label: 'Staging', urls: [], junk: 1, rules: [{ label: 'inner', junk: 2 }] }],
+    });
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.plan.dropped.map((drop) => `${drop.code}:${drop.params.join('/')}`)).toEqual([
+      'importDroppedProfileRule:Staging/inner',
+      'importDroppedKey:profiles[0].junk',
+    ]);
+  });
+});
