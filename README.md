@@ -86,9 +86,14 @@ without a browser (NFR-015), and lint enforces it rather than review.
   text and copyright line, kept distinct from our own `LICENSE` (C-009). It sits in the
   repository and not in the package: vision §8.1 asks for it to be reachable from an About
   page, and there is no About page. FR-062 is what closes this, and it is unbuilt.
-- **No promo tiles exist.** The Chrome listing shows a 440×280 tile in every search and
-  browse result, where a screenshot is unreadable. Optional in the form, effectively required
-  in practice. [`docs/art_brief.md`](docs/art_brief.md) carries the brief and the prompts.
+- **The promo tiles have not been judged by a human.** Both exist —
+  `docs/art/promo-440x280.png` and `docs/art/promo-1400x560.png`, drawn by
+  [`scripts/make-promo.mjs`](scripts/make-promo.mjs) on the same committed-geometry
+  basis as the icons, with the lettering set in Inter (SIL OFL, committed in
+  `scripts/fonts/`) so the text cannot be misspelled. What they have not had is the
+  side-by-side against the Fake Filler listings that
+  [`docs/art_brief.md`](docs/art_brief.md) §2 asks for before anything ships, nor a
+  plain eyeballing by anyone with taste.
 - **No screenshots exist.** Both stores require at least one, and they have to be captures of
   the real extension rather than generated art. The harness is already there —
   `scripts/e2e-chrome.mjs` drives the built extension in a real Chromium — and it is a

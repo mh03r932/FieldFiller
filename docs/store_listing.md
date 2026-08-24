@@ -229,8 +229,10 @@ listing without a reachable one.
 Store icon, screenshots and promo tiles are specified in [`art_brief.md`](art_brief.md).
 
 The 128×128 store icon is done — `public/icon/128.png`, drawn by `scripts/make-icons.mjs`.
-Screenshots and the promo tiles are not, and the listing cannot go live without at least one
-1280×800 screenshot.
+The promo tiles are done — `docs/art/promo-440x280.png` and `docs/art/promo-1400x560.png`,
+drawn by `scripts/make-promo.mjs` with the lettering set in Inter (SIL OFL, committed in
+`scripts/fonts/`) rather than generated text. Screenshots are not, and the listing cannot go
+live without at least one 1280×800 screenshot.
 
 ---
 
@@ -323,8 +325,9 @@ All four run in CI on every change.
 
 ## 4. Before either submission
 
-- [ ] Screenshots, and the 440×280 promo tile — see [`art_brief.md`](art_brief.md). The
-      screenshots block both listings; the tile only costs visibility. Icons are done.
+- [ ] Screenshots — see [`art_brief.md`](art_brief.md) §6. They block both listings.
+      The promo tiles exist (`docs/art/`, drawn by `scripts/make-promo.mjs`) but still need
+      the side-by-side check against the Fake Filler listings before upload. Icons are done.
 - [ ] `PRIVACY.md` published at a public URL, and the contact address in it filled in.
 - [ ] Source public at the release tag (C-014), which the AMO source upload and the
       build-verification claim in §2.2 both depend on.
