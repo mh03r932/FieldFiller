@@ -370,7 +370,15 @@ async function waitForBindings(cdp, session) {
 }
 
 /**
- * Waits until the page agent is listening in the tab about to be filled.
+ * The frame every harness asserts against, and the only one this waits for.
+ *
+ * Named rather than written as a bare `0` at the call below, because the number
+ * is the whole argument of the paragraph in `waitForAgent` that follows it.
+ */
+const TOP_FRAME = 0;
+
+/**
+ * Waits until the page agent is listening in the top frame about to be filled.
  *
  * Readiness as a condition, not a sleep. A fixed wait before the trigger is the
  * thinnest margin any of these harnesses has: ample on an idle machine, and on a
@@ -385,6 +393,26 @@ async function waitForBindings(cdp, session) {
  * not do: the agent registers at `document_idle`, which Chrome may place
  * *after* the load event.
  *
+ * The ping is *addressed to the top frame*, and until 2026-08-24 it was not —
+ * which made this a weaker condition than every caller reads it as. The agent
+ * registers per frame (`allFrames: true`), `tabs.sendMessage` broadcasts, and
+ * the reply is whichever frame answers first: an unaddressed ping is therefore
+ * satisfied by any frame in the tab, including one whose fields nothing here
+ * asserts on. The frames get there first. Measured on Chrome for Testing 151 in
+ * a one-CPU Linux container, on the reference fixture, the tab answered from
+ * `about:blank` or `about:srcdoc` 13–85 ms before the top document had an agent
+ * at all — on seven runs out of eight.
+ *
+ * Dispatching the trigger inside that window fills the frames and leaves the top
+ * document untouched: `startFill` broadcasts once, and a frame that had no agent
+ * when it went out cannot join an operation it never heard of. The harness then
+ * waits out its own timeout against a page whose fields never arrive, and says
+ * so as "the … fill never produced a complete record" — which reads as the
+ * corpus or the engine being at fault, and is neither. `locale:chrome` failed
+ * exactly that way on CI on 2026-08-24, and reproduced in 2 runs out of 8 in
+ * that container; dispatched into the window deliberately it reproduced in 4 out
+ * of 5.
+ *
  * The tab is left to the caller to identify, because the harnesses legitimately
  * differ on that — one navigates the only tab and relies on it, another looks
  * for the active one — and pinging a tab the fill will not target proves
@@ -398,7 +426,7 @@ export async function waitForAgent(cdp, workerSession, tabExpression) {
         expression: `chrome.tabs.query({}).then((tabs) => {
           const tab = ${tabExpression};
           if (tab === undefined) return 'no tab among ' + tabs.length;
-          return chrome.tabs.sendMessage(tab.id, { kind: 'ping' })
+          return chrome.tabs.sendMessage(tab.id, { kind: 'ping' }, { frameId: ${TOP_FRAME} })
             .then((reply) => reply !== undefined && reply.kind === 'pong'
               ? 'pong'
               : 'answered without a pong: ' + JSON.stringify(reply))
@@ -412,7 +440,7 @@ export async function waitForAgent(cdp, workerSession, tabExpression) {
     if (pinged.result.value === 'pong') return;
     await sleep(100);
   }
-  throw new Error('the page agent never answered a ping within 10 s of navigation');
+  throw new Error("the page agent never answered a ping in the page's top frame within 10 s of navigation");
 }
 
 /**
