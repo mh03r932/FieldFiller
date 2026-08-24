@@ -1,5 +1,5 @@
 import { DEFAULT_SETTINGS, MATCH_SOURCES, parseSettings, type Rule, type Settings } from './settings';
-import { validateRule, type RuleProblem } from './rules/validate';
+import { validateMatcher, validateRule, type RuleProblem } from './rules/validate';
 
 /**
  * Reading a configuration back in (UC-026, FR-053, FR-054, ND-13).
@@ -33,11 +33,18 @@ import { validateRule, type RuleProblem } from './rules/validate';
  * and `settings` is what is left. The module's one invariant is unchanged —
  * `settings` is what would be stored, exactly.
  *
- * Field exclusions are deliberately *not* checked the same way. The exclusion
- * editor stores a pattern while it is still invalid on purpose (UC-005 A5: a
- * half-typed pattern is invalid on the way to being valid, and refusing it would
- * lose the keystroke), so validating them here would make an import stricter
- * than the screen that authors them — which is a different defect, not a fix.
+ * **Field exclusions are named rather than refused**, which is the third stance
+ * here and the one the other two make necessary. The exclusion editor stores a
+ * pattern while it is still invalid on purpose (UC-005 A5: a half-typed pattern
+ * is invalid on the way to being valid, and refusing it would lose the
+ * keystroke), so dropping one here would make an import stricter than the screen
+ * that authors them — a different defect, not a fix. Saying *nothing* was the
+ * other extreme, and it is what this module did until 2026-08-24: `(a+)+b` as an
+ * exclusion imported with an empty drop list, while the identical pattern in a
+ * rule was named with its fault. One `validateMatcher`, one file, two answers.
+ * They are now reported in `noted` — kept, stored, and stated before the write,
+ * which is what BR-026-3 asks for and what the exclusion list already does
+ * beside every row.
  */
 
 /** The schema version this build writes and reads. */
@@ -89,6 +96,32 @@ export type ImportDrop = {
 };
 
 /**
+ * One thing the import *will* store that carries a fault with it (BR-026-3).
+ *
+ * A separate list from `dropped`, because the two make opposite promises and a
+ * reader has to be able to tell them apart without reading the wording: a drop
+ * is an entry that will not be there afterwards, and a note is an entry that
+ * will. Folding these into `dropped` was the obvious economy and it would have
+ * made every line of that list mean "either gone or not, see the sentence" —
+ * which is the one thing the preview exists to be precise about.
+ *
+ * The fault is carried rather than worded, exactly as a refused rule's is: a
+ * `RuleProblem` is a catalog key and its substitutions, so the surface resolves
+ * it and this module still says nothing in English (NFR-018).
+ */
+export type ImportNote = {
+  readonly code: 'importNotedExclusion';
+  readonly params: readonly string[];
+  /**
+   * The first fault only, for the reason a drop carries only its first: this is
+   * a line in a list making a problem findable, not the editor listing every
+   * problem beside the field that fixes it. The exclusion list does that, and it
+   * is where this line is sending the user.
+   */
+  readonly problem: RuleProblem;
+};
+
+/**
  * What an import would do, computed before anything is written.
  *
  * `settings` is what would be stored — already coerced, so the user confirms the
@@ -100,6 +133,8 @@ export type ImportPlan = {
   readonly incoming: Counts;
   readonly current: Counts;
   readonly dropped: readonly ImportDrop[];
+  /** Entries the plan would store that are faulty, kept and named (BR-026-3). */
+  readonly noted: readonly ImportNote[];
   /**
    * Whether the file came from an older schema, or stated no version at all
    * (A3, A4). Reported because the user is entitled to know their file was
@@ -281,6 +316,7 @@ export function analyseImport(text: string, current: Settings): ImportOutcome {
       incoming: { rules: settings.rules.length, profiles: settings.profiles.length },
       current: { rules: current.rules.length, profiles: current.profiles.length },
       dropped: [...droppedEntries(file), ...unknownKeys(file, shapes.mistyped), ...shapes.drops],
+      noted: notedExclusions(settings),
       // A3 and A4 are the same fact to the user — the file did not come from
       // this schema and was changed on the way in — and today they are also the
       // same mechanism, since the tolerant parser stands in for the ladder.
@@ -291,6 +327,35 @@ export function analyseImport(text: string, current: Settings): ImportOutcome {
 
 function refuse(code: ImportRefusal['code'], params: readonly string[]): ImportOutcome {
   return { ok: false, refusal: { code, params } };
+}
+
+/**
+ * Field exclusions that will be stored and will not do what they say (UC-005 A5,
+ * BR-026-3).
+ *
+ * Read off the *plan*, not off the file, and that is the whole design of it:
+ * `settings` is what would be stored, so a note is a statement about the state
+ * the user is agreeing to rather than about the text they chose. A file whose
+ * exclusion the parser refused outright — a blank pattern, an entry of the wrong
+ * shape — never reaches here, because it is not in the plan to be noted; it is
+ * `dropped`'s to report, and reporting it twice in two lists that promise
+ * opposite things is worse than reporting it once.
+ *
+ * `validateMatcher` is asked, never re-implemented — the same function the
+ * exclusion editor asks and, through `validateRule`, the same one that refuses a
+ * rule's pattern. So a pattern cannot be storable in one of the three and
+ * faulty in another, which is the property the module note at the top spends its
+ * length defending.
+ */
+function notedExclusions(settings: Settings): readonly ImportNote[] {
+  const notes: ImportNote[] = [];
+  for (const matcher of settings.exclusions.fields) {
+    const problem = validateMatcher(matcher)[0];
+    if (problem !== undefined) {
+      notes.push({ code: 'importNotedExclusion', params: [matcher.pattern], problem });
+    }
+  }
+  return notes;
 }
 
 /**
@@ -331,9 +396,12 @@ function allowed(rule: Rule): boolean {
  * nothing to fall out of step with `parseRule`.
  *
  * Identity is deliberately not used to match survivors against the file's
- * entries. `parseRule` falls back to the match pattern when a rule states no
- * `id`, so two rules in one file can arrive carrying the same one, and a diff
- * keyed on it would report a survivor as dropped.
+ * entries. A file can state the same `id` on two rules — nothing stops it, and
+ * `parseRule` reads what it is given rather than renaming one — so a diff keyed
+ * on identity would report a survivor as dropped. That was true of the id-less
+ * case too until 2026-08-24, when the fallback stopped being the bare pattern;
+ * the argument outlived the example, because the fallback was never what made
+ * identity unsafe to key on. A file is not obliged to be consistent.
  *
  * One pass per entry, reporting all three things that can be wrong with it,
  * because they are ordered rather than independent: a rule the parser could not

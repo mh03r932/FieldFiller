@@ -83,7 +83,10 @@ rather than a set of changes to it.
   reviewable, and suitable for keeping a team configuration in version control.
 - Import it back, with validation and a schema-migration path. A file that is not a settings
   file, or was written by a newer version than the one reading it, is refused with a specific
-  reason and leaves existing settings untouched.
+  reason and leaves existing settings untouched. Before anything is written, the import says
+  what it would do: what is being replaced, everything in the file that cannot be kept, and
+  anything that arrives carrying a fault — a field exclusion whose pattern will not compile,
+  for instance, which is imported as it stands and flagged rather than quietly dropped.
 
 **Privacy and verifiability**
 

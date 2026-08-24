@@ -654,14 +654,19 @@ function parseRules(stored: unknown): readonly Rule[] {
   if (!Array.isArray(stored)) return [];
 
   const rules: Rule[] = [];
-  for (const entry of stored) {
-    const rule = parseRule(entry);
+  // The position is carried in because the id fallback needs it — see
+  // `parseRule`. It is the entry's place in the file, so a rule the parser could
+  // not read leaves a gap in the numbering rather than shifting every rule after
+  // it: the alternative renumbers survivors according to what was *dropped*,
+  // which is a worse thing for an id to depend on.
+  for (const [index, entry] of stored.entries()) {
+    const rule = parseRule(entry, index);
     if (rule !== undefined) rules.push(rule);
   }
   return rules;
 }
 
-function parseRule(stored: unknown): Rule | undefined {
+function parseRule(stored: unknown, index: number): Rule | undefined {
   if (typeof stored !== 'object' || stored === null) return undefined;
 
   const candidate = stored as Record<string, unknown>;
@@ -671,7 +676,22 @@ function parseRule(stored: unknown): Rule | undefined {
 
   const sources = parseSourceList(candidate['sources']);
   return {
-    id: typeof candidate['id'] === 'string' ? candidate['id'] : match.pattern,
+    // A rule that states no `id` is given one made from its pattern *and its
+    // position*, because the pattern alone is not unique and every editor write
+    // is keyed on the id. Two rules matching `email` in a hand-written file
+    // arrived carrying the same one, and `replaceRule` maps *all* matches while
+    // `removeRule` filters all: editing one relabelled both, deleting one
+    // deleted both. Fills never noticed — matching walks the list in order and
+    // takes the first hit — which is exactly why it survived to be found by
+    // review rather than by use.
+    //
+    // Position is enough here and no more than enough. It is unique within the
+    // list it was read from, and stable across reads of the same stored state,
+    // which is what an id has to be. A file that *repeats* an explicit id still
+    // collides: that is a file saying two entries are the same rule, and a
+    // parser that quietly renamed one would be overruling the file rather than
+    // reading it. The importer is where a file's own contradictions get named.
+    id: typeof candidate['id'] === 'string' ? candidate['id'] : `${match.pattern}#${index}`,
     label: typeof candidate['label'] === 'string' ? candidate['label'] : match.pattern,
     enabled: boolean(candidate['enabled'], true),
     match,

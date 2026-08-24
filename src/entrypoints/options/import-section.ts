@@ -1,5 +1,11 @@
 import { message, type MessageKey } from '@/lib/platform/i18n';
-import { analyseImport, type ImportDrop, type ImportPlan, type ImportRefusal } from '@/lib/settings-import';
+import {
+  analyseImport,
+  type ImportDrop,
+  type ImportNote,
+  type ImportPlan,
+  type ImportRefusal,
+} from '@/lib/settings-import';
 import type { OptionsHost } from './host';
 import { focusIn } from './controls';
 import { problemText } from './problems';
@@ -165,6 +171,10 @@ function planView(host: OptionsHost, into: HTMLElement, name: string, plan: Impo
   }
 
   if (plan.dropped.length > 0) view.append(droppedView(plan.dropped));
+  // After the drops, because they are the smaller claim: what is missing
+  // afterwards matters before what is present and faulty, and a user who reads
+  // only the first list has read the more destructive one.
+  if (plan.noted.length > 0) view.append(notedView(plan.noted));
 
   const actions = document.createElement('div');
   actions.className = 'import-actions';
@@ -216,6 +226,43 @@ function droppedView(dropped: readonly ImportDrop[]): HTMLElement {
       drop.code,
       drop.problem === undefined ? drop.params : [...drop.params, problemText(drop.problem)],
     );
+    list.append(item);
+  }
+
+  section.append(heading, list);
+  return section;
+}
+
+/**
+ * BR-026-3's other half: what arrives with a problem, said before the write.
+ *
+ * A list of its own, next to the drops and never inside them. The two are read
+ * as one glance at a heading and a count, and a reader who has to parse each
+ * sentence to learn whether the entry survives has been given a worse preview
+ * than no list at all. Same shape as `droppedView` because they are read
+ * together; different heading, different class, and the fault resolved the same
+ * way — `problemText`, appended as a substitution so the catalog decides where
+ * in the sentence it lands (NFR-018).
+ *
+ * Not an `alert`. The plan is on screen because the user just chose a file, and
+ * nothing here has happened yet; the exclusion list's own `role="alert"` is
+ * where a fault becomes urgent, which is after the import, beside the field that
+ * fixes it.
+ */
+function notedView(noted: readonly ImportNote[]): HTMLElement {
+  const section = document.createElement('div');
+  section.className = 'import-noted';
+
+  const heading = document.createElement('p');
+  heading.className = 'import-noted-heading';
+  heading.textContent = message('importPlanNoted', [String(noted.length)]);
+
+  const list = document.createElement('ul');
+  for (const note of noted) {
+    const item = document.createElement('li');
+    // As in `droppedView`: the pattern came out of the file, so it is written as
+    // text and can never become markup.
+    item.textContent = message(note.code, [...note.params, problemText(note.problem)]);
     list.append(item);
   }
 

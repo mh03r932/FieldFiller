@@ -702,6 +702,21 @@ p.samples {
   overflow-wrap: anywhere;
 }
 
+/* Read together with the drop list and styled as one, because the difference
+   between them is what the headings say rather than how the two look. Giving the
+   notes a colour of their own would rank them against the drops, and they are
+   not the more serious of the two — an entry that arrived faulty is correctable
+   in the list below, an entry that did not arrive is gone. */
+.import-noted ul {
+  margin: 0.25rem 0 0.75rem;
+  padding-inline-start: 1.1rem;
+  color: var(--ff-muted);
+  font-size: 0.875rem;
+  /* A pattern out of a file can be long and unbroken; wrap rather than push the
+     page sideways at 320 px. */
+  overflow-wrap: anywhere;
+}
+
 .import-actions {
   display: flex;
   flex-wrap: wrap;

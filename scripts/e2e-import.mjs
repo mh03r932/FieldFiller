@@ -298,6 +298,43 @@ try {
       afterUnsafe.rules[0]?.id === 'kept',
     `rules=${JSON.stringify(afterUnsafe.rules)}`);
 
+  // ── A8: what arrives faulty is named, and still arrives ────────────────────
+  // The mirror of the block above, and the point is that the two answers differ
+  // for the same six characters: `(a+)+b` in `rules` is refused and named as a
+  // drop, and in `exclusions.fields` it is imported and named as a note. Driven
+  // through the real preview because the distinction is one a user reads off two
+  // headings — a list saying "will not be imported" and a list saying "will" —
+  // and a unit test asserting two arrays cannot see whether the screen says
+  // which is which.
+  await seed(OTHER);
+  await openOptions();
+  await choose('faulty-exclusion.json', JSON.stringify({
+    version: 1,
+    rules: [rule('kept')],
+    exclusions: { fields: [{ mode: 'regex', pattern: '(a+)+b' }], domains: [] },
+  }));
+  await waitFor(`document.querySelector('#import .import-noted') !== null`, 'a faulty exclusion was not reported');
+
+  const notedText = await textOf('#import .import-noted');
+  check('a field exclusion that backtracks is named before the write (A8)',
+    notedText.includes('(a+)+b') && notedText.includes('backtrack'),
+    `noted=${JSON.stringify(notedText)}`);
+  check('and it is named as arriving, not as dropped',
+    (await inPage(`document.querySelector('#import .import-dropped') === null`)) === true,
+    `dropped=${JSON.stringify(await textOf('#import .import-dropped'))}`);
+
+  await clickWithGesture(cdp, page, '#import .import-confirm');
+  await sleep(500);
+  const afterNoted = await stored();
+  check('the exclusion is stored as it stands, exactly as the editor would store it (UC-005 A5)',
+    JSON.stringify(afterNoted.exclusions?.fields) === JSON.stringify([{ mode: 'regex', pattern: '(a+)+b' }]),
+    `exclusions=${JSON.stringify(afterNoted.exclusions)}`);
+  // The other half of A8: the fault follows the pattern into the list that
+  // corrects it, so the preview's warning is not the only place it is ever said.
+  check('and the exclusion list repeats the fault beside the pattern it belongs to',
+    (await textOf('#field-exclusions')).includes('backtrack'),
+    `exclusions section=${JSON.stringify((await textOf('#field-exclusions')).slice(0, 200))}`);
+
   // ── The refusals, each with no way past it (BR-026-2) ──────────────────────
   // Back to a known configuration first: the block above is the only one that
   // confirms an import, and every check below asserts that a refused file left

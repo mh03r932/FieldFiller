@@ -508,3 +508,75 @@ describe('refusing a rule the editor would not save', () => {
     expect(outcome.plan.dropped).toHaveLength(1);
   });
 });
+
+describe('naming what arrives faulty and is kept anyway (A8)', () => {
+  const exclusion = (pattern: string, mode = 'regex') => ({
+    version: SCHEMA_VERSION,
+    exclusions: { fields: [{ mode, pattern }], domains: [] },
+  });
+
+  it('imports a catastrophically backtracking exclusion and says so', () => {
+    // The asymmetry this closes: the identical pattern in `rules` is refused and
+    // named, and until 2026-08-24 the same six characters in `exclusions.fields`
+    // arrived with an empty drop list and nothing said anywhere.
+    const outcome = analyse(exclusion('(a+)+b'));
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.plan.dropped).toEqual([]);
+    expect(outcome.plan.settings.exclusions.fields).toEqual([{ mode: 'regex', pattern: '(a+)+b' }]);
+    const [note] = outcome.plan.noted;
+    expect(note?.code).toBe('importNotedExclusion');
+    expect(note?.params).toEqual(['(a+)+b']);
+    expect(note?.problem.code).toBe('ruleProblemPatternBacktracks');
+  });
+
+  it('names one that will not compile', () => {
+    const outcome = analyse(exclusion('(unclosed'));
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.plan.noted.map((note) => note.problem.code)).toEqual(['ruleProblemPatternInvalid']);
+    // Kept, because the exclusion editor keeps a half-typed pattern on purpose
+    // (UC-005 A5) and an import must not be stricter than the screen that
+    // authors them. The agent skips it at fill time with the rest of the list
+    // intact.
+    expect(outcome.plan.settings.exclusions.fields).toHaveLength(1);
+  });
+
+  it('says nothing about a pattern that is not a regex', () => {
+    // `contains` and `exact` are escaped before they are compiled, so there is
+    // no syntax to get wrong — a note here would be a warning about nothing.
+    expect(analysedNotes(exclusion('(a+)+b', 'contains'))).toEqual([]);
+    expect(analysedNotes(exclusion('(a+)+b', 'exact'))).toEqual([]);
+  });
+
+  it('says nothing about a healthy configuration', () => {
+    expect(analysedNotes(serialisedDefaults())).toEqual([]);
+  });
+
+  it('does not report an exclusion the parser refused outright', () => {
+    // A blank pattern never reaches the plan, so it is `dropped`'s to report if
+    // anything is. Naming it in both lists would have them contradict each
+    // other about whether it arrived.
+    const outcome = analyse({
+      version: SCHEMA_VERSION,
+      exclusions: { fields: [{ mode: 'regex', pattern: '' }], domains: [] },
+    });
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.plan.settings.exclusions.fields).toEqual([]);
+    expect(outcome.plan.noted).toEqual([]);
+  });
+});
+
+function analysedNotes(file: unknown): readonly string[] {
+  const outcome = analyse(file);
+  if (!outcome.ok) throw new Error('the file was refused');
+  return outcome.plan.noted.map((note) => note.code);
+}
+
+function serialisedDefaults(): unknown {
+  return JSON.parse(serialiseSettings(configured()));
+}

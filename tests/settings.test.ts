@@ -103,11 +103,53 @@ describe('parseSettings', () => {
       });
     });
 
-    it('falls back to the pattern for a missing id and label', () => {
+    it('falls back to the pattern for a missing label, and to the pattern and position for an id', () => {
       const [parsed] = parseSettings({
         rules: [{ match: rule.match, generator: rule.generator }],
       }).rules;
-      expect(parsed).toMatchObject({ id: 'email', label: 'email' });
+      expect(parsed).toMatchObject({ id: 'email#0', label: 'email' });
+    });
+
+    it('gives two rules with one pattern two identities (BR-010-2)', () => {
+      // The pattern alone was the fallback until 2026-08-24, and every editor
+      // write is keyed on the id: `replaceRule` maps *all* matches and
+      // `removeRule` filters all, so a hand-written file with two `email` rules
+      // gave the user a list where editing one relabelled both and deleting one
+      // deleted both. Fills never saw it — matching takes the first hit — which
+      // is exactly why nothing else catches this.
+      const { rules } = parseSettings({
+        rules: [
+          { label: 'first', match: rule.match, generator: rule.generator },
+          { label: 'second', match: rule.match, generator: rule.generator },
+        ],
+      });
+
+      expect(rules.map((parsed) => parsed.id)).toEqual(['email#0', 'email#1']);
+    });
+
+    it('leaves a stated id alone, wherever it sits', () => {
+      // The fallback is for a file that states none. A file that states one is
+      // making a claim about identity that a parser has no business rewriting —
+      // including the claim, in the second entry here, that it is the same rule
+      // as the first.
+      const { rules } = parseSettings({
+        rules: [
+          { id: 'chosen', match: rule.match, generator: rule.generator },
+          { id: 'chosen', match: rule.match, generator: rule.generator },
+        ],
+      });
+
+      expect(rules.map((parsed) => parsed.id)).toEqual(['chosen', 'chosen']);
+    });
+
+    it('numbers by position in the file, so a dropped entry does not renumber the rest', () => {
+      // The alternative is an id that depends on what was *dropped* beside it:
+      // add a malformed rule at the top of a file and every id below it shifts.
+      const { rules } = parseSettings({
+        rules: [{ label: 'unreadable' }, { match: rule.match, generator: rule.generator }],
+      });
+
+      expect(rules.map((parsed) => parsed.id)).toEqual(['email#1']);
     });
 
     it('drops a malformed rule instead of repairing it', () => {

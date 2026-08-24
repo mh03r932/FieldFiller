@@ -1321,6 +1321,30 @@
       }
     }
   },
+  "importPlanNoted": {
+    "message": "$COUNT$ thing(s) in this file will be imported and need your attention:",
+    "description": "Heading above the list of entries the import keeps and flags (UC-026 A8, BR-026-3). Deliberately not worded like importPlanDropped: these entries do arrive, and saying so is the point of a second list.",
+    "placeholders": {
+      "count": {
+        "content": "$1",
+        "example": "1"
+      }
+    }
+  },
+  "importNotedExclusion": {
+    "message": "Field exclusion “$PATTERN$” is imported as it is: $PROBLEM$",
+    "description": "A field exclusion the import stores with a fault (UC-005 A5). Not refused, because the exclusion editor stores a half-typed pattern on purpose and an import must not be stricter than the screen that authors them — so this says what arrived and what is wrong with it, and the exclusion list below repeats the fault beside the field that fixes it. $PROBLEM$ is a ruleProblem* sentence, which is written to read after a colon.",
+    "placeholders": {
+      "pattern": {
+        "content": "$1",
+        "example": "(a+)+b"
+      },
+      "problem": {
+        "content": "$2",
+        "example": "this pattern can backtrack catastrophically and would hang the extension."
+      }
+    }
+  },
   "importConfirm": {
     "message": "Replace my settings",
     "description": "The action that applies the import. Worded as what it does to the user’s configuration rather than as “Import”, because replacing is the part worth being sure about (BR-026-1)."
