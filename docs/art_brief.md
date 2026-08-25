@@ -175,6 +175,18 @@ pills meeting at a seam taper to a point on both sides of it, pinching the bar i
 At 128 px that is a subtle flaw; at 16 px it reads as a gap rather than as a boundary. Drawing
 the filled portion over a full-width track removes the seam entirely.
 
+**The fill was shortened and then settled at two fifths, 2026-08-24.** The third bar's fill
+originally spanned two thirds of the bar. It was cut to a fifth, then a third, then settled
+at 7/16 — the first two fifths (4/10) of the bar's width, which is the other grid-aligned
+edge beside 6/16. The edge stays on the sixteenth grid (columns 3–6 at 16 px, four whole
+pixels), so the small render keeps its crispness. The intent, stated after the fact: two
+full-width bars over a shorter, left-aligned bottom bar evoke the initial, and they evoke
+it more strongly the longer the bottom bar gets — settled at the longest proportion that
+still reads unambiguously as *part-filled* rather than as three bars of odd lengths. §2's
+negative constraint bans letterforms and monograms; bars whose lengths suggest one are not
+a letterform. The change is in `scripts/make-icons.mjs` and mirrored in
+`scripts/make-promo.mjs`, and `pnpm run verify:reproducible` was re-run after it.
+
 The generated PNG is not in the repository and nothing was traced from it. The mark is
 forty lines of committed geometry, which keeps C-010's provenance argument intact: you can
 read the entire artwork.
@@ -182,6 +194,18 @@ read the entire artwork.
 ---
 
 ## 4. Prompt — small promo tile, 440×280
+
+> **Settled, 2026-08-24.** The tile exists — `docs/art/promo-440x280.png`, drawn by
+> `scripts/make-promo.mjs` — and this section is kept for the record. The warning below
+> about generated text is the reason it was never sent to an image model at all: the tile is
+> committed geometry in the script, on the same basis as the icon, and the lettering is set
+> in **Inter** (SIL OFL 1.1) — the typeface of the developer tools the §3 prompt itself
+> name-checks. The latin subsets live in `scripts/fonts/` with the licence text, and the
+> script parses them itself: inflate the WOFF tables, walk the glyf outlines, fill by
+> nonzero winding in the same rasteriser that draws the mark. "FieldFiller" cannot be
+> misspelled and the type matches across both tiles by construction. Still owed before
+> upload: the §2 side-by-side against the Fake Filler listings, and a human eyeballing —
+> no pixel probe substitutes for taste.
 
 This is the one that matters. It appears in every Chrome Web Store search result and browse
 row, at a size where a screenshot is unreadable, so it has to work as a poster.
@@ -217,6 +241,11 @@ also how you get the type to match across the tile, the marquee and the screensh
 ---
 
 ## 5. Prompt — marquee promo tile, 1400×560
+
+> **Settled, 2026-08-24.** Same answer as §4: `docs/art/promo-1400x560.png`, drawn by
+> `scripts/make-promo.mjs` — mark, wordmark, supporting line and the abstract seven-field
+> form (three bars solid brand blue) all as geometry. The text is set, not generated, for
+> the reason §4 gives at length. The outer 60 px stay clear as specified.
 
 Only used if Google considers the extension for featuring. Cheap to make once the small tile
 exists, and there is no way to be considered without it.

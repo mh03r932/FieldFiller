@@ -55,10 +55,15 @@ const BARS = [
   // The third bar is the tool's whole subject: a field caught mid-fill. It is
   // drawn as a fill over its own track rather than as two abutting segments —
   // two pills meeting at a seam taper to a point on both sides of it and pinch
-  // the bar in the middle, which at 16 px reads as a gap rather than as a
+  // the bar in the middle, which at 16 px reads as a gap rather than a
   // boundary. `sample` returns on first match, so the fill must precede the
-  // track it sits inside.
-  { top: 11 / 16, bottom: 13 / 16, left: 3 / 16, right: 9 / 16, alpha: 1 },
+  // track it sits inside. The fill spans the first two fifths of the bar's
+  // width (3/16 to 7/16 — columns 3-6 of a 16 px render), settled on
+  // 2026-08-24 after trying a fifth and a third; the two full-width bars over
+  // a shorter, left-aligned bottom bar evoke the initial more strongly the
+  // longer it gets, without the mark being a letterform. 7/16 keeps the edge
+  // on the grid.
+  { top: 11 / 16, bottom: 13 / 16, left: 3 / 16, right: 7 / 16, alpha: 1 },
   { top: 11 / 16, bottom: 13 / 16, left: 3 / 16, right: 13 / 16, alpha: 0.34 },
 ];
 
