@@ -75,6 +75,60 @@ describe('restoreLoss', () => {
       domainExclusions: 0,
     });
   });
+
+  it('counts what a write can discard, not what the parser drops', () => {
+    // The state between adding a rule and typing its pattern — the state the
+    // page's own storage listener names as the common one (BR-024-3). The
+    // parser drops the rule, so no write this page can make discards it, the
+    // restore's included; counting it raw put "1 rule" on a confirmation the
+    // line beside it was about to contradict with "this changes nothing".
+    const halfWritten: Settings = {
+      ...DEFAULT_SETTINGS,
+      rules: [{ ...rule('new'), match: { mode: 'contains', pattern: '' } }],
+    };
+    expect(restoreLoss(halfWritten)).toEqual({
+      rules: 0,
+      profiles: 0,
+      fieldExclusions: 0,
+      domainExclusions: 0,
+    });
+  });
+
+  it('counts blank exclusion entries nowhere, for the same reason', () => {
+    // "Add an exclusion" and "Add a site" append a blank row to memory before
+    // anything is typed, and the parser drops a blank pattern on both lists.
+    const halfTyped: Settings = {
+      ...DEFAULT_SETTINGS,
+      exclusions: { fields: [{ mode: 'contains', pattern: '' }], domains: [''] },
+    };
+    expect(restoreLoss(halfTyped)).toEqual({
+      rules: 0,
+      profiles: 0,
+      fieldExclusions: 0,
+      domainExclusions: 0,
+    });
+  });
+
+  it('agrees with the already-defaults line it sits beside (BR-028-2)', () => {
+    // The invariant end to end: the counts and A2's line are one fact about
+    // one state, so any state that draws the line must draw zeros beside it.
+    // Each half was true by its own discipline while one was normalised and
+    // the other was not, and together they made the screen lie — which is the
+    // disagreement BR-028-2 exists to prevent.
+    const halfWritten: Settings = {
+      ...DEFAULT_SETTINGS,
+      rules: [{ ...rule('new'), match: { mode: 'contains', pattern: '' } }],
+    };
+    for (const state of [DEFAULT_SETTINGS, parseSettings(DEFAULT_SETTINGS), halfWritten] as const) {
+      expect(isDefaultConfiguration(state)).toBe(true);
+      expect(restoreLoss(state)).toEqual({
+        rules: 0,
+        profiles: 0,
+        fieldExclusions: 0,
+        domainExclusions: 0,
+      });
+    }
+  });
 });
 
 describe('isDefaultConfiguration', () => {

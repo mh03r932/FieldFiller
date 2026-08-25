@@ -1,5 +1,5 @@
 import { message } from '@/lib/platform/i18n';
-import { DEFAULT_SETTINGS } from '@/lib/settings';
+import { DEFAULT_SETTINGS, type Settings } from '@/lib/settings';
 import { isDefaultConfiguration, restoreLoss } from '@/lib/restore';
 import type { OptionsHost } from './host';
 import { focusIn } from './controls';
@@ -19,9 +19,15 @@ import { focusIn } from './controls';
  * clicked — the same discipline the import preview applies to its "what is
  * there now" half, so a configuration change arriving from another tab while
  * the confirmation is open is reflected rather than contradicted by the write.
- * Nothing is staged and nothing is held: cancelling leaves no state anywhere
- * (A1), which is why the only thing this module remembers is that the
- * confirmation is open at all.
+ *
+ * "Every render" includes the one the page almost does not make: the adoption
+ * render skips a section that holds the focus, and opening the confirmation
+ * deliberately focuses its cancel button — so the change named above is the
+ * one change a rebuild would never see. `refreshRestore` below is what the
+ * page calls on that skip instead, rewriting the two computed lines in place
+ * and touching no control. Nothing is staged and nothing is held: cancelling
+ * leaves no state anywhere (A1), which is why the only thing this module
+ * remembers is that the confirmation is open at all.
  *
  * **No undo, by design rather than by omission (BR-028-5).** The way back is
  * export, named in the confirmation itself before the write — the settings
@@ -64,34 +70,19 @@ export function renderRestore(host: OptionsHost, into: HTMLElement): void {
  * The two standing sentences (what resets, and that there is no undo) are drawn
  * every time, because they are true every time; the counts and A2's
  * "already the shipped ones" line are computed, because they describe a state
- * that can change while the confirmation is open.
+ * that can change while the confirmation is open. Both computed lines are
+ * built by their own functions, because `refreshRestore` rewrites them
+ * without the rest of this view.
  */
 function planView(host: OptionsHost, into: HTMLElement): HTMLElement {
   const settings = host.settings();
-  const loss = restoreLoss(settings);
 
   const view = document.createElement('div');
   view.className = 'restore-plan';
 
-  const summary = document.createElement('p');
-  summary.className = 'restore-summary';
-  summary.textContent = message('restorePlanCounts', [
-    String(loss.rules),
-    String(loss.profiles),
-    String(loss.fieldExclusions),
-    String(loss.domainExclusions),
-  ]);
-  view.append(summary);
-
-  // A2: said in the confirmation, and the restore stays offered — a
-  // defaults-only configuration is the state the extension ships in, not an
-  // error, and "prove this installation is clean" is a legitimate want.
-  if (isDefaultConfiguration(settings)) {
-    const already = document.createElement('p');
-    already.className = 'hint restore-already';
-    already.textContent = message('restorePlanAlready');
-    view.append(already);
-  }
+  view.append(summaryLine(settings));
+  const already = alreadyLine(settings);
+  if (already !== undefined) view.append(already);
 
   // BR-028-5, after the counts so it reads as their consequence: nothing comes
   // back, so the copy you might want is the one you make now.
@@ -128,6 +119,70 @@ function planView(host: OptionsHost, into: HTMLElement): HTMLElement {
   actions.append(confirm, cancel);
   view.append(actions);
   return view;
+}
+
+/** The counts sentence, the confirmation's first and load-bearing line (BR-028-2). */
+function summaryLine(settings: Settings): HTMLElement {
+  const loss = restoreLoss(settings);
+
+  const summary = document.createElement('p');
+  summary.className = 'restore-summary';
+  summary.textContent = message('restorePlanCounts', [
+    String(loss.rules),
+    String(loss.profiles),
+    String(loss.fieldExclusions),
+    String(loss.domainExclusions),
+  ]);
+  return summary;
+}
+
+/**
+ * A2's line, when the state has earned it: said in the confirmation, and the
+ * restore stays offered — a defaults-only configuration is the state the
+ * extension ships in, not an error, and "prove this installation is clean" is
+ * a legitimate want.
+ */
+function alreadyLine(settings: Settings): HTMLElement | undefined {
+  if (!isDefaultConfiguration(settings)) return undefined;
+
+  const already = document.createElement('p');
+  already.className = 'hint restore-already';
+  already.textContent = message('restorePlanAlready');
+  return already;
+}
+
+/**
+ * The confirmation's two computed lines, rewritten in place — the render the
+ * page owes a section that holds the focus, paid without rebuilding it.
+ *
+ * The adoption render skips whatever holds the focus, and opening the
+ * confirmation deliberately focuses its cancel button, so the one change the
+ * module header names — a foreign write arriving while the confirmation is
+ * open — is the one change a rebuild would never see. The page calls this on
+ * exactly that skip: the summary and the already-defaults line are replaced
+ * and nothing else is touched, which is the whole difference between this and
+ * a render. The buttons — and the focus inside them — survive, so the skip's
+ * purpose is kept without paying its cost in stale counts.
+ *
+ * A no-op with the confirmation closed: the only thing on screen then is the
+ * entry button, whose label was never about the settings.
+ */
+export function refreshRestore(host: OptionsHost, into: HTMLElement): void {
+  const plan = into.querySelector('.restore-plan');
+  if (plan === null) return;
+
+  const settings = host.settings();
+  plan.querySelector('.restore-summary')?.replaceWith(summaryLine(settings));
+
+  const already = plan.querySelector('.restore-already');
+  const line = alreadyLine(settings);
+  if (line === undefined) {
+    already?.remove();
+  } else if (already === null) {
+    plan.querySelector('.restore-summary')?.after(line);
+  } else {
+    already.replaceWith(line);
+  }
 }
 
 /**

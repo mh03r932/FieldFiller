@@ -235,11 +235,19 @@ async function mountSettings(): Promise<void> {
  * keystrokes — the same hazard the rule editor's draft exists for, reached
  * through a different door.
  *
- * The skipped section is left showing the older state until the next render.
- * That is the lesser fault by some distance: it is stale rather than lost, the
- * user is told a change arrived, and this page's memory is level with storage
- * either way — so the next thing they type saves against *their* state and not
- * over it.
+ * The skipped section is left showing the older state until the next render —
+ * unless it exposes a `refresh`, which the skip calls instead of nothing. That
+ * is for the one section whose focused control is not somebody's typing but a
+ * confirmation holding it: the restore confirmation's counts are the
+ * confirmation (BR-028-2), and its designed state — the cancel button focused —
+ * is exactly the state this rule skips. `refresh` patches the computed lines in
+ * place and touches no control, so the focus this rule exists to protect is
+ * still there after it.
+ *
+ * Everywhere else, the staleness is the lesser fault by some distance: it is
+ * stale rather than lost, the user is told a change arrived, and this page's
+ * memory is level with storage either way — so the next thing they type saves
+ * against *their* state and not over it.
  *
  * `force` names the one section that must be drawn regardless, and it exists for
  * a case where both exemptions above argue the wrong way: the open profile has
@@ -257,7 +265,15 @@ function renderSections(editor: RuleEditorHost, force?: string): void {
     const heldFocus = focused !== null && into.contains(focused);
 
     if (section.id !== force) {
-      if (heldFocus) continue;
+      if (heldFocus) {
+        // Not drawn, but not necessarily uninformed: a section whose content is
+        // computed from settings rather than typed into them may patch that
+        // content in place, which is how the restore confirmation keeps its
+        // counts true while it holds the focus. No control is rebuilt, which is
+        // the whole reason the render was skipped.
+        section.refresh?.(editor, into);
+        continue;
+      }
       // A profile holds an open item and a rule editor inside it, so it is
       // skipped on the same terms the rule list is: rebuilding it would collapse
       // the open profile and discard whatever rule was being written inside it.

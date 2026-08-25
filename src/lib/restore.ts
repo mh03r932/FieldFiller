@@ -36,13 +36,23 @@ export type RestoreLoss = {
  * counts the other way — global plus scoped, profiles separately — would give
  * the confirmation a fifth number to read and no sentence it enables that the
  * four do not.
+ *
+ * Counted on the state *after* the parser, for `isDefaultConfiguration`'s
+ * reason below: an entry the parser drops — a rule whose pattern has not been
+ * typed yet, a blank exclusion row — is discarded by any write this page can
+ * make, not only by the restore, so counting it put "1 rule" on a screen the
+ * line beside it was about to contradict with "this changes nothing". The
+ * counts and the already-defaults answer are one fact about one state, and
+ * they are normalised in the same place so they cannot disagree about what
+ * that state is.
  */
 export function restoreLoss(settings: Settings): RestoreLoss {
+  const normal = parseSettings(settings);
   return {
-    rules: settings.rules.length,
-    profiles: settings.profiles.length,
-    fieldExclusions: settings.exclusions.fields.length,
-    domainExclusions: settings.exclusions.domains.length,
+    rules: normal.rules.length,
+    profiles: normal.profiles.length,
+    fieldExclusions: normal.exclusions.fields.length,
+    domainExclusions: normal.exclusions.domains.length,
   };
 }
 

@@ -27,7 +27,7 @@ import type { OptionsHost } from './host';
 import { renderExport } from './export-section';
 import { renderImport } from './import-section';
 import { renderProfiles } from './profiles-section';
-import { renderRestore } from './restore-section';
+import { renderRestore, refreshRestore } from './restore-section';
 import { rowAt, rowMovedUnderYou } from './rows';
 
 /**
@@ -761,6 +761,12 @@ function saveDomains(host: OptionsHost, domains: readonly string[]): void {
  * and two lists that must stay in step is how a section comes to be built at
  * load and never refreshed.
  *
+ * `refresh` is the adoption render's half-measure for a section it skipped
+ * because the section held the focus: state-derived text patched in place, no
+ * control rebuilt. Optional because one section needs it — the restore
+ * confirmation, whose counts are the confirmation (BR-028-2) and whose
+ * designed state is to hold the focus.
+ *
  * The ids are the element ids in `index.html`. A section whose host element is
  * missing renders nothing and says nothing, which is the same outcome the rule
  * editor has and for the same reason: the page is markup we ship, so a missing
@@ -769,6 +775,8 @@ function saveDomains(host: OptionsHost, domains: readonly string[]): void {
 export const SECTIONS: ReadonlyArray<{
   readonly id: string;
   readonly render: (host: OptionsHost, into: HTMLElement) => void;
+  /** Patch in place, called only when the adoption render skips the section. */
+  readonly refresh?: (host: OptionsHost, into: HTMLElement) => void;
 }> = [
   { id: 'general', render: renderGeneral },
   // Before the rules it bounds, matching the page. A source switched off here is
@@ -794,5 +802,5 @@ export const SECTIONS: ReadonlyArray<{
   // write. After the import because the two read together — put a configuration
   // back, or put nothing back — and the page's last word on the settings above
   // is the one that says what "nothing" costs.
-  { id: 'restore', render: renderRestore },
+  { id: 'restore', render: renderRestore, refresh: refreshRestore },
 ];
