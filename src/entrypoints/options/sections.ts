@@ -27,6 +27,7 @@ import type { OptionsHost } from './host';
 import { renderExport } from './export-section';
 import { renderImport } from './import-section';
 import { renderProfiles } from './profiles-section';
+import { renderRestore } from './restore-section';
 import { rowAt, rowMovedUnderYou } from './rows';
 
 /**
@@ -789,4 +790,9 @@ export const SECTIONS: ReadonlyArray<{
   // "configure, then take a copy, then put one back", and an import replaces
   // everything above it — which is a reason to meet it last rather than first.
   { id: 'import', render: renderImport },
+  // UC-028, completing the portability trio: everything above it, undone in one
+  // write. After the import because the two read together — put a configuration
+  // back, or put nothing back — and the page's last word on the settings above
+  // is the one that says what "nothing" costs.
+  { id: 'restore', render: renderRestore },
 ];

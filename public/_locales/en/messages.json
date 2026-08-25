@@ -1516,5 +1516,63 @@
   "importRefusedNothingOurs": {
     "message": "Nothing in that file is a setting this extension knows, so it was not imported and your settings are unchanged. If it is a backup from a different form filler, bringing it across needs a converter this version does not have yet.",
     "description": "UC-026 A5. The refusal exists because the tolerant parser would otherwise succeed and return a full set of defaults, reporting a successful import of an empty configuration. Worded on what can be proved — no setting of ours is present — rather than naming a product the code cannot actually identify; UC-027 owns that."
+  },
+  "restoreHeading": {
+    "message": "Restore default settings",
+    "description": "Options page section heading for UC-028."
+  },
+  "restoreIntro": {
+    "message": "Put every setting back the way this extension shipped: no rules, no profiles, no exclusions, and every behaviour, password, matching-source and trigger setting at its default. Nothing you have configured survives it, and you are told what it will discard before anything changes.",
+    "description": "Intro paragraph for the restore section. States that a restore replaces rather than merges (BR-028-1) and is confirmed first (BR-028-2)."
+  },
+  "restoreButton": {
+    "message": "Restore default settings",
+    "description": "Entry action of the restore section (FR-057). Opens the confirmation; nothing is written by this click."
+  },
+  "restorePlanCounts": {
+    "message": "This discards your $RULES$ rule(s), $PROFILES$ profile(s), $FIELD$ field exclusion(s) and $DOMAIN$ domain exclusion(s), and returns every other setting — behaviour, passwords, matching sources, triggers and the corpus language — to the value it shipped with.",
+    "description": "The confirmation's first sentence, after the button is pressed and before anything is written: the counts of what will be discarded (BR-028-2). A profile counts once and carries its rules, as the import preview words its two sides.",
+    "placeholders": {
+      "rules": {
+        "content": "$1",
+        "example": "12"
+      },
+      "profiles": {
+        "content": "$2",
+        "example": "2"
+      },
+      "field": {
+        "content": "$3",
+        "example": "3"
+      },
+      "domain": {
+        "content": "$4",
+        "example": "1"
+      }
+    }
+  },
+  "restorePlanAlready": {
+    "message": "Your settings already are the shipped ones, so this changes nothing. You can still restore, to be sure nothing has drifted.",
+    "description": "Shown in the confirmation when every setting already holds its shipped value (UC-028 A2). The restore stays offered: a defaults-only configuration is the state the extension ships in, not an error (BR-028-4)."
+  },
+  "restorePlanNoUndo": {
+    "message": "There is no undo. To keep a copy of what you have now, use “Export to a file” above before you continue.",
+    "description": "Standing sentence in the confirmation (BR-028-5). Names the way back before the write rather than after it; every other destructive action on this page undoes one entry, and this one discards the whole configuration at once."
+  },
+  "restoreConfirm": {
+    "message": "Restore defaults",
+    "description": "The confirming action in the restore confirmation. Writes the shipped defaults as one replacement."
+  },
+  "restoreCancel": {
+    "message": "Cancel",
+    "description": "Declines the restore. Nothing was written and nothing is held (UC-028 A1)."
+  },
+  "restoreCancelled": {
+    "message": "Cancelled. Your settings are unchanged.",
+    "description": "Announced politely after declining a restore. Says the settings are unchanged rather than merely that a dialogue closed."
+  },
+  "restoreDone": {
+    "message": "Your settings are back to the shipped defaults. The next fill uses them, in every open tab.",
+    "description": "Announced politely after a restore lands (UC-028 step 6). FR-051's live-effect claim, worded the way the rest of this page words it: nothing is pushed anywhere, so there is nothing to reload."
   }
 }

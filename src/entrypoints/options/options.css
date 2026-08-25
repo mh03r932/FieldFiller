@@ -679,15 +679,22 @@ p.samples {
  * not an error — it is the ordinary path, and every import passes through it —
  * so it reads as a statement with two buttons under it. The refusal beside it
  * uses `.problem`, which is where this page puts things that did not happen.
+ *
+ * UC-028's confirmation shares these rules rather than growing a near-copy: it
+ * is the same thing on screen — a stated consequence with two buttons under
+ * it — and the one difference worth a rule of its own is that its counts are
+ * the confirmation, so the summary keeps the same weight.
  */
-.import-plan {
+.import-plan,
+.restore-plan {
   margin-block-start: 0.75rem;
   padding: 0.75rem;
   border: 1px solid var(--ff-rule);
   border-radius: 4px;
 }
 
-.import-summary {
+.import-summary,
+.restore-summary {
   margin-block-start: 0;
   font-weight: 600;
 }
@@ -717,7 +724,8 @@ p.samples {
   overflow-wrap: anywhere;
 }
 
-.import-actions {
+.import-actions,
+.restore-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 0.75rem;

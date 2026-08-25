@@ -331,6 +331,28 @@ try {
     }
   }
 
+  // ── UC-028's confirmation, the one state that exists to be read before it
+  // is acted on ──────────────────────────────────────────────────────────────
+  // Audited as its own state because the confirmation is the safety: a bordered
+  // plan box, a bold counts sentence, two hints and two buttons, in both colour
+  // schemes. It is also deliberately left open through the reflow and resize
+  // checks below — the counts sentence is the longest substituted string the
+  // section renders, and a confirmation that only fits while it is short is one
+  // that stops fitting at exactly the moment it matters. The undo offer and the
+  // open rule above are closed by what follows only incidentally; nothing later
+  // in this harness depends on either.
+  await inPage(`document.querySelector('#restore .restore-button').click()`);
+  await sleep(250);
+  notes.push(`restore confirmation audited: ${String(await inPage(`JSON.stringify({
+    summary: document.querySelector('#restore .restore-summary')?.textContent ?? '',
+    hints: document.querySelectorAll('#restore .restore-plan .hint').length,
+    buttons: document.querySelectorAll('#restore .restore-plan button').length,
+  })`))}`);
+  for (const scheme of ['light', 'dark']) {
+    const count = await audit('restore-confirm', scheme);
+    console.log(`  axe · ${'restore-confirm'.padEnd(14)} · ${scheme.padEnd(5)} — ${count} violation(s)`);
+  }
+
   // ── Reflow (1.4.10) and text resize (1.4.4) ─────────────────────────────────
   // Neither is visible to axe. Reflow asks that content not require horizontal
   // scrolling at 320 CSS pixels; resize asks that it survive 200% text without
@@ -380,6 +402,12 @@ try {
   console.log(`  resize · 200% text — ${resized > 1 ? `${resized}px overflow` : 'no loss of content'}`);
   await inPage(`document.documentElement.style.fontSize = ''`);
   await cdp.send('Emulation.clearDeviceMetricsOverride', {}, page);
+
+  // The confirmation has now been measured by both checks it was left open
+  // for. Put it away, so what remains on screen for the rest of this harness
+  // is the state a user leaves the page in.
+  await inPage(`document.querySelector('#restore .restore-cancel')?.click()`);
+  await sleep(150);
 
   // ── The declared palette, measured ──────────────────────────────────────────
   // The stylesheet says these sit at or above 4.5:1 in both schemes. That was a
