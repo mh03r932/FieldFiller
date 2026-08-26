@@ -82,6 +82,18 @@ async function mountSettings(): Promise<void> {
       // page is announced the same way and a failed save is not more modal
       // than a successful one.
       settings = next;
+      // A save made on this page must not leave a consent sentence stale
+      // (BR-028-2). Saving renders nothing — that is the caret's protection —
+      // so until this loop existed, a third rule added while the restore
+      // confirmation read two was discarded as two, and a defaults-only page
+      // could say "this changes nothing" over a password length it was about
+      // to discard. The foreign-write path had a trigger (the adoption render,
+      // or its refresh for the section it skips); this page's own writes are
+      // the one writer the storage listener never reports back as foreign, so
+      // the same refresh hook runs here, for every section, after the memory
+      // it reads from has moved. The contract is patch-computed-text-only —
+      // no control rebuilt, safe while the user types in another section.
+      for (const [section, into] of sectionHosts()) section.refresh?.(editor, into);
       void saveSettings(next).catch((error: unknown) => {
         announce(message('settingsSaveFailed', [reason(error)]));
       });

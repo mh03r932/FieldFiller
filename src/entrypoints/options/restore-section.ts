@@ -13,21 +13,31 @@ import { focusIn } from './controls';
  * behind a confirmation, which is the import's shape with the file's source
  * swapped for the running build's own defaults.
  *
- * **The confirmation is counts, re-computed on every render.** The numbers name
- * what will be discarded (BR-028-2), and they are read from `host.settings()`
- * each time the section is drawn rather than captured when the button was
- * clicked — the same discipline the import preview applies to its "what is
- * there now" half, so a configuration change arriving from another tab while
- * the confirmation is open is reflected rather than contradicted by the write.
+ * **The confirmation is counts, re-computed on every render and every save.**
+ * The numbers name what will be discarded (BR-028-2), and they are read from
+ * `host.settings()` rather than captured when the button was clicked. Three
+ * writers can move them while the confirmation is open, and until review
+ * caught it only two had a trigger: a change from another tab is adopted by
+ * the storage listener (rendering the section, or calling `refreshRestore`
+ * for the focus-skip below), a whole-configuration write redraws everything —
+ * and an edit made on *this* page saved per change and rendered nothing,
+ * because a rebuild takes the caret. So a third rule added while the
+ * confirmation read two was discarded as two, and a defaults-only page could
+ * say "this changes nothing" over a password length it was about to discard
+ * — the screen asserting the opposite of the write. `host.save` now runs
+ * every section's refresh after each write to memory, and `refreshRestore`
+ * is the same patch-in-place for all three triggers: the two computed lines
+ * rewritten, no control rebuilt, the focus the skip exists to protect left
+ * exactly where it was.
  *
  * "Every render" includes the one the page almost does not make: the adoption
  * render skips a section that holds the focus, and opening the confirmation
- * deliberately focuses its cancel button — so the change named above is the
- * one change a rebuild would never see. `refreshRestore` below is what the
- * page calls on that skip instead, rewriting the two computed lines in place
- * and touching no control. Nothing is staged and nothing is held: cancelling
- * leaves no state anywhere (A1), which is why the only thing this module
- * remembers is that the confirmation is open at all.
+ * deliberately focuses its cancel button — so the foreign change named above
+ * is the one change a rebuild would never see. `refreshRestore` below is what
+ * the page calls on that skip instead, rewriting the two computed lines in
+ * place and touching no control. Nothing is staged and nothing is held:
+ * cancelling leaves no state anywhere (A1), which is why the only thing this
+ * module remembers is that the confirmation is open at all.
  *
  * **No undo, by design rather than by omission (BR-028-5).** The way back is
  * export, named in the confirmation itself before the write — the settings
@@ -155,14 +165,17 @@ function alreadyLine(settings: Settings): HTMLElement | undefined {
  * The confirmation's two computed lines, rewritten in place — the render the
  * page owes a section that holds the focus, paid without rebuilding it.
  *
- * The adoption render skips whatever holds the focus, and opening the
- * confirmation deliberately focuses its cancel button, so the one change the
- * module header names — a foreign write arriving while the confirmation is
- * open — is the one change a rebuild would never see. The page calls this on
- * exactly that skip: the summary and the already-defaults line are replaced
- * and nothing else is touched, which is the whole difference between this and
- * a render. The buttons — and the focus inside them — survive, so the skip's
- * purpose is kept without paying its cost in stale counts.
+ * Two callers, one contract. The adoption render skips whatever holds the
+ * focus, and opening the confirmation deliberately focuses its cancel button,
+ * so a foreign write arriving while the confirmation is open is the one
+ * change a rebuild would never see — the page calls this on exactly that
+ * skip. And `host.save` calls it after every write to memory, because a save
+ * renders nothing and an edit made anywhere on this page can move the counts
+ * the same way a foreign write can: the summary and the already-defaults
+ * line are replaced and nothing else is touched, which is the whole
+ * difference between this and a render. The buttons — and the focus inside
+ * them — survive, so the skip's purpose is kept without paying its cost in
+ * stale counts.
  *
  * A no-op with the confirmation closed: the only thing on screen then is the
  * entry button, whose label was never about the settings.

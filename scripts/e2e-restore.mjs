@@ -244,6 +244,68 @@ try {
   check('and the restore is still offered, and still works (BR-028-4)',
     canonicalState(await stored()) === canonicalState(DEFAULTS),
     `stored=${canonicalState(await stored())}`);
+
+  // ── Same-page edits while the confirmation is open ─────────────────────────
+  // The one writer the storage listener never reports back as foreign: this
+  // page itself. Saving renders nothing — the caret's protection — so the
+  // confirmation used to keep the counts from whenever it was opened: a third
+  // rule added while it read two was discarded as two, and a defaults-only
+  // page could say "this changes nothing" over a password length it was about
+  // to discard. Found in review before merge, and driven here exactly as
+  // reported. Storage is the shipped state the last block wrote, which is the
+  // sharper variant's precondition.
+  await clickWithGesture(cdp, page, '#restore .restore-button');
+  await waitFor(
+    `document.querySelector('#restore .restore-already') !== null`,
+    'the sharper variant needs an already-defaults line to be made false',
+  );
+
+  // Marked so a patch can be told from a rebuild: a rebuild destroys the
+  // marked element, a patch leaves it standing.
+  await inPage(`(document.querySelector('#restore .restore-plan').dataset.mark = 'before', true)`);
+
+  // The sharper variant's edit: one scalar, in another section, with the
+  // confirmation standing open over it.
+  await inPage(`(() => {
+    const input = document.querySelector('#passwords input[type="number"]');
+    input.value = '20';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    return true;
+  })()`);
+  await sleep(300);
+
+  check('a same-page edit removes the "changes nothing" line it made false (BR-028-2)',
+    (await inPage(`document.querySelector('#restore .restore-already') === null`)) === true &&
+      (await inPage(`document.querySelector('#restore .restore-plan') !== null`)) === true,
+    'the already-defaults line survived an edit that made it false, or the confirmation closed');
+  check('and it was patched in place, not rebuilt',
+    (await inPage(`document.querySelector('#restore .restore-plan').dataset.mark === 'before'`)) === true,
+    'the confirmation was rebuilt rather than patched');
+
+  // The counted variant: a field exclusion with a real pattern, added through
+  // the section's own controls while the confirmation stays open. A blank row
+  // would not do — the parser drops blanks, so nothing would move.
+  await clickWithGesture(cdp, page, '#field-exclusions button.primary');
+  await inPage(`(() => {
+    const input = document.querySelector('#field-exclusions [data-exclusion="0"] input[type="text"]');
+    input.value = 'coupon';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    return true;
+  })()`);
+  await sleep(300);
+
+  const liveSummary = await textOf('#restore .restore-summary');
+  check('a counted edit made while the confirmation is open is reflected in it (BR-028-2)',
+    liveSummary.includes('1 field exclusion(s)'),
+    `summary=${JSON.stringify(liveSummary)}`);
+
+  // And the write discards exactly what the now-honest screen names: the
+  // password length, the exclusion, nothing else.
+  await clickWithGesture(cdp, page, '#restore .restore-confirm');
+  await sleep(500);
+  check('confirming after same-page edits discards what the screen came to name',
+    canonicalState(await stored()) === canonicalState(DEFAULTS),
+    `stored=${canonicalState(await stored())}`);
 } catch (error) {
   failures.push(error instanceof Error ? error.message : String(error));
 } finally {

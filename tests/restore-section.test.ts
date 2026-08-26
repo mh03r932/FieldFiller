@@ -4,6 +4,7 @@ import { DEFAULT_SETTINGS, type Rule, type Settings } from '@/lib/settings';
 import type { OptionsHost } from '@/entrypoints/options/host';
 import type * as I18n from '@/lib/platform/i18n';
 import type * as Sections from '@/entrypoints/options/sections';
+import type * as ImportSection from '@/entrypoints/options/import-section';
 import type * as RestoreSection from '@/entrypoints/options/restore-section';
 
 /**
@@ -55,6 +56,7 @@ vi.mock('@/lib/platform/i18n', async (importOriginal) => ({
 
 type Modules = {
   sections: typeof Sections;
+  import: typeof ImportSection;
   restore: typeof RestoreSection;
 };
 
@@ -65,6 +67,7 @@ beforeEach(async () => {
   document.body.replaceChildren();
   mod = {
     sections: await import('@/entrypoints/options/sections'),
+    import: await import('@/entrypoints/options/import-section'),
     restore: await import('@/entrypoints/options/restore-section'),
   };
 });
@@ -146,6 +149,17 @@ describe('the confirmation a foreign write arrives on', () => {
     const entry = mod.sections.SECTIONS.find((section) => section.id === 'restore');
     expect(entry?.render).toBe(mod.restore.renderRestore);
     expect(entry?.refresh).toBe(mod.restore.refreshRestore);
+  });
+
+  it('registers the import preview’s refresh under the same contract', () => {
+    // The same review that found the restore counts going stale across
+    // same-page saves named the import preview’s "what is there now" half as
+    // the sibling gap, and the same save loop in `main.ts` is the caller for
+    // both. Pinned here so a section that grows computed text over live
+    // settings without a refresh is a failing test rather than a lying
+    // sentence — the registry is what the loop iterates.
+    const entry = mod.sections.SECTIONS.find((section) => section.id === 'import');
+    expect(entry?.refresh).toBe(mod.import.refreshImport);
   });
 
   it('opens focused on cancel — the state that makes the adoption render skip', () => {

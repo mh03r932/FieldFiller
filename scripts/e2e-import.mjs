@@ -266,6 +266,37 @@ try {
       canonicalState(await stored()) === canonicalState(OTHER),
     'cancel left the preview up, or wrote something');
 
+  // ── BR-026-5's liveness: the current half follows this page's own edits ────
+  // The sibling of the restore confirmation's counts, closed by the same
+  // review fix: saving renders nothing (the caret's protection), so the
+  // preview's "what is there now" half used to keep the count from whenever
+  // the file was chosen. The incoming half is the file's own and cannot move;
+  // only the current half can, and here it moves by one deletion.
+  await seed(OTHER);
+  await openOptions();
+  await choose('round-trip.json', exported);
+  await waitFor(`document.querySelector('#import .import-plan') !== null`, 'no preview for the liveness pass');
+
+  const beforeEdit = await textOf('#import .import-summary');
+  check('the preview names the current side it will replace (BR-026-5)',
+    beforeEdit.includes('1 rule(s)'), `summary=${JSON.stringify(beforeEdit)}`);
+
+  await inPage(`(document.querySelector('#import .import-summary').dataset.mark = 'before', true)`);
+  // One counted edit through this page's own controls, preview standing open:
+  // the deletion is immediate and reversible (BR-011-1), so it is one click.
+  await clickWithGesture(cdp, page, '#rules .rule-delete');
+  await sleep(300);
+
+  const afterEdit = await textOf('#import .import-summary');
+  check('a same-page edit while the preview is open is reflected in it (BR-026-5)',
+    afterEdit.includes('0 rule(s)'), `summary=${JSON.stringify(afterEdit)}`);
+  check('and the summary was patched in place, not rebuilt',
+    (await inPage(`document.querySelector('#import .import-summary').dataset.mark === 'before'`)) === true,
+    'the summary element was rebuilt rather than patched');
+
+  await clickWithGesture(cdp, page, '#import .import-cancel');
+  await sleep(200);
+
   // ── BR-026-8: a file may not store a rule the editor refuses ───────────────
   // The one drop that is not about a file being malformed. This file is perfect
   // JSON, perfectly shaped, and carries a pattern the rule editor will not let
