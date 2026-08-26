@@ -208,6 +208,10 @@ try {
   await choose('migrate', '.migrate-file', BACKUP_NAME, BACKUP_AS_EXPORTED);
   await waitFor(`document.querySelector('#migrate .migrate-plan') !== null`, 'no report appeared for a valid backup');
 
+  check('the report opens focused on the safe action, not on <body> (WCAG 2.4.3)',
+    (await inPage(`document.activeElement?.matches('.migrate-cancel') ?? false`)) === true,
+    `focused=${JSON.stringify(String(await inPage(`document.activeElement?.className ?? String(document.activeElement)`)))}`);
+
   const summary = await textOf('#migrate .migrate-summary');
   check('the report names both sides of the replacement, from the Base64 transport (step 2, BR-026-5’s shape)',
     summary.includes('1 rule(s) and 0 profile(s)') && summary.includes('4 rule(s) and 1 profile(s)'),
@@ -252,6 +256,25 @@ try {
   check('nothing is written while the report is on screen (step 5 before step 7)',
     canonicalState(await stored()) === canonicalState(OTHER),
     'storage changed before the migration was confirmed');
+
+  // ── BR-026-5's liveness for the third consent surface ─────────────────────
+  // The summary's "now" half is computed over live settings, and saving
+  // renders nothing (the caret's protection) — so until the refresh hook
+  // covered this section too, a rule deleted while the report stood open left
+  // the report naming a count that was no longer true. Review caught the
+  // section missing from both the registry and the pinning test; this is the
+  // same liveness check the import preview gets, on the same page.
+  await inPage(`(document.querySelector('#migrate .migrate-summary').dataset.mark = 'before', true)`);
+  await clickWithGesture(cdp, page, '#rules .rule-delete');
+  await sleep(300);
+
+  const liveSummary = await textOf('#migrate .migrate-summary');
+  check('a same-page edit while the report is open is reflected in it (BR-026-5’s liveness)',
+    liveSummary.includes('0 rule(s)'),
+    `summary=${JSON.stringify(liveSummary)}`);
+  check('and the summary was patched in place, not rebuilt',
+    (await inPage(`document.querySelector('#migrate .migrate-summary').dataset.mark === 'before'`)) === true,
+    'the summary element was rebuilt rather than patched');
 
   await clickWithGesture(cdp, page, '#migrate .migrate-confirm');
   await sleep(500);

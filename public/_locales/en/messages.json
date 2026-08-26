@@ -1704,6 +1704,15 @@
       }
     }
   },
+  "migrateDroppedShape": {
+    "message": "The backup's \"$KEY$\" is not shaped the way a Fake Filler backup carries it, so nothing from it could be translated. This extension's own default stands.",
+    "description": "A documented key present with the wrong kind of value — a field list that is not a list, keyword lists as a bare string (UC-027 step 4). Distinct from migrateDroppedKey: the name was recognised, the value was not. Until this was reported, a hand-edited backup migrated as an empty configuration with an empty report.",
+    "placeholders": {
+      "key": {
+        "content": "$1"
+      }
+    }
+  },
   "migrateNotedField": {
     "message": "Field \"$NAME$\" arrives without: $LOSSES$.",
     "description": "A3's heart: every setting that did not survive, named on the rule the user recognises — a sentence, not a count.",

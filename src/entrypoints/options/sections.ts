@@ -26,7 +26,7 @@ import {
 import type { OptionsHost } from './host';
 import { renderExport } from './export-section';
 import { renderImport, refreshImport } from './import-section';
-import { renderMigrate } from './migrate-section';
+import { renderMigrate, refreshMigrate } from './migrate-section';
 import { renderProfiles } from './profiles-section';
 import { renderRestore, refreshRestore } from './restore-section';
 import { rowAt, rowMovedUnderYou } from './rows';
@@ -812,8 +812,10 @@ export const SECTIONS: ReadonlyArray<{
   // translate what another product wrote rather than read back our own.
   // Between import and restore so the portability trio reads "put one
   // back, bring one across, or put nothing back", each with the report
-  // its promise owes.
-  { id: 'migrate', render: renderMigrate },
+  // its promise owes. `refresh` is the third of the consent surfaces:
+  // the summary's "now" half is computed over live settings, so the save
+  // loop patches it like its siblings'.
+  { id: 'migrate', render: renderMigrate, refresh: refreshMigrate },
   // UC-028, completing the portability trio: everything above it, undone in one
   // write. After the import because the two read together — put a configuration
   // back, or put nothing back — and the page's last word on the settings above

@@ -895,8 +895,13 @@ function mistypedFields(
  * the same thing and the schema never does: a section given as `null` and one
  * given as `[]` are both total losses, and both would pass a `typeof` check
  * against a section the schema keeps as an object.
+ *
+ * Exported for the migration's shape check, which asks the same question about
+ * the reference's backup keys for the same reason — one kind-of comparison, so
+ * "what counts as a list" cannot be answered one way for an import and another
+ * for a migration.
  */
-function kindOf(value: unknown): string {
+export function kindOf(value: unknown): string {
   if (value === null) return 'null';
   if (Array.isArray(value)) return 'list';
   return typeof value;

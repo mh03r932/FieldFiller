@@ -743,6 +743,56 @@ describe('translating the root settings', () => {
     if (!outcome.ok) return;
     expect(outcome.plan.dropped.some((drop) => drop.code === 'migrateDroppedKey' && drop.params[0] === 'darkMode')).toBe(true);
   });
+
+  it('names a documented key that arrives with the wrong kind of value', () => {
+    // The reviewer's scenario: a hand-edited backup whose `fields` is an
+    // object. Every reader below is tolerant — `listAt` answers a non-list
+    // with `[]` — so until the shape check existed this migrated as an empty
+    // configuration with an empty report, and the user was asked to confirm
+    // a replacement the report said was empty.
+    const outcome = analyse({ ...backup(), fields: { '0': field('email', { type: 'email' }) } });
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.plan.settings.rules).toEqual([]);
+    const shape = outcome.plan.dropped.find((drop) => drop.code === 'migrateDroppedShape');
+    expect(shape?.params).toEqual(['fields']);
+  });
+
+  it('names keyword lists that arrive as a bare string, and keeps this default rather than guessing theirs', () => {
+    // The reference's UI parses a CSV box into the array; a hand-edited
+    // backup may carry the unparsed string. Parsing it would be a guess the
+    // documented schema never made, so the default stands — named, rather
+    // than silently replacing whatever the user thought they had set.
+    const outcome = analyse({ ...backup(), agreeTermsFields: 'agree,terms' });
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.plan.settings.behaviour.consentKeywords).toBe(DEFAULT_SETTINGS.behaviour.consentKeywords);
+    expect(outcome.plan.dropped.some((drop) => drop.code === 'migrateDroppedShape' && drop.params[0] === 'agreeTermsFields')).toBe(true);
+  });
+
+  it('names a mistyped password section, and stays silent about the mode it cannot read', () => {
+    // A string passwordSettings has no mode to read, so neither the
+    // defined-mode drop nor the random-mode note is owed — only the shape.
+    const outcome = analyse({ ...backup(), passwordSettings: 'hunter2' });
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.plan.settings.passwords).toEqual(DEFAULT_SETTINGS.passwords);
+    expect(outcome.plan.dropped.some((drop) => drop.code === 'migrateDroppedPasswordDefined')).toBe(false);
+    expect(outcome.plan.noted.some((note) => note.code === 'migrateNotedPasswordRandom')).toBe(false);
+    expect(outcome.plan.dropped.some((drop) => drop.code === 'migrateDroppedShape' && drop.params[0] === 'passwordSettings')).toBe(true);
+  });
+
+  it('names a mistyped switch and keeps the default rather than the string’s truthiness', () => {
+    const outcome = analyse({ ...backup(), triggerClickEvents: 'no' });
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.plan.settings.behaviour.dispatchEvents).toBe(DEFAULT_SETTINGS.behaviour.dispatchEvents);
+    expect(outcome.plan.dropped.some((drop) => drop.code === 'migrateDroppedShape' && drop.params[0] === 'triggerClickEvents')).toBe(true);
+  });
 });
 
 describe('the plan itself', () => {
@@ -754,6 +804,34 @@ describe('the plan itself', () => {
     expect(outcome.plan.settings.rules.map((rule) => rule.label)).toEqual(['phone']);
     expect(outcome.plan.current).toEqual({ rules: 1, profiles: 0 });
     expect(outcome.plan.incoming).toEqual({ rules: 1, profiles: 0 });
+  });
+
+  it('a well-shaped backup produces an empty drop list', () => {
+    // The positive half of the shape check, so it cannot become a tax on
+    // every honest backup: every key of every kind the table names — list,
+    // object, number, boolean — translated with nothing reported dropped.
+    // (Notes are a different promise: this fixture still earns a urlMatch
+    // note and a cap note, and asserting those away would be testing the
+    // wrong list.)
+    const outcome = analyse({
+      version: 1,
+      fields: [field('phone', { type: 'telephone' })],
+      profiles: [{ name: 'Staging', urlMatch: 'staging', fields: [] }],
+      fieldMatchSettings: { matchName: true },
+      ignoredFields: ['captcha'],
+      agreeTermsFields: ['agree'],
+      confirmFields: ['repeat'],
+      defaultMaxLength: 20,
+      enableContextMenu: true,
+      ignoreFieldsWithContent: false,
+      ignoreHiddenFields: true,
+      passwordSettings: { mode: 'random', password: '' },
+      triggerClickEvents: true,
+    });
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.plan.dropped).toEqual([]);
   });
 
   it('produces a state the parser reads back unchanged', () => {

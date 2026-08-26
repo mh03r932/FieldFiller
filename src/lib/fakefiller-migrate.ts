@@ -9,7 +9,7 @@ import {
   type SourceToggles,
 } from './settings';
 import { validateRule, type RuleProblem } from './rules/validate';
-import { MAX_IMPORT_SIZE, oversizeRefusal, type Counts } from './settings-import';
+import { MAX_IMPORT_SIZE, oversizeRefusal, kindOf, type Counts } from './settings-import';
 import { decodeBackupTransport, looksLikeFakeFiller } from './fakefiller-recognise';
 
 /**
@@ -100,6 +100,7 @@ export type MigrationDrop = {
     | 'migrateDroppedProfileFieldUnknownType'
     | 'migrateDroppedProfileFieldRefused'
     | 'migrateDroppedPasswordDefined'
+    | 'migrateDroppedShape'
     | 'migrateDroppedKey';
   readonly params: readonly string[];
   /**
@@ -370,6 +371,10 @@ function translate(file: Record<string, unknown>, current: Settings): MigrationP
     }
   }
 
+  // Shapes last, as the importer orders them: the per-entry losses name the
+  // user's own fields first, the file's own structure after.
+  dropped.push(...mistypedRoots(file));
+
   const stated = typeof file['version'] === 'number' ? file['version'] : undefined;
 
   return {
@@ -384,22 +389,61 @@ function translate(file: Record<string, unknown>, current: Settings): MigrationP
   };
 }
 
-/** The keys a backup may carry without being reported as unmapped (step 4). */
-const FAKEFILLER_SCHEMA_KEYS = new Set([
-  'version',
-  'fields',
-  'profiles',
-  'fieldMatchSettings',
-  'ignoredFields',
-  'agreeTermsFields',
-  'confirmFields',
-  'defaultMaxLength',
-  'enableContextMenu',
-  'ignoreFieldsWithContent',
-  'ignoreHiddenFields',
-  'passwordSettings',
-  'triggerClickEvents',
+/**
+ * The kind each documented root key carries (§2.2 of the research), for the
+ * shape check below and for the unknown-key report.
+ *
+ * Two duties, one table, because the two must not be able to disagree: a key
+ * added here and forgotten there would make every backup carrying it report
+ * the key as unmapped while translating it happily — an accurate statement
+ * about a copy of the list and a false one about the migration.
+ */
+const FAKEFILLER_KEY_KINDS: ReadonlyMap<string, string> = new Map([
+  ['version', 'number'],
+  ['fields', 'list'],
+  ['profiles', 'list'],
+  ['fieldMatchSettings', 'object'],
+  ['ignoredFields', 'list'],
+  ['agreeTermsFields', 'list'],
+  ['confirmFields', 'list'],
+  ['defaultMaxLength', 'number'],
+  ['enableContextMenu', 'boolean'],
+  ['ignoreFieldsWithContent', 'boolean'],
+  ['ignoreHiddenFields', 'boolean'],
+  ['passwordSettings', 'object'],
+  ['triggerClickEvents', 'boolean'],
 ]);
+
+/** The keys a backup may carry without being reported as unmapped (step 4). */
+const FAKEFILLER_SCHEMA_KEYS: ReadonlySet<string> = new Set(FAKEFILLER_KEY_KINDS.keys());
+
+/**
+ * Root keys of the backup present with the wrong kind of value (UC-027 step 4,
+ * the migration's own `mistypedShapes`).
+ *
+ * Every reader below is tolerant — `listAt` answers a non-list with `[]`,
+ * `asRecord` with `{}`, `booleanOf` and `keywordsOf` with defaults — which is
+ * right for a *missing* key (our default stands, exactly as the Translation
+ * table's rows imply) and silent for a *mistyped* one. Until this existed, a
+ * hand-edited backup carrying `"fields": {…}` migrated as an empty
+ * configuration with an empty report: the importer called the same blindness a
+ * defect and built `mistypedShapes` for it, and this use case's stated remit —
+ * nothing lost silently (PD-002, FR-056, A6's own wording) — is the stronger
+ * claim of the two, because a migrant cannot check the file against what the
+ * reference would have done with it.
+ *
+ * Names the key and says what stands in for it; the migration proceeds on the
+ * parts that were readable, as an import does.
+ */
+function mistypedRoots(file: Record<string, unknown>): readonly MigrationDrop[] {
+  const drops: MigrationDrop[] = [];
+  for (const [key, kind] of FAKEFILLER_KEY_KINDS) {
+    if (!(key in file)) continue;
+    if (kindOf(file[key]) === kind) continue;
+    drops.push({ code: 'migrateDroppedShape', params: [key] });
+  }
+  return drops;
+}
 
 /* -------------------------------------------------------------- one field → */
 

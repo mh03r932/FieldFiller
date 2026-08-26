@@ -102,6 +102,11 @@ async function chosen(host: OptionsHost, into: HTMLElement, file: File | undefin
   if (file === undefined) {
     pending = undefined;
     renderMigrate(host, into);
+    // The chooser that opened the picker was destroyed by the re-render, so
+    // the focus would otherwise fall to `<body>` — this page's rule, wherever
+    // else it removes a control, is that a keyboard user is put somewhere
+    // real. Back on the chooser, where the next attempt starts.
+    focusIn(into, '.migrate-file');
     return;
   }
 
@@ -112,6 +117,7 @@ async function chosen(host: OptionsHost, into: HTMLElement, file: File | undefin
   if (file.size > MAX_IMPORT_SIZE) {
     pending = { kind: 'oversize', name: file.name, size: file.size };
     renderMigrate(host, into);
+    focusOutcome(into);
     return;
   }
 
@@ -122,6 +128,22 @@ async function chosen(host: OptionsHost, into: HTMLElement, file: File | undefin
     host.announce(message('migrateUnreadable', [reason(error)]));
   }
   renderMigrate(host, into);
+  focusOutcome(into);
+}
+
+/**
+ * Puts the focus on the safe action of whatever the choice produced.
+ *
+ * The re-render above destroyed the focused chooser, and the user's last
+ * gesture closed an OS dialogue — nothing is holding the focus, so it falls
+ * to `<body>` unless something takes it. Cancel rather than confirm, for the
+ * restore confirmation's reason: the user has only just started reading the
+ * report, and Enter one keystroke from committing a whole-configuration
+ * replacement is the destructive reading. A refusal's only action is its
+ * dismiss, which is safe by construction.
+ */
+function focusOutcome(into: HTMLElement): void {
+  if (!focusIn(into, '.migrate-cancel')) focusIn(into, '.migrate-dismiss');
 }
 
 /**
@@ -198,6 +220,17 @@ function planView(
     String(plan.incoming.profiles),
     name,
   ]);
+  // The file-derived halves of this sentence, carried on the element so
+  // `refreshMigrate` can rebuild it from live settings without re-translating
+  // the backup. The incoming side never changes while a file is pending — it
+  // *is* the file — and the name is the chooser's own; only the "now" half is
+  // derived from the running settings. Same arrangement as the import preview
+  // beside this, for the same reason: a refresh that re-ran `analyseMigration`
+  // would be equally correct and costs a translation on every save anywhere on
+  // the page, which is not a cost the caret's protection was built to add.
+  summary.dataset['incomingRules'] = String(plan.incoming.rules);
+  summary.dataset['incomingProfiles'] = String(plan.incoming.profiles);
+  summary.dataset['file'] = name;
   view.append(summary);
 
   // A2, and it leads: everything below it is the translation's output, and
@@ -309,6 +342,41 @@ function notedView(noted: readonly MigrationNote[]): HTMLElement {
 
   section.append(heading, list);
   return section;
+}
+
+/**
+ * The summary's "what is there now" half, patched in place after a save
+ * (BR-026-5's liveness, the third surface and the same fix as its siblings).
+ *
+ * The restore confirmation's counts and the import preview's current half
+ * both went stale across this page's own saves until review caught it, and
+ * this summary is built from the same live settings they are — a rule added
+ * while it read one rule was going to be replaced as one. Same hook, same
+ * contract: the current half is recomputed from live settings, the incoming
+ * half and the file's name are read back off the element the render wrote
+ * them on, nothing else is touched.
+ *
+ * A no-op with no report on screen. Refusals carry nothing derived from the
+ * running settings, and the chooser is a control the refresh contract says
+ * is never rebuilt.
+ */
+export function refreshMigrate(host: OptionsHost, into: HTMLElement): void {
+  const summary = into.querySelector('.migrate-summary');
+  if (!(summary instanceof HTMLElement)) return;
+
+  const incomingRules = summary.dataset['incomingRules'];
+  const incomingProfiles = summary.dataset['incomingProfiles'];
+  const file = summary.dataset['file'];
+  if (incomingRules === undefined || incomingProfiles === undefined || file === undefined) return;
+
+  const current = host.settings();
+  summary.textContent = message('migratePlanSummary', [
+    String(current.rules.length),
+    String(current.profiles.length),
+    incomingRules,
+    incomingProfiles,
+    file,
+  ]);
 }
 
 /**

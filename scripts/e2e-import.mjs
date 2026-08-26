@@ -277,6 +277,10 @@ try {
   await choose('round-trip.json', exported);
   await waitFor(`document.querySelector('#import .import-plan') !== null`, 'no preview for the liveness pass');
 
+  check('the preview opens focused on the safe action, not on <body> (WCAG 2.4.3)',
+    (await inPage(`document.activeElement?.matches('.import-cancel') ?? false`)) === true,
+    `focused=${JSON.stringify(String(await inPage(`document.activeElement?.className ?? String(document.activeElement)`)))}`);
+
   const beforeEdit = await textOf('#import .import-summary');
   check('the preview names the current side it will replace (BR-026-5)',
     beforeEdit.includes('1 rule(s)'), `summary=${JSON.stringify(beforeEdit)}`);

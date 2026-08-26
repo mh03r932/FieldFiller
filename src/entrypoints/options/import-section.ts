@@ -92,6 +92,9 @@ async function chosen(host: OptionsHost, into: HTMLElement, file: File | undefin
   if (file === undefined) {
     pending = undefined;
     renderImport(host, into);
+    // The chooser that opened the picker was destroyed by the re-render;
+    // back on it, where the next attempt starts, rather than `<body>`.
+    focusIn(into, '.import-file');
     return;
   }
 
@@ -102,6 +105,7 @@ async function chosen(host: OptionsHost, into: HTMLElement, file: File | undefin
   if (file.size > MAX_IMPORT_SIZE) {
     pending = { kind: 'oversize', name: file.name, size: file.size };
     renderImport(host, into);
+    focusOutcome(into);
     return;
   }
 
@@ -114,6 +118,22 @@ async function chosen(host: OptionsHost, into: HTMLElement, file: File | undefin
     host.announce(message('importUnreadable', [reason(error)]));
   }
   renderImport(host, into);
+  focusOutcome(into);
+}
+
+/**
+ * Puts the focus on the safe action of whatever the choice produced.
+ *
+ * The migration section's treatment, applied to the surface that had been
+ * leaving it on `<body>` since before that section existed: the re-render
+ * destroys the focused chooser, the OS picker has just closed, and the
+ * focus falls nowhere unless something takes it. Cancel rather than
+ * confirm, for the restore confirmation's reason — Enter one keystroke
+ * from replacing every setting is the destructive reading of a report the
+ * user has only just started reading.
+ */
+function focusOutcome(into: HTMLElement): void {
+  if (!focusIn(into, '.import-cancel')) focusIn(into, '.import-dismiss');
 }
 
 /**
