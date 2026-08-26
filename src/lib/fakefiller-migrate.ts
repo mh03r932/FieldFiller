@@ -8,7 +8,7 @@ import {
   type Settings,
   type SourceToggles,
 } from './settings';
-import { validateRule, type RuleProblem } from './rules/validate';
+import { validateMatcher, validateRule, type RuleProblem } from './rules/validate';
 import { MAX_IMPORT_SIZE, oversizeRefusal, kindOf, type Counts } from './settings-import';
 import { decodeBackupTransport, looksLikeFakeFiller } from './fakefiller-recognise';
 
@@ -126,6 +126,7 @@ export type MigrationDrop = {
  */
 export type MigrationNote = {
   readonly code:
+    | 'migrateNotedExclusion'
     | 'migrateNotedField'
     | 'migrateNotedProfileField'
     | 'migrateNotedProfileUrl'
@@ -133,6 +134,12 @@ export type MigrationNote = {
     | 'migrateNotedDefaultMaxLength'
     | 'migrateNotedPasswordRandom';
   readonly params: readonly string[];
+  /**
+   * The fault behind an exclusion note, carried rather than worded — the
+   * importer's `ImportNote` discipline, for its reason: a `RuleProblem` is
+   * already a catalog key, and the surface resolves it into the sentence.
+   */
+  readonly problem?: RuleProblem;
 };
 
 /* --------------------------------------------------------------------- plan */
@@ -341,14 +348,34 @@ function translate(file: Record<string, unknown>, current: Settings): MigrationP
   const passwords = translatePasswords(file, dropped, noted);
   const sources = translateSources(asRecord(file['fieldMatchSettings']), noted);
 
+  // The reference's ignored-field patterns, carried as `regex`-mode
+  // exclusions and *named* when they carry a fault — the importer's
+  // `notedExclusions`, for its reason and almost in its words: one
+  // `validateMatcher`, one file, one answer, or a pattern this build flags
+  // in the exclusion editor arrives from a migration with the report saying
+  // nothing. The reference never screened a pattern in its life (A4's own
+  // argument), so a backup is exactly as likely to carry `(a+)+b` here as
+  // in a field's match list — kept, not refused, on the editor's terms
+  // (UC-005 A5: the list stores patterns that are invalid on purpose), and
+  // noted so PD-002's account includes it. What a fill does with it is
+  // already contained: `fillableExclusions` does not send a refused pattern
+  // to a page and the fill report names it there (NFR-009).
+  const ignoredFields = listAt(file, 'ignoredFields')
+    .filter((entry): entry is string => typeof entry === 'string' && entry !== '')
+    .map((pattern) => ({ mode: 'regex' as const, pattern }));
+  for (const matcher of ignoredFields) {
+    const problem = validateMatcher(matcher)[0];
+    if (problem !== undefined) {
+      noted.push({ code: 'migrateNotedExclusion', params: [matcher.pattern], problem });
+    }
+  }
+
   const settings: Settings = {
     ...DEFAULT_SETTINGS,
     rules,
     profiles,
     exclusions: {
-      fields: listAt(file, 'ignoredFields')
-        .filter((entry): entry is string => typeof entry === 'string' && entry !== '')
-        .map((pattern) => ({ mode: 'regex' as const, pattern })),
+      fields: ignoredFields,
       domains: [],
     },
     behaviour,
@@ -1022,24 +1049,35 @@ function translatePasswords(
 
   if (mode === 'random') {
     noted.push({ code: 'migrateNotedPasswordRandom', params: [] });
-    return { ...DEFAULT_PASSWORD_POLICY, length: 8 };
+    return { ...defaultPolicy(), length: 8 };
   }
 
   if (mode === 'defined') {
     dropped.push({ code: 'migrateDroppedPasswordDefined', params: [] });
     // The policy itself still arrives — password fields are still filled,
     // under our defaults rather than the chosen string the report names.
-    return DEFAULT_PASSWORD_POLICY;
+    return defaultPolicy();
   }
 
   // Absent or unrecognised mode: the reference's own default is the
   // defined string, but a backup that states neither is a hand-edit, and
   // guessing the defined drop for it would name a loss the file does not
   // carry. Our policy stands, said nothing about.
-  return DEFAULT_PASSWORD_POLICY;
+  return defaultPolicy();
 }
 
-const DEFAULT_PASSWORD_POLICY = DEFAULT_SETTINGS.passwords;
+/**
+ * The shipped policy, as a fresh object — never `DEFAULT_SETTINGS`' own, for
+ * the reason `translateBehaviour` states one function over: the plan is a
+ * state the user confirms and other code then holds, and a reference into
+ * the constant's interior is one mutation away from rewriting the shipped
+ * defaults for the lifetime of this page. Inert while every writer spreads
+ * and storage re-parses on the way in, which is exactly why it gets fixed
+ * before the writer that forgets arrives.
+ */
+function defaultPolicy(): Settings['passwords'] {
+  return { ...DEFAULT_SETTINGS.passwords };
+}
 
 /**
  * The matching sources (the `fieldMatchSettings` row, BR-027-7).

@@ -626,6 +626,29 @@ describe('translating the root settings', () => {
     ]);
   });
 
+  it('names an ignored-field pattern the matcher refuses, and keeps it (the importer’s one-answer rule)', () => {
+    // The reference never screened its patterns, so a backup is as likely to
+    // carry `(a+)+b` in `ignoredFields` as in a field's match list — and
+    // until this note existed the same file got two answers from one build:
+    // the rule refused and named (A4), the exclusion stored in silence.
+    // Kept rather than refused, on the exclusion editor's terms: the list
+    // stores invalid patterns on purpose, and a migration must not be
+    // stricter than the screen that corrects them.
+    const outcome = analyse(backup({ ignoredFields: ['captcha', '(a+)+b'] }));
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.plan.settings.exclusions.fields).toEqual([
+      { mode: 'regex', pattern: 'captcha' },
+      { mode: 'regex', pattern: '(a+)+b' },
+    ]);
+    const note = outcome.plan.noted.find((entry) => entry.code === 'migrateNotedExclusion');
+    expect(note?.params).toEqual(['(a+)+b']);
+    expect(note?.problem?.code).toBe('ruleProblemPatternBacktracks');
+    // And only the faulty one — an honest pattern earns no line.
+    expect(outcome.plan.noted.filter((entry) => entry.code === 'migrateNotedExclusion')).toHaveLength(1);
+  });
+
   it('splits the keyword lists on commas, including inside entries', () => {
     const outcome = analyse(
       backup({
@@ -734,6 +757,24 @@ describe('translating the root settings', () => {
     if (!outcome.ok) return;
     expect(outcome.plan.settings.passwords).toEqual({ ...DEFAULT_SETTINGS.passwords, length: 8 });
     expect(outcome.plan.noted.some((note) => note.code === 'migrateNotedPasswordRandom')).toBe(true);
+  });
+
+  it('never hands back the shipped policy object itself', () => {
+    // `translateBehaviour` refuses exactly this alias and says why; the
+    // policy is the same hazard one function over, and this pins it so the
+    // copy cannot be "simplified" back into a reference to the constant's
+    // interior. Checked on every mode, because the fix has to hold in the
+    // branches nobody edits.
+    for (const passwordSettings of [
+      undefined,
+      { mode: 'defined', password: 'Pa$$w0rd!' },
+      { mode: 'random', password: '' },
+    ]) {
+      const outcome = analyse(backup({ passwordSettings }));
+      expect(outcome.ok).toBe(true);
+      if (!outcome.ok) return;
+      expect(outcome.plan.settings.passwords).not.toBe(DEFAULT_SETTINGS.passwords);
+    }
   });
 
   it('names a root key outside the documented schema', () => {

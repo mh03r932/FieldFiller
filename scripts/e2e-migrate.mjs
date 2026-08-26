@@ -75,7 +75,11 @@ const BACKUP = {
     // likeliest refused pattern a backup will ever carry (BR-027-3).
     { type: 'regex', name: 'Danger', match: ['danger'], template: '(a+)+b' },
   ],
-  ignoredFields: ['captcha'],
+  // The reference never screened a pattern in its life, and that is true of
+  // its ignored-field list as much as its match lists — so the fixture
+  // carries a catastrophic exclusion beside an honest one, and the report is
+  // expected to tell them apart (the importer's one-answer rule, migrated).
+  ignoredFields: ['captcha', '(a+)+b'],
   ignoreFieldsWithContent: false,
   ignoreHiddenFields: true,
   passwordSettings: { mode: 'defined', password: 'Pa$$w0rd!' },
@@ -244,6 +248,9 @@ try {
   check('the lost email customisation is named on the rule the user recognises (A3, FR-056)',
     notedText.includes('Email') && notedText.includes('emailPrefix'),
     `noted=${JSON.stringify(notedText)}`);
+  check('a catastrophic ignored-field pattern is kept and named with its fault, not stored in silence',
+    notedText.includes('(a+)+b') && notedText.includes('backtrack'),
+    `noted=${JSON.stringify(notedText)}`);
   // The two lists are the two promises; on screen they are two headings a
   // reader tells apart at a glance, which is the property the unit tests
   // cannot see.
@@ -296,8 +303,12 @@ try {
     after.profiles?.length === 1 && after.profiles[0]?.enabled === false &&
       after.profiles[0]?.urls.length === 0 && after.profiles[0]?.rules.length === 1,
     `profiles=${JSON.stringify(after.profiles)}`);
-  check('ignoredFields arrive as regex-mode exclusions',
-    JSON.stringify(after.exclusions?.fields) === JSON.stringify([{ mode: 'regex', pattern: 'captcha' }]),
+  check('ignoredFields arrive as regex-mode exclusions — the honest one runnable, the faulty one kept for the editor to correct',
+    JSON.stringify(after.exclusions?.fields) ===
+      JSON.stringify([
+        { mode: 'regex', pattern: 'captcha' },
+        { mode: 'regex', pattern: '(a+)+b' },
+      ]),
     `exclusions=${JSON.stringify(after.exclusions)}`);
   check('the user’s source toggles are preserved, including class left on (BR-027-7)',
     after.sources?.className === true && after.sources?.name === true,

@@ -1725,6 +1725,20 @@
       }
     }
   },
+  "migrateNotedExclusion": {
+    "message": "The backup's ignored-field pattern \u201c$PATTERN$\u201d is carried across as it is: $PROBLEM$",
+    "description": "An ignored-field pattern kept with a fault, on the importer's terms: the reference never screened its patterns (A4's own argument), so a backup is as likely to carry a catastrophic one here as in a field's match list. Kept rather than refused because the exclusion editor stores invalid patterns on purpose (UC-005 A5), and a migration must not be stricter than the screen that corrects them. $PROBLEM$ is a ruleProblem* sentence, written to read after a colon.",
+    "placeholders": {
+      "pattern": {
+        "content": "$1",
+        "example": "(a+)+b"
+      },
+      "problem": {
+        "content": "$2",
+        "example": "this pattern can backtrack catastrophically and would hang the extension."
+      }
+    }
+  },
   "migrateNotedProfileField": {
     "message": "In profile \"$PROFILE$\", field \"$NAME$\" arrives without: $LOSSES$.",
     "description": "A3 inside a profile.",

@@ -336,7 +336,16 @@ function notedView(noted: readonly MigrationNote[]): HTMLElement {
   const list = document.createElement('ul');
   for (const note of noted) {
     const item = document.createElement('li');
-    item.textContent = message(note.code, note.params);
+    // As in `droppedView`: every parameter came out of the user's backup, so
+    // it is written as text and can never become markup. The fault is
+    // appended only where there is one — an exclusion note carries its
+    // `RuleProblem` the way a refused rule's drop does, and `problemText`
+    // resolves it so the catalog decides where in the sentence it lands
+    // (NFR-018).
+    item.textContent = message(
+      note.code,
+      note.problem === undefined ? note.params : [...note.params, problemText(note.problem)],
+    );
     list.append(item);
   }
 
