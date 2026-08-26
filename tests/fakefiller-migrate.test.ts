@@ -670,6 +670,56 @@ describe('translating the root settings', () => {
     if (!outcome.ok) return;
     // "Tick nothing for consent" is a configuration, not an accident to undo.
     expect(outcome.plan.settings.behaviour.consentKeywords).toEqual([]);
+    // And it earns no loss line: nothing was lost.
+    expect(outcome.plan.dropped.some((drop) => drop.code === 'migrateDroppedShape')).toBe(false);
+  });
+
+  it('keeps the shipped words when a non-empty keyword list yields nothing readable, and names it', () => {
+    // `[42]` or `["  "]` is a list, so the root shape check passes — and the
+    // filter used to turn it into an empty consent list, silently switching
+    // off every terms checkbox the user's configuration ticked. An empty
+    // list is a *choice* a backup makes with `[]`; garbage is not that
+    // choice, so the default stands and the drop says which list it was.
+    for (const garbage of [[42], ['   ']]) {
+      const outcome = analyse(backup({ agreeTermsFields: garbage }));
+
+      expect(outcome.ok).toBe(true);
+      if (!outcome.ok) continue;
+      expect(outcome.plan.settings.behaviour.consentKeywords).toBe(DEFAULT_SETTINGS.behaviour.consentKeywords);
+      expect(
+        outcome.plan.dropped.some(
+          (drop) => drop.code === 'migrateDroppedShape' && drop.params[0] === 'agreeTermsFields',
+        ),
+      ).toBe(true);
+    }
+  });
+
+  it('carries a partially readable keyword list past its stray garbage, in silence', () => {
+    // The boundary `keywordsOf` states: blank fragments between commas are
+    // CSV hygiene, and a stray non-string beside readable keywords loses
+    // nothing the user can act on. Only the total loss is named, because
+    // only the total loss changes what a fill does.
+    const outcome = analyse(backup({ agreeTermsFields: ['agree,', 42, ' terms'] }));
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.plan.settings.behaviour.consentKeywords).toEqual(['agree', 'terms']);
+    expect(outcome.plan.dropped.some((drop) => drop.code === 'migrateDroppedShape')).toBe(false);
+  });
+
+  it('names an ignoredFields list from which no pattern can be read', () => {
+    // The keyword lists' total-loss case, one leaf over: the filter would
+    // otherwise manufacture "the user excluded nothing" out of `[42]`.
+    const outcome = analyse(backup({ ignoredFields: [42, true] }));
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.plan.settings.exclusions.fields).toEqual([]);
+    expect(
+      outcome.plan.dropped.some(
+        (drop) => drop.code === 'migrateDroppedShape' && drop.params[0] === 'ignoredFields',
+      ),
+    ).toBe(true);
   });
 
   it('applies the global length cap to the single-line kinds only, and says so', () => {
@@ -848,6 +898,47 @@ describe('translating the root settings', () => {
     if (!outcome.ok) return;
     expect(outcome.plan.dropped.some((drop) => drop.code === 'migrateDroppedFieldNoMatch')).toBe(true);
     expect(outcome.plan.dropped.some((drop) => drop.code === 'migrateDroppedKey' && drop.params[0] === 'fields[0].sparkle')).toBe(false);
+  });
+
+  it('does not pick through the keys of a field dropped inside a profile either', () => {
+    // The global case is pinned above; a profile's field is as much a corpse
+    // as a global one, and until the scan learned about it the same entry
+    // produced two drops — "lists no match patterns" and a key line for the
+    // sparkle key nobody is storing. Found in review.
+    const outcome = analyse(
+      backup({
+        profiles: [
+          {
+            name: 'Staging',
+            urlMatch: 's',
+            fields: [{ type: 'text', name: 'x', match: [], sparkle: true }],
+          },
+        ],
+      }),
+    );
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.plan.dropped.some((drop) => drop.code === 'migrateDroppedProfileFieldNoMatch')).toBe(true);
+    expect(outcome.plan.dropped.some((drop) => drop.code === 'migrateDroppedKey' && drop.params[0] === 'profiles[0].fields[0].sparkle')).toBe(false);
+  });
+
+  it('names a profile whose fields are not a list, rather than arriving with its rules silently gone', () => {
+    // The tolerant reader answered `fields: 42` with an empty rule list and
+    // no line in either report — the user's scoped fields, silently gone.
+    // Same family as the keyword lists' total loss, one leaf over.
+    const outcome = analyse(
+      backup({ profiles: [{ name: 'Staging', urlMatch: 's', fields: 42 }] }),
+    );
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.plan.settings.profiles[0]?.rules).toEqual([]);
+    expect(
+      outcome.plan.dropped.some(
+        (drop) => drop.code === 'migrateDroppedShape' && drop.params[0] === 'profiles[0].fields',
+      ),
+    ).toBe(true);
   });
 
   it('names a documented key that arrives with the wrong kind of value', () => {

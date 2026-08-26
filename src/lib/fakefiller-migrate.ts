@@ -296,6 +296,15 @@ function translate(file: Record<string, unknown>, current: Settings): MigrationP
   // the user is deciding on (the importer's `reported` set, same reason).
   const droppedFields = new Set<number>();
   const droppedProfiles = new Set<number>();
+  /**
+   * Fields dropped *inside* a profile, by profile index then position, for
+   * the same reason `droppedFields` exists: `unknownEntryKeys` must not pick
+   * through a corpse, and a profile's dropped field is as much a corpse as
+   * a dropped global one. The map's key is the index in the *file's* list,
+   * which is what the scan walks — surviving profiles keep their indexes
+   * because garbage entries are skipped without renumbering.
+   */
+  const droppedProfileFields = new Map<number, Set<number>>();
 
   const rules: Rule[] = [];
   for (const [index, entry] of listAt(file, 'fields').entries()) {
@@ -333,6 +342,9 @@ function translate(file: Record<string, unknown>, current: Settings): MigrationP
       const outcome = translateField(field, at, `ff-profile-${String(index)}-rule-${String(at)}`);
       if (outcome.kind === 'drop') {
         dropped.push(...asProfileDrops(outcome.drop, name));
+        const corpse = droppedProfileFields.get(index) ?? new Set<number>();
+        corpse.add(at);
+        droppedProfileFields.set(index, corpse);
       } else {
         profileRules.push(outcome.rule);
         if (outcome.losses.length > 0) {
@@ -367,7 +379,7 @@ function translate(file: Record<string, unknown>, current: Settings): MigrationP
     });
   }
 
-  const behaviour = translateBehaviour(file, noted);
+  const behaviour = translateBehaviour(file, dropped, noted);
   const passwords = translatePasswords(file, dropped, noted);
   const sources = translateSources(asRecord(file['fieldMatchSettings']), noted);
 
@@ -383,9 +395,18 @@ function translate(file: Record<string, unknown>, current: Settings): MigrationP
   // noted so PD-002's account includes it. What a fill does with it is
   // already contained: `fillableExclusions` does not send a refused pattern
   // to a page and the fill report names it there (NFR-009).
-  const ignoredFields = listAt(file, 'ignoredFields')
+  //
+  // The total-loss case is the keyword lists' (`keywordsOf`'s boundary):
+  // a non-empty list from which no pattern can be read names its key rather
+  // than silently arriving as "the user excluded nothing" — which is what
+  // the filter would otherwise manufacture out of `[42]`.
+  const rawIgnored = listAt(file, 'ignoredFields');
+  const ignoredFields = rawIgnored
     .filter((entry): entry is string => typeof entry === 'string' && entry !== '')
     .map((pattern) => ({ mode: 'regex' as const, pattern }));
+  if (rawIgnored.length > 0 && ignoredFields.length === 0) {
+    dropped.push({ code: 'migrateDroppedShape', params: ['ignoredFields'] });
+  }
   for (const matcher of ignoredFields) {
     const problem = validateMatcher(matcher)[0];
     if (problem !== undefined) {
@@ -414,7 +435,13 @@ function translate(file: Record<string, unknown>, current: Settings): MigrationP
   // for, then the file's own structure. The importer orders its walk the
   // same way, and the order is the one a reader scanning for a specific
   // loss meets it in.
-  dropped.push(...unknownEntryKeys(file, { fields: droppedFields, profiles: droppedProfiles }));
+  dropped.push(
+    ...unknownEntryKeys(file, {
+      fields: droppedFields,
+      profiles: droppedProfiles,
+      profileFields: droppedProfileFields,
+    }),
+  );
 
   for (const key of Object.keys(file)) {
     // BR-026-7's discipline, applied to a file whose unknown keys are more
@@ -559,12 +586,24 @@ const PROFILE_KEYS: ReadonlySet<string> = new Set(['name', 'urlMatch', 'fields']
  * Only entries that survived their own translation are scanned, for the
  * importer's reason: an entry already reported as a drop has nothing stored
  * to describe, and a second line about it would inflate the count the user
- * is deciding on. `reported` carries the indexes the loops already dropped,
- * so the two walks cannot disagree about which entries count.
+ * is deciding on. `reported` carries the indexes the loops already dropped —
+ * global fields, whole profiles, *and fields inside a profile*, which the
+ * global set alone does not reach — so the two walks cannot disagree about
+ * which entries count.
+ *
+ * One shape is checked here rather than in a kind table: a profile whose
+ * `fields` is not a list. The tolerant reader answers it with `[]`, which
+ * used to arrive as a profile with no rules and no line in either report —
+ * the user's scoped fields, silently gone. Named by path, like the importer
+ * names a mistyped section inside an entry.
  */
 function unknownEntryKeys(
   file: Record<string, unknown>,
-  reported: { readonly fields: ReadonlySet<number>; readonly profiles: ReadonlySet<number> },
+  reported: {
+    readonly fields: ReadonlySet<number>;
+    readonly profiles: ReadonlySet<number>;
+    readonly profileFields: ReadonlyMap<number, ReadonlySet<number>>;
+  },
 ): readonly MigrationDrop[] {
   const drops: MigrationDrop[] = [];
 
@@ -588,12 +627,19 @@ function unknownEntryKeys(
     // through; a garbage one is dropped whole by the caller.
     if (kindOf(entry) !== 'object') continue;
     const record = entry as Record<string, unknown>;
+
+    if ('fields' in record && kindOf(record['fields']) !== 'list') {
+      drops.push({ code: 'migrateDroppedShape', params: [`profiles[${index}].fields`] });
+    }
+
     for (const key of Object.keys(record)) {
       if (!PROFILE_KEYS.has(key)) {
         drops.push({ code: 'migrateDroppedKey', params: [`profiles[${index}].${key}`] });
       }
     }
+    const corpse = reported.profileFields.get(index);
     for (const [at, field] of listAt(record, 'fields').entries()) {
+      if (corpse?.has(at)) continue;
       scanField(field, at, `profiles[${index}].`);
     }
   }
@@ -1092,6 +1138,7 @@ function escapeTemplateLiteral(text: string): string {
  */
 function translateBehaviour(
   file: Record<string, unknown>,
+  dropped: MigrationDrop[],
   noted: MigrationNote[],
 ): Settings['behaviour'] {
   const behaviour = {
@@ -1126,11 +1173,22 @@ function translateBehaviour(
     noted.push({ code: 'migrateNotedDefaultMaxLength', params: [String(length)] });
   }
 
-  behaviour.consentKeywords = keywordsOf(file['agreeTermsFields'], DEFAULT_SETTINGS.behaviour.consentKeywords);
-  behaviour.confirmationKeywords = keywordsOf(
+  // Each list on its own answer, and a total loss named where it happens:
+  // an unreadable keyword list keeps the shipped words rather than
+  // manufacturing "tick nothing for consent" out of garbage, and the drop
+  // says which list it was (`keywordsOf`'s comment, the boundary).
+  const consent = keywordsOf(file['agreeTermsFields'], DEFAULT_SETTINGS.behaviour.consentKeywords);
+  if (consent.unreadable) dropped.push({ code: 'migrateDroppedShape', params: ['agreeTermsFields'] });
+  behaviour.consentKeywords = consent.keywords;
+
+  const confirmation = keywordsOf(
     file['confirmFields'],
     DEFAULT_SETTINGS.behaviour.confirmationKeywords,
   );
+  if (confirmation.unreadable) {
+    dropped.push({ code: 'migrateDroppedShape', params: ['confirmFields'] });
+  }
+  behaviour.confirmationKeywords = confirmation.keywords;
 
   return behaviour;
 }
@@ -1144,16 +1202,42 @@ function translateBehaviour(
  * for the documented shape and tolerant of the other without ever
  * inventing a keyword.
  */
-function keywordsOf(stored: unknown, fallback: readonly string[]): readonly string[] {
-  if (!Array.isArray(stored)) return fallback;
+/**
+ * A keyword list, split on commas, with the total-loss case made visible.
+ *
+ * Three readings, and the boundary between the last two is the whole fix:
+ * an absent or non-list value falls back to the shipped words (the root
+ * shape check names the non-list case); an *explicitly emptied* list stays
+ * empty, per the parser's own rule — "tick nothing for consent" is a
+ * configuration, not an accident to undo; and a **non-empty list from which
+ * no keyword can be read** is neither. Until this distinguished them, `[42]`
+ * or `["  "]` manufactured an empty consent list out of garbage — silently
+ * switching off every terms checkbox the user's configuration ticked, which
+ * is a fill-behaviour change wearing a successful translation's face
+ * (PD-002). Such a list is unreadable rather than empty, so the caller keeps
+ * the default and names the key.
+ *
+ * Partial garbage is carried past: `["agree,", 42]` yields `["agree"]` with
+ * nothing said, because blank fragments between commas are normal CSV
+ * hygiene — the reference's own UI parsed a box — and a stray non-string
+ * beside readable keywords loses nothing the user can act on. Only the
+ * total loss changes what a fill does.
+ */
+function keywordsOf(stored: unknown, fallback: readonly string[]): {
+  readonly keywords: readonly string[];
+  /** A non-empty list from which no keyword could be read. */
+  readonly unreadable: boolean;
+} {
+  if (!Array.isArray(stored)) return { keywords: fallback, unreadable: false };
+
   const split = stored
     .filter((entry): entry is string => typeof entry === 'string')
     .flatMap((entry) => entry.split(','))
     .map((entry) => entry.trim())
     .filter((entry) => entry !== '');
-  // An emptied list stays empty, per the parser's own rule: "tick nothing
-  // for consent" is a configuration, not an accident to undo.
-  return stored.length > 0 ? split : [];
+
+  const unreadable = stored.length > 0 && split.length === 0;
+  return { keywords: unreadable ? fallback : split, unreadable };
 }
 
 /**
