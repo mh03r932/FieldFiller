@@ -25,8 +25,9 @@ import {
 } from './controls';
 import type { OptionsHost } from './host';
 import { renderExport } from './export-section';
-import { renderImport } from './import-section';
+import { renderImport, refreshImport } from './import-section';
 import { renderProfiles } from './profiles-section';
+import { renderRestore, refreshRestore } from './restore-section';
 import { rowAt, rowMovedUnderYou } from './rows';
 
 /**
@@ -760,6 +761,19 @@ function saveDomains(host: OptionsHost, domains: readonly string[]): void {
  * and two lists that must stay in step is how a section comes to be built at
  * load and never refreshed.
  *
+ * `refresh` is the half-measure for the two callers that must not rebuild a
+ * section. The adoption render calls it for the one section it skips because
+ * the section held the focus; and `host.save` calls it for every section
+ * after each write to memory — saving renders nothing (the caret's
+ * protection), so a section that shows computed state *over the settings*
+ * would otherwise go stale across this page's own edits: the restore
+ * confirmation's counts are the confirmation (BR-028-2), and the import
+ * preview's "what is there now" half is half of its consent (BR-026-5). The
+ * contract for both callers is the same: state-derived text patched in place,
+ * no control rebuilt, safe to run while the section holds the focus or while
+ * the user types in another one. Optional because two sections need it; a
+ * section with nothing computed over live settings has nothing to patch.
+ *
  * The ids are the element ids in `index.html`. A section whose host element is
  * missing renders nothing and says nothing, which is the same outcome the rule
  * editor has and for the same reason: the page is markup we ship, so a missing
@@ -768,6 +782,8 @@ function saveDomains(host: OptionsHost, domains: readonly string[]): void {
 export const SECTIONS: ReadonlyArray<{
   readonly id: string;
   readonly render: (host: OptionsHost, into: HTMLElement) => void;
+  /** Patch in place, called only when the adoption render skips the section. */
+  readonly refresh?: (host: OptionsHost, into: HTMLElement) => void;
 }> = [
   { id: 'general', render: renderGeneral },
   // Before the rules it bounds, matching the page. A source switched off here is
@@ -788,5 +804,12 @@ export const SECTIONS: ReadonlyArray<{
   // UC-026, after the export it reads. The page reads top to bottom as
   // "configure, then take a copy, then put one back", and an import replaces
   // everything above it — which is a reason to meet it last rather than first.
-  { id: 'import', render: renderImport },
+  // `refresh` patches the summary's "what is there now" half after a save,
+  // the sibling of the restore confirmation's counts (BR-026-5's liveness).
+  { id: 'import', render: renderImport, refresh: refreshImport },
+  // UC-028, completing the portability trio: everything above it, undone in one
+  // write. After the import because the two read together — put a configuration
+  // back, or put nothing back — and the page's last word on the settings above
+  // is the one that says what "nothing" costs.
+  { id: 'restore', render: renderRestore, refresh: refreshRestore },
 ];

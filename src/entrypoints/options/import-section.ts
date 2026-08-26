@@ -192,6 +192,18 @@ function planView(host: OptionsHost, into: HTMLElement, name: string, plan: Impo
     String(plan.incoming.profiles),
     name,
   ]);
+  // The file-derived halves of this sentence, carried on the element so
+  // `refreshImport` can rebuild it from live settings without re-analysing
+  // the file. The incoming side never changes while a file is pending — it
+  // *is* the file — and the name is the chooser's own; only the current half
+  // is derived from the running settings, so only that half needs a live
+  // source. A refresh that re-ran `analyseImport` would be equally correct
+  // and costs a file analysis on every keystroke anywhere on the page: A9's
+  // bound puts the worst shape at a tenth of a second, which is a real cost
+  // for a deliberate action and is not one for a keystroke.
+  summary.dataset['incomingRules'] = String(plan.incoming.rules);
+  summary.dataset['incomingProfiles'] = String(plan.incoming.profiles);
+  summary.dataset['file'] = name;
   view.append(summary);
 
   if (plan.migrated) {
@@ -305,6 +317,43 @@ function notedView(noted: readonly ImportNote[]): HTMLElement {
 
   section.append(heading, list);
   return section;
+}
+
+/**
+ * The summary's "what is there now" half, patched in place after a save
+ * (BR-026-5's liveness, the sibling fix to the restore confirmation's).
+ *
+ * Saving renders nothing — the caret's protection — so a preview opened over
+ * one rule count used to keep naming it while a second rule was added
+ * elsewhere on the page, and the stale number stayed under the confirm
+ * button. The restore confirmation's counts are the sole consent instrument
+ * there; these are half of one here, but the same fix applies at a fraction
+ * of the cost: the current half is recomputed from live settings, and the
+ * incoming half and the file's name are read back off the element the render
+ * wrote them on, so no file is re-analysed and nothing but this sentence is
+ * touched.
+ *
+ * A no-op with no plan on screen. Refusals and oversize files carry nothing
+ * derived from the running settings, and the chooser is a control the
+ * refresh contract says is never rebuilt.
+ */
+export function refreshImport(host: OptionsHost, into: HTMLElement): void {
+  const summary = into.querySelector('.import-summary');
+  if (!(summary instanceof HTMLElement)) return;
+
+  const incomingRules = summary.dataset['incomingRules'];
+  const incomingProfiles = summary.dataset['incomingProfiles'];
+  const file = summary.dataset['file'];
+  if (incomingRules === undefined || incomingProfiles === undefined || file === undefined) return;
+
+  const current = host.settings();
+  summary.textContent = message('importPlanSummary', [
+    String(current.rules.length),
+    String(current.profiles.length),
+    incomingRules,
+    incomingProfiles,
+    file,
+  ]);
 }
 
 /**

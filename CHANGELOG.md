@@ -93,6 +93,10 @@ rather than a set of changes to it.
   compile, imported as it stands and flagged rather than quietly dropped; a number range the
   file states backwards, imported the right way round and said so; two rules claiming one
   identity, which the rule list would otherwise treat as a single rule.
+- Restore the shipped defaults behind a confirmation that says, in counts, what it will
+  discard — rules, profiles, both exclusion lists — and names export as the way back before
+  anything is written. There is no undo: the copy you might want is the one you make first.
+  A configuration that already is the shipped one is told so, and can still be restored.
 
 **Privacy and verifiability**
 

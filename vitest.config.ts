@@ -74,6 +74,11 @@ export default defineConfig({
         // entry this analysis does not name is one the user is never told they
         // lost — and they find out on the next page they fill.
         'src/lib/settings-import.ts': { lines: 90, functions: 90 },
+        // The restore analysis (UC-028), added 2026-08-24. Small, but held to
+        // the floor for the same reason the import analysis is: the counts are
+        // the confirmation, and a count that disagrees with the state it
+        // describes is a user agreeing to a number that is not true.
+        'src/lib/restore.ts': { lines: 90, functions: 90 },
         'src/lib/protocol.ts': { lines: 90, functions: 90 },
         // The exclusion list operations (UC-020, UC-021), added 2026-08-17 with
         // the screens that author them. Same floor and the same argument as the

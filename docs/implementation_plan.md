@@ -140,6 +140,13 @@ inferred because the denominator is the part of this tally that has been wrong b
 moved from `Open`. FR-073 deliberately did not move: the ladder it asks for is still not built,
 and what UC-026 added is a report of what the parser dropped in its place.
 
+**Recounted 2026-08-24 after UC-028: 92 Done, 5 Partial, 30 Open, 1 Deferred, over the same
+128.** FR-048 and FR-057 moved from `Open` — the restore itself, and the default configuration
+it lands. FR-048 is worth the sentence: it moved `Done` by way of a narrowing rather than a
+build, since the requirement's written form asks for a starter rule set and what shipped is an
+empty list on purpose (BR-028-4) — the third requirement in the project whose honest form is
+narrower than its written one, after FR-047 and FR-074.
+
 The denominator moved too, from 132 to 128, and that is a *counting* correction rather than
 four requirements disappearing. Four rows in the "Guarantees held by construction" table begin
 with `FR-` or `NFR-` and carry a description of the check that would enforce them, not a status
@@ -483,7 +490,7 @@ argument available for keeping both harnesses rather than picking one.
 
 - ~~**UC-025** Export Settings — plain JSON (ND-12)~~ **Built 2026-08-22.** `lib/settings-file.ts` and the options page's export section, with `scripts/e2e-export.mjs` watching a file land on disk. FR-052 `Done`
 - ~~**UC-026** Import Settings — validation, no bypass (ND-13)~~ **Built 2026-08-22.** `lib/settings-import.ts` plans an import before it happens; the page shows both sides and every dropped entry, then writes once. FR-053 and FR-054 `Done`. **The migration ladder is still not built** — this phase's line has said "plus the migration ladder" since the first draft, and what landed is DD-005's tolerant parser with its losses *reported* instead. FR-073 stays `Partial`
-- **UC-028** Restore Default Settings
+- ~~**UC-028** Restore Default Settings~~ **Built 2026-08-24.** The confirmation quantifies what will be discarded and names export as the way back before the write; the write is the import's single-replacement path, so a rejected restore leaves the previous configuration whole. FR-048 and FR-057 `Done`. FR-048's honest form is recorded in BR-028-4: the useful default is the engine, with an empty rule list by design. **Review, before merge (2026-08-26), caught the counts going stale across this page's own edits:** the confirmation recomputed on renders and on foreign-write adoption, but nothing renders on a same-page save (the caret's protection), so a rule added while the confirmation read two was discarded as two — and on a defaults-only page the "this changes nothing" line stood over a password length the confirm was about to discard. `host.save` now runs the sections' refresh hooks after every write to memory; the import preview's "what is there now" half, the sibling the review named, gets the same hook and patches in place from the element's own file-derived halves without re-analysing the file. Both flows are regression-tested in the restore and import harnesses, and were confirmed failing on the pre-fix build
 - **UC-027** Migrate Settings from Fake Filler — with an unmapped-items report
 - **UC-029** Synchronise Settings Across Devices — DD-002 resolved to sharding at eight rules a key, ~399 rules of capacity, last-writer-wins accepted and said out loud*
 
