@@ -381,7 +381,7 @@ function translate(file: Record<string, unknown>, current: Settings): MigrationP
 
   const behaviour = translateBehaviour(file, dropped, noted);
   const passwords = translatePasswords(file, dropped, noted);
-  const sources = translateSources(asRecord(file['fieldMatchSettings']), noted);
+  const sources = translateSources(asRecord(file['fieldMatchSettings']), dropped, noted);
 
   // The reference's ignored-field patterns, carried as `regex`-mode
   // exclusions and *named* when they carry a fault — the importer's
@@ -1278,10 +1278,21 @@ function translatePasswords(
     return defaultPolicy();
   }
 
-  // Absent or unrecognised mode: the reference's own default is the
-  // defined string, but a backup that states neither is a hand-edit, and
-  // guessing the defined drop for it would name a loss the file does not
-  // carry. Our policy stands, said nothing about.
+  if (mode !== undefined) {
+    // Neither documented mode: a hand-edited value, or a store build ahead
+    // of the published schema — §4's threat model, the one the root-level
+    // reports were built on, applying one level down. Until this, the user's
+    // password behaviour was silently replaced by our default with no line
+    // in either list: the precise "silent and behaviour-changing" class the
+    // review rounds were eliminating, missed by the round-4 survey.
+    dropped.push({ code: 'migrateDroppedShape', params: ['passwordSettings.mode'] });
+    return defaultPolicy();
+  }
+
+  // Absent mode: the reference's own default is the defined string, but a
+  // backup that states neither is a hand-edit, and guessing the defined
+  // drop for it would name a loss the file does not carry. Our policy
+  // stands, said nothing about.
   return defaultPolicy();
 }
 
@@ -1317,27 +1328,62 @@ function defaultPolicy(): Settings['passwords'] {
  * `testId` has no counterpart and stays at our default, unstated: nothing
  * was lost, because the reference never had it.
  */
-function translateSources(stored: Record<string, unknown>, noted: MigrationNote[]): SourceToggles {
+function translateSources(
+  stored: Record<string, unknown>,
+  dropped: MigrationDrop[],
+  noted: MigrationNote[],
+): SourceToggles {
   const sources = { ...DEFAULT_SOURCES };
 
-  const pairs: readonly (readonly [string, keyof SourceToggles])[] = [
-    ['matchName', 'name'],
-    ['matchId', 'id'],
-    ['matchClass', 'className'],
-    ['matchLabel', 'label'],
-    ['matchPlaceholder', 'placeholder'],
+  /**
+   * One toggle, named when it cannot be read. A mistyped value used to
+   * become the default in silence — the same class as the password mode
+   * above, missed by the same survey — and for the two aria keys there is a
+   * second duty: a toggle this build cannot read is *unreadable*, not "set
+   * differently", so it must not fire the split note about a disagreement
+   * the backup never made. `null` is that answer, distinct from `undefined`
+   * for absent, so the caller can tell a read failure from a missing key.
+   */
+  const toggle = (theirs: string): boolean | null | undefined => {
+    if (!(theirs in stored)) return undefined;
+    const value = stored[theirs];
+    if (typeof value !== 'boolean') {
+      dropped.push({ code: 'migrateDroppedShape', params: [`fieldMatchSettings.${theirs}`] });
+      return null;
+    }
+    return value;
+  };
+
+  const pairs: readonly (readonly [string, keyof SourceToggles, boolean])[] = [
+    ['matchName', 'name', DEFAULT_SOURCES.name],
+    ['matchId', 'id', DEFAULT_SOURCES.id],
+    // The fallback here is our default rather than the running value, and
+    // deliberately: BR-027-7 preserves a *readable* choice against our
+    // default, but an unreadable one is not a choice, and "as set" of
+    // something nobody set is how a quiet default wears a preservation's
+    // face. Our shipped default stands, named above.
+    ['matchClass', 'className', DEFAULT_SOURCES.className],
+    ['matchLabel', 'label', DEFAULT_SOURCES.label],
+    ['matchPlaceholder', 'placeholder', DEFAULT_SOURCES.placeholder],
   ];
-  for (const [theirs, ours] of pairs) {
-    if (theirs in stored) sources[ours] = booleanOf(stored[theirs], sources[ours]);
+  for (const [theirs, ours, fallback] of pairs) {
+    const value = toggle(theirs);
+    if (value !== undefined) sources[ours] = value ?? fallback;
   }
 
-  if ('matchAriaLabel' in stored || 'matchAriaLabelledBy' in stored) {
-    const label = booleanOf(stored['matchAriaLabel'], true);
-    const labelledBy = booleanOf(stored['matchAriaLabelledBy'], true);
-    if (label !== labelledBy) {
+  const label = toggle('matchAriaLabel');
+  const labelledBy = toggle('matchAriaLabelledBy');
+  if (label !== undefined || labelledBy !== undefined) {
+    // The split note only when both were readable and disagreed. An
+    // unreadable side already has its shape drop, and a read failure is
+    // not the choice that note describes.
+    if (label !== null && label !== undefined && labelledBy !== null && labelledBy !== undefined && label !== labelledBy) {
       noted.push({ code: 'migrateNotedSourcesSplit', params: [] });
     }
-    sources.ariaLabel = label || labelledBy;
+    // The wider of what could be read: `true` for an unreadable side,
+    // because that cannot lose a match the backup made (the split rule's
+    // own direction, applied to a half-read pair).
+    sources.ariaLabel = (label ?? true) || (labelledBy ?? true);
   }
 
   return sources;

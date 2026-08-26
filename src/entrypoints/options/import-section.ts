@@ -130,10 +130,14 @@ async function chosen(host: OptionsHost, into: HTMLElement, file: File | undefin
  * focus falls nowhere unless something takes it. Cancel rather than
  * confirm, for the restore confirmation's reason — Enter one keystroke
  * from replacing every setting is the destructive reading of a report the
- * user has only just started reading.
+ * user has only just started reading. And the one outcome with *neither*
+ * button — the file that could not be read, announced and gone — lands on
+ * the chooser, where the next attempt starts.
  */
 function focusOutcome(into: HTMLElement): void {
-  if (!focusIn(into, '.import-cancel')) focusIn(into, '.import-dismiss');
+  if (focusIn(into, '.import-cancel')) return;
+  if (focusIn(into, '.import-dismiss')) return;
+  focusIn(into, '.import-file');
 }
 
 /**

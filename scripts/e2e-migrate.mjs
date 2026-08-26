@@ -22,7 +22,7 @@
  *   CHROME_PATH=…  override the browser binary
  *   HEADFUL=1      show the window
  */
-import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -190,6 +190,26 @@ try {
     const { nodeId } = await cdp.send(
       'DOM.querySelector',
       { nodeId: root.nodeId, selector: `#${section} ${selector}` },
+      page,
+    );
+    await cdp.send('DOM.setFileInputFiles', { files: [path], nodeId }, page);
+  };
+
+  /**
+   * A file the browser cannot read, for the one outcome with neither a plan
+   * nor a refusal: `text()` rejects, the failure is announced, and the only
+   * thing on screen is the chooser again. That is the path the focus work
+   * kept leaving on `<body>` — no action button exists to receive it — so
+   * it is driven for real, with permissions rather than a stub.
+   */
+  const chooseUnreadable = async (name) => {
+    const path = join(filesDir, name);
+    writeFileSync(path, 'cannot read me');
+    chmodSync(path, 0o000);
+    const { root } = await cdp.send('DOM.getDocument', {}, page);
+    const { nodeId } = await cdp.send(
+      'DOM.querySelector',
+      { nodeId: root.nodeId, selector: '#migrate .migrate-file' },
       page,
     );
     await cdp.send('DOM.setFileInputFiles', { files: [path], nodeId }, page);
@@ -390,6 +410,25 @@ try {
       (await inPage(`document.querySelector('#migrate .migrate-refused') === null`)) === true,
       'the refusal stayed on screen after dismissing it');
   }
+
+  // ── The one outcome with no action button: a file that cannot be read ────
+  // The failure is announced rather than rendered, so neither the cancel nor
+  // the dismiss of focusOutcome's first two destinations exists — and until
+  // the chooser became the last resort, the focus fell to <body>: the exact
+  // WCAG 2.4.3 gap the focus work existed to close, surviving on its one
+  // unrendered path.
+  await openOptions();
+  await chooseUnreadable('no-permissions.txt');
+  await sleep(500);
+
+  const unreadableSaid = await textOf('#announcements');
+  check('a file that cannot be read is announced as that, and nothing is written',
+    unreadableSaid.toLowerCase().includes('could not be read') &&
+      canonicalState(await stored()) === canonicalState(OTHER),
+    `announcement=${JSON.stringify(unreadableSaid)}`);
+  check('and the focus lands on the chooser, where the next attempt starts',
+    (await inPage(`document.activeElement?.matches('#migrate .migrate-file') ?? false`)) === true,
+    `focused=${JSON.stringify(String(await inPage(`document.activeElement?.className ?? String(document.activeElement)`)))}`);
 
   // ── The mirror: the two surfaces point at each other’s files (A1 ↔ UC-026 A5)
   await openOptions();

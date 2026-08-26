@@ -140,10 +140,15 @@ async function chosen(host: OptionsHost, into: HTMLElement, file: File | undefin
  * restore confirmation's reason: the user has only just started reading the
  * report, and Enter one keystroke from committing a whole-configuration
  * replacement is the destructive reading. A refusal's only action is its
- * dismiss, which is safe by construction.
+ * dismiss, which is safe by construction. And the one outcome with *neither*
+ * button — the file that could not be read, announced and gone — lands on
+ * the chooser, which is where the next attempt starts; it used to fall to
+ * `<body>`, the exact gap the focus work in this change set out to close.
  */
 function focusOutcome(into: HTMLElement): void {
-  if (!focusIn(into, '.migrate-cancel')) focusIn(into, '.migrate-dismiss');
+  if (focusIn(into, '.migrate-cancel')) return;
+  if (focusIn(into, '.migrate-dismiss')) return;
+  focusIn(into, '.migrate-file');
 }
 
 /**

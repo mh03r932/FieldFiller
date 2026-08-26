@@ -20,7 +20,7 @@
  *   CHROME_PATH=…  override the browser binary
  *   HEADFUL=1      show the window
  */
-import { existsSync, mkdtempSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdtempSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -453,6 +453,34 @@ try {
         canonicalState(await stored()) === canonicalState(OTHER),
       'the refusal stayed on screen after dismissing it, or something was written');
   }
+
+  // ── The unreadable file: the one outcome with no action button ────────────
+  // Same path the migrate harness drives, on this section's own chooser: the
+  // failure is announced rather than rendered, so neither of focusOutcome's
+  // first two destinations exists, and until the chooser became the last
+  // resort the focus fell to <body>.
+  await openOptions();
+  const unreadablePath = join(filesDir, 'no-permissions.json');
+  writeFileSync(unreadablePath, '{ "version": 1 }');
+  chmodSync(unreadablePath, 0o000);
+  {
+    const { root } = await cdp.send('DOM.getDocument', {}, page);
+    const { nodeId } = await cdp.send(
+      'DOM.querySelector',
+      { nodeId: root.nodeId, selector: '#import .import-file' },
+      page,
+    );
+    await cdp.send('DOM.setFileInputFiles', { files: [unreadablePath], nodeId }, page);
+  }
+  await sleep(500);
+
+  check('a file the browser cannot read is announced as that, and nothing is written',
+    (await textOf('#announcements')).toLowerCase().includes('could not be read') &&
+      canonicalState(await stored()) === canonicalState(OTHER),
+    `announcement=${JSON.stringify(await textOf('#announcements'))}`);
+  check('and the focus lands on the chooser, not on <body>',
+    (await inPage(`document.activeElement?.matches('#import .import-file') ?? false`)) === true,
+    `focused=${JSON.stringify(String(await inPage(`document.activeElement?.className ?? String(document.activeElement)`)))}`);
 
   // A2 names both versions, which is what tells the user the fix is an update.
   await openOptions();

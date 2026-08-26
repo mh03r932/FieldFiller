@@ -812,6 +812,63 @@ describe('translating the root settings', () => {
     expect(outcome.plan.noted.some((note) => note.code === 'migrateNotedPasswordRandom')).toBe(true);
   });
 
+  it('names a mode neither documented value, and the default policy stands', () => {
+    // A hand-edit or a store build ahead of the published schema — §4's
+    // threat model, one level down from where the root reports apply. Until
+    // this, the user's password behaviour was silently replaced by our
+    // default with no line in either list.
+    for (const mode of ['rnd', 42]) {
+      const outcome = analyse(backup({ passwordSettings: { mode, password: 'x' } }));
+
+      expect(outcome.ok).toBe(true);
+      if (!outcome.ok) continue;
+      expect(outcome.plan.settings.passwords).toEqual(DEFAULT_SETTINGS.passwords);
+      expect(
+        outcome.plan.dropped.some(
+          (drop) => drop.code === 'migrateDroppedShape' && drop.params[0] === 'passwordSettings.mode',
+        ),
+      ).toBe(true);
+      // Neither the defined drop nor the random note: the mode was not read
+      // as either, so neither promise is made.
+      expect(outcome.plan.dropped.some((drop) => drop.code === 'migrateDroppedPasswordDefined')).toBe(false);
+      expect(outcome.plan.noted.some((note) => note.code === 'migrateNotedPasswordRandom')).toBe(false);
+    }
+  });
+
+  it('names a mistyped fieldMatchSettings toggle, and our default stands rather than a phantom choice', () => {
+    // BR-027-7 preserves a *readable* choice against our default; an
+    // unreadable one is not a choice, and "as set" of something nobody set
+    // is how a quiet default wears a preservation's face.
+    const outcome = analyse(backup({ fieldMatchSettings: { matchClass: 'yes' } }));
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.plan.settings.sources.className).toBe(DEFAULT_SETTINGS.sources.className);
+    expect(
+      outcome.plan.dropped.some(
+        (drop) => drop.code === 'migrateDroppedShape' && drop.params[0] === 'fieldMatchSettings.matchClass',
+      ),
+    ).toBe(true);
+  });
+
+  it('treats an unreadable aria toggle as the wider setting, without the split note', () => {
+    // The split note describes a disagreement the backup *made*; a side
+    // this build cannot read is a read failure, already named by its shape
+    // drop, and must not be reported as a choice. The wider direction is
+    // kept — `true` cannot lose a match the backup made.
+    const outcome = analyse(backup({ fieldMatchSettings: { matchAriaLabel: 42, matchAriaLabelledBy: false } }));
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.plan.settings.sources.ariaLabel).toBe(true);
+    expect(
+      outcome.plan.dropped.some(
+        (drop) => drop.code === 'migrateDroppedShape' && drop.params[0] === 'fieldMatchSettings.matchAriaLabel',
+      ),
+    ).toBe(true);
+    expect(outcome.plan.noted.some((note) => note.code === 'migrateNotedSourcesSplit')).toBe(false);
+  });
+
   it('never hands back the shipped policy object itself', () => {
     // `translateBehaviour` refuses exactly this alias and says why; the
     // policy is the same hazard one function over, and this pins it so the
