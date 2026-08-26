@@ -95,6 +95,7 @@ export type MigrationDrop = {
     | 'migrateDroppedFieldNoMatch'
     | 'migrateDroppedFieldUnknownType'
     | 'migrateDroppedFieldRefused'
+    | 'migrateDroppedProfile'
     | 'migrateDroppedProfileField'
     | 'migrateDroppedProfileFieldNoMatch'
     | 'migrateDroppedProfileFieldUnknownType'
@@ -166,11 +167,12 @@ export type MigrationPlan = {
   readonly sourceVersion: number | undefined;
   readonly versionStated: boolean;
   /**
-   * Whether any translated rule is persona-backed (BR-027-6). Said once,
-   * at the top of the report — the email a migrated rule writes still
-   * matching the name another field shows is a deliberate behaviour change
-   * from the reference, in the direction this product defines as correct,
-   * and it is cheaper to state once than to name on every rule.
+   * Whether any translated rule is persona-backed (BR-027-6) — global rules
+   * *and* profile rules, since both draw from the fill's person identically.
+   * Said once, at the top of the report — the email a migrated rule writes
+   * still matching the name another field shows is a deliberate behaviour
+   * change from the reference, in the direction this product defines as
+   * correct, and it is cheaper to state once than to name on every rule.
    */
   readonly personaBacked: boolean;
 };
@@ -288,11 +290,20 @@ function translate(file: Record<string, unknown>, current: Settings): MigrationP
   const dropped: MigrationDrop[] = [];
   const noted: MigrationNote[] = [];
 
+  // Entries the loops below drop, by index, so `unknownEntryKeys` does not
+  // pick through a corpse: an entry reported as a loss has nothing stored
+  // to describe, and a second line about its keys would inflate the count
+  // the user is deciding on (the importer's `reported` set, same reason).
+  const droppedFields = new Set<number>();
+  const droppedProfiles = new Set<number>();
+
   const rules: Rule[] = [];
   for (const [index, entry] of listAt(file, 'fields').entries()) {
     const outcome = translateField(entry, index, `ff-rule-${String(index)}`);
-    if (outcome.kind === 'drop') dropped.push(...asGlobalDrops(outcome.drop));
-    else {
+    if (outcome.kind === 'drop') {
+      dropped.push(...asGlobalDrops(outcome.drop));
+      droppedFields.add(index);
+    } else {
       rules.push(outcome.rule);
       if (outcome.losses.length > 0) {
         noted.push({ code: 'migrateNotedField', params: [outcome.name, outcome.losses.join('; ')] });
@@ -302,7 +313,19 @@ function translate(file: Record<string, unknown>, current: Settings): MigrationP
 
   const profiles: Profile[] = [];
   for (const [index, entry] of listAt(file, 'profiles').entries()) {
-    const record = asRecord(entry);
+    // An entry that is not an object is not a profile — dropped whole and
+    // named, for the reason an unreadable `fields[]` entry is: there is
+    // nothing to translate and no name to translate it under, and the
+    // `asRecord` tolerance below used to turn it into an empty disabled
+    // profile with a urlMatch note, which is a thing the backup never
+    // carried wearing a successful translation's face.
+    if (kindOf(entry) !== 'object') {
+      dropped.push({ code: 'migrateDroppedProfile', params: [`#${String(index + 1)}`] });
+      droppedProfiles.add(index);
+      continue;
+    }
+
+    const record = entry as Record<string, unknown>;
     const name = stringOf(record['name'], `#${String(index + 1)}`);
     const profileRules: Rule[] = [];
 
@@ -386,6 +409,13 @@ function translate(file: Record<string, unknown>, current: Settings): MigrationP
     },
   };
 
+  // The report's order: the user's own fields first (already pushed by the
+  // loops above), then keys the entries carried that no entry has a place
+  // for, then the file's own structure. The importer orders its walk the
+  // same way, and the order is the one a reader scanning for a specific
+  // loss meets it in.
+  dropped.push(...unknownEntryKeys(file, { fields: droppedFields, profiles: droppedProfiles }));
+
   for (const key of Object.keys(file)) {
     // BR-026-7's discipline, applied to a file whose unknown keys are more
     // likely meaningful than an our-schema file's: the store build runs
@@ -412,7 +442,17 @@ function translate(file: Record<string, unknown>, current: Settings): MigrationP
     noted,
     sourceVersion: stated,
     versionStated: stated !== undefined,
-    personaBacked: rules.some((rule) => PERSONA_BACKED.has(rule.generator.type)),
+    // BR-027-6's flag is asked of *every* translated rule, not the global
+    // list alone: a backup whose only persona-backed generators live in a
+    // profile — a staging profile with username and email fields, a very
+    // plausible shape — draws from the fill's person exactly as a global
+    // rule does, and the report's one sentence about that change is owed
+    // for those rules as much as these.
+    personaBacked:
+      rules.some((rule) => PERSONA_BACKED.has(rule.generator.type)) ||
+      profiles.some((profile) =>
+        profile.rules.some((rule) => PERSONA_BACKED.has(rule.generator.type)),
+      ),
   };
 }
 
@@ -469,6 +509,95 @@ function mistypedRoots(file: Record<string, unknown>): readonly MigrationDrop[] 
     if (kindOf(file[key]) === kind) continue;
     drops.push({ code: 'migrateDroppedShape', params: [key] });
   }
+  return drops;
+}
+
+/**
+ * The keys a `fields[]` entry may carry (§2.2's `ICustomField`), beyond the
+ * three every entry has: `type`, `name`, `match`.
+ *
+ * For the unknown-key report below. The per-type options are listed rather
+ * than unioned into one set, so the report names what the entry's *own type*
+ * had no place for — `emailPrefix` on a `number` field is a key the schema
+ * documents, carried where it means nothing, and "unrecognised" would be a
+ * sentence about this translation rather than about the entry.
+ */
+const FIELD_KEYS: ReadonlyMap<string, ReadonlySet<string>> = new Map([
+  ['', new Set(['type', 'name', 'match'])],
+  ['first-name', new Set(['type', 'name', 'match'])],
+  ['last-name', new Set(['type', 'name', 'match'])],
+  ['full-name', new Set(['type', 'name', 'match'])],
+  ['organization', new Set(['type', 'name', 'match'])],
+  ['username', new Set(['type', 'name', 'match'])],
+  ['url', new Set(['type', 'name', 'match'])],
+  ['email', new Set(['type', 'name', 'match', 'emailPrefix', 'emailHostname', 'emailHostnameList', 'emailUsername', 'emailUsernameList', 'emailUsernameRegEx'])],
+  ['telephone', new Set(['type', 'name', 'match', 'template'])],
+  ['number', new Set(['type', 'name', 'match', 'min', 'max', 'decimalPlaces'])],
+  ['date', new Set(['type', 'name', 'match', 'template', 'minDate', 'maxDate'])],
+  ['text', new Set(['type', 'name', 'match', 'maxLength'])],
+  ['alphanumeric', new Set(['type', 'name', 'match', 'template'])],
+  ['regex', new Set(['type', 'name', 'match', 'template'])],
+  ['randomized-list', new Set(['type', 'name', 'match', 'list'])],
+]);
+
+/** The keys a `profiles[]` entry may carry (§2.2's `IProfile`). */
+const PROFILE_KEYS: ReadonlySet<string> = new Set(['name', 'urlMatch', 'fields']);
+
+/**
+ * Unknown keys on the entries, named rather than silently ignored (step 4,
+ * FR-056, PD-002).
+ *
+ * The root-level reports (`migrateDroppedKey`, `mistypedRoots`) were built
+ * on the argument that the store build runs ahead of the published source
+ * (§4 of the research) — and that argument is *more* true one level down,
+ * where a store-build field type or option would appear. The importer
+ * descends into its entries for the same reason (`unknownKeys` scans
+ * `rules[i].` and `profiles[i].`), and until this existed a key the
+ * documented schema never mentions vanished from both lists — which is the
+ * one outcome this use case's report exists to make impossible.
+ *
+ * Only entries that survived their own translation are scanned, for the
+ * importer's reason: an entry already reported as a drop has nothing stored
+ * to describe, and a second line about it would inflate the count the user
+ * is deciding on. `reported` carries the indexes the loops already dropped,
+ * so the two walks cannot disagree about which entries count.
+ */
+function unknownEntryKeys(
+  file: Record<string, unknown>,
+  reported: { readonly fields: ReadonlySet<number>; readonly profiles: ReadonlySet<number> },
+): readonly MigrationDrop[] {
+  const drops: MigrationDrop[] = [];
+
+  const scanField = (entry: unknown, index: number, prefix: string): void => {
+    const record = asRecord(entry);
+    const known = FIELD_KEYS.get(typeof record['type'] === 'string' ? record['type'] : '');
+    if (known === undefined) return; // an unknown type is already a drop of its own
+    for (const key of Object.keys(record)) {
+      if (!known.has(key)) drops.push({ code: 'migrateDroppedKey', params: [`${prefix}fields[${index}].${key}`] });
+    }
+  };
+
+  for (const [index, entry] of listAt(file, 'fields').entries()) {
+    if (reported.fields.has(index)) continue;
+    scanField(entry, index, '');
+  }
+
+  for (const [index, entry] of listAt(file, 'profiles').entries()) {
+    if (reported.profiles.has(index)) continue;
+    // An empty-but-object profile is named for its own shape, not picked
+    // through; a garbage one is dropped whole by the caller.
+    if (kindOf(entry) !== 'object') continue;
+    const record = entry as Record<string, unknown>;
+    for (const key of Object.keys(record)) {
+      if (!PROFILE_KEYS.has(key)) {
+        drops.push({ code: 'migrateDroppedKey', params: [`profiles[${index}].${key}`] });
+      }
+    }
+    for (const [at, field] of listAt(record, 'fields').entries()) {
+      scanField(field, at, `profiles[${index}].`);
+    }
+  }
+
   return drops;
 }
 

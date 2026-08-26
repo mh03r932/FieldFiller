@@ -1634,6 +1634,15 @@
       }
     }
   },
+  "migrateDroppedProfile": {
+    "message": "Profile #$INDEX$ in the backup is not shaped the way a Fake Filler profile is, so nothing from it could be translated.",
+    "description": "A profiles[] entry that is not an object — dropped whole rather than becoming an empty profile the backup never carried. Named by position: an unreadable entry has no name to translate.",
+    "placeholders": {
+      "index": {
+        "content": "$1"
+      }
+    }
+  },
   "migrateDroppedProfileField": {
     "message": "In profile \"$PROFILE$\", field \"$NAME$\" could not be translated and was not carried.",
     "description": "The unreadable-field drop inside a profile.",
@@ -1697,7 +1706,7 @@
   },
   "migrateDroppedKey": {
     "message": "The backup setting \"$KEY$\" has no counterpart here and was not carried.",
-    "description": "A root key outside the reference's documented schema — possibly a setting from a store build ahead of the published source.",
+    "description": "A root key outside the reference's documented schema — possibly a setting from a store build ahead of the published source — or an unknown key on a field or profile entry, reported by path (fields[2].emailHostname). Named rather than silently ignored, for the reason the importer descends into its entries: the store build runs ahead of the published source one level down too.",
     "placeholders": {
       "key": {
         "content": "$1"

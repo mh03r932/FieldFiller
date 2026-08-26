@@ -785,6 +785,71 @@ describe('translating the root settings', () => {
     expect(outcome.plan.dropped.some((drop) => drop.code === 'migrateDroppedKey' && drop.params[0] === 'darkMode')).toBe(true);
   });
 
+  it('names an unknown key on a field entry, by path', () => {
+    // The store build runs ahead of the published source one level down too
+    // (§4 of the research), and until this existed a key the documented
+    // schema never mentions vanished from both lists. `emailPrefix` on a
+    // *number* field — a documented key, carried where it means nothing —
+    // is named alongside a genuinely unknown one.
+    const outcome = analyse(
+      backup({ fields: [field('age', { type: 'number', min: 1, max: 9, emailPrefix: 'qa-', sparkle: true })] }),
+    );
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    const paths = outcome.plan.dropped.filter((drop) => drop.code === 'migrateDroppedKey').map((drop) => drop.params[0]);
+    expect(paths).toContain('fields[0].emailPrefix');
+    expect(paths).toContain('fields[0].sparkle');
+    // The documented keys of this entry's own type are not losses.
+    expect(paths).not.toContain('fields[0].min');
+  });
+
+  it('names an unknown key on a profile entry and on its fields', () => {
+    const outcome = analyse(
+      backup({
+        profiles: [
+          { name: 'Staging', urlMatch: 's', theme: 'dark', fields: [field('user', { type: 'username', wobble: 1 })] },
+        ],
+      }),
+    );
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    const paths = outcome.plan.dropped.filter((drop) => drop.code === 'migrateDroppedKey').map((drop) => drop.params[0]);
+    expect(paths).toContain('profiles[0].theme');
+    expect(paths).toContain('profiles[0].fields[0].wobble');
+  });
+
+  it('drops a garbage profiles[] entry whole rather than translating it into an empty profile', () => {
+    // `asRecord` tolerance used to turn a non-object entry into a disabled
+    // profile named #n with a urlMatch note — a thing the backup never
+    // carried, wearing a successful translation's face.
+    const outcome = analyse(backup({ profiles: ['staging', 42, null] }));
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.plan.settings.profiles).toEqual([]);
+    expect(outcome.plan.incoming.profiles).toBe(0);
+    const drops = outcome.plan.dropped.filter((drop) => drop.code === 'migrateDroppedProfile');
+    expect(drops).toHaveLength(3);
+    // Named by position: an unreadable entry has no name to translate.
+    expect(drops.map((drop) => drop.params[0])).toEqual(['#1', '#2', '#3']);
+  });
+
+  it('does not pick through the keys of a dropped field entry', () => {
+    // The entry is not arriving; a second line about its unknown keys would
+    // inflate the count the user is deciding on (the importer's `reported`
+    // discipline).
+    const outcome = analyse(
+      backup({ fields: [{ type: 'number', name: 'odd', match: [], sparkle: true }] }),
+    );
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.plan.dropped.some((drop) => drop.code === 'migrateDroppedFieldNoMatch')).toBe(true);
+    expect(outcome.plan.dropped.some((drop) => drop.code === 'migrateDroppedKey' && drop.params[0] === 'fields[0].sparkle')).toBe(false);
+  });
+
   it('names a documented key that arrives with the wrong kind of value', () => {
     // The reviewer's scenario: a hand-edited backup whose `fields` is an
     // object. Every reader below is tolerant — `listAt` answers a non-list
@@ -934,6 +999,25 @@ describe('the plan itself', () => {
 
     expect(withPersona.ok && withPersona.plan.personaBacked).toBe(true);
     expect(without.ok && !without.plan.personaBacked).toBe(true);
+  });
+
+  it('flags the persona sentence when the only persona-backed rules are in profiles (BR-027-6)', () => {
+    // A staging profile with username and email fields is a plausible shape,
+    // and those rules draw from the fill's person exactly as global ones do
+    // — the one sentence the report says about that change is owed for them.
+    // Found in review: `personaBacked` read the global list only.
+    const outcome = analyse(
+      backup({
+        fields: [field('serial', { type: 'alphanumeric', template: 'xxx' })],
+        profiles: [
+          { name: 'Staging', urlMatch: 'staging', fields: [field('user', { type: 'username' })] },
+        ],
+      }),
+    );
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.plan.personaBacked).toBe(true);
   });
 
   it('sets persona drawing on for the rules that can use it', () => {
