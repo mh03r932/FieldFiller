@@ -1228,7 +1228,13 @@ function keywordsOf(stored: unknown, fallback: readonly string[]): {
   /** A non-empty list from which no keyword could be read. */
   readonly unreadable: boolean;
 } {
-  if (!Array.isArray(stored)) return { keywords: fallback, unreadable: false };
+  // A copy, never the fallback by reference: the fallbacks are the shipped
+  // constants' own arrays, and the plan becomes the page's live state after
+  // `host.replace` — the same alias `translatePasswords` and the `maxLengths`
+  // rebuild refuse, caught here on its third appearance rather than its
+  // first. Both fallback paths (absent and unreadable) and the parsed path
+  // all hand back arrays this call made.
+  if (!Array.isArray(stored)) return { keywords: [...fallback], unreadable: false };
 
   const split = stored
     .filter((entry): entry is string => typeof entry === 'string')
@@ -1237,7 +1243,7 @@ function keywordsOf(stored: unknown, fallback: readonly string[]): {
     .filter((entry) => entry !== '');
 
   const unreadable = stored.length > 0 && split.length === 0;
-  return { keywords: unreadable ? fallback : split, unreadable };
+  return { keywords: unreadable ? [...fallback] : split, unreadable };
 }
 
 /**

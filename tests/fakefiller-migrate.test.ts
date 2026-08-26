@@ -685,7 +685,10 @@ describe('translating the root settings', () => {
 
       expect(outcome.ok).toBe(true);
       if (!outcome.ok) continue;
-      expect(outcome.plan.settings.behaviour.consentKeywords).toBe(DEFAULT_SETTINGS.behaviour.consentKeywords);
+      // `toEqual`, deliberately not `toBe`: the shipped *words* stand, and
+      // the array they arrive in is this plan's own — the reference-scan
+      // test below pins that distinction for every section at once.
+      expect(outcome.plan.settings.behaviour.consentKeywords).toEqual(DEFAULT_SETTINGS.behaviour.consentKeywords);
       expect(
         outcome.plan.dropped.some(
           (drop) => drop.code === 'migrateDroppedShape' && drop.params[0] === 'agreeTermsFields',
@@ -827,6 +830,37 @@ describe('translating the root settings', () => {
     }
   });
 
+  it('shares no object anywhere in the plan with the shipped defaults', () => {
+    // The general pin, written after the *fifth* review round found a third
+    // instance of the same alias (the keyword arrays — the spread of
+    // `DEFAULT_SETTINGS.behaviour` copies the outer object and keeps the
+    // inner arrays by reference). Per-instance identity tests catch the
+    // instance somebody thought of; this catches the sixth instance without
+    // waiting for it. The plan becomes the page's live state after
+    // `host.replace`, so any shared node is one in-place mutation away from
+    // rewriting the shipped defaults for the page's lifetime.
+    const shipped = new Set<unknown>();
+    const collect = (node: unknown): void => {
+      if (typeof node !== 'object' || node === null || shipped.has(node)) return;
+      shipped.add(node);
+      for (const child of Object.values(node as Record<string, unknown>)) collect(child);
+    };
+    collect(DEFAULT_SETTINGS);
+
+    const touches = (node: unknown): boolean => {
+      if (typeof node !== 'object' || node === null) return false;
+      if (shipped.has(node)) return true;
+      return Object.values(node as Record<string, unknown>).some(touches);
+    };
+
+    // An empty backup exercises every fallback path at once: every section
+    // is either the default (by copy) or built from nothing.
+    const outcome = analyse(backup());
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(touches(outcome.plan.settings)).toBe(false);
+  });
+
   it('names a root key outside the documented schema', () => {
     const outcome = analyse({ ...backup(), darkMode: true });
 
@@ -961,11 +995,12 @@ describe('translating the root settings', () => {
     // backup may carry the unparsed string. Parsing it would be a guess the
     // documented schema never made, so the default stands — named, rather
     // than silently replacing whatever the user thought they had set.
+    // `toEqual`, not `toBe`: the words stand, the array is the plan's own.
     const outcome = analyse({ ...backup(), agreeTermsFields: 'agree,terms' });
 
     expect(outcome.ok).toBe(true);
     if (!outcome.ok) return;
-    expect(outcome.plan.settings.behaviour.consentKeywords).toBe(DEFAULT_SETTINGS.behaviour.consentKeywords);
+    expect(outcome.plan.settings.behaviour.consentKeywords).toEqual(DEFAULT_SETTINGS.behaviour.consentKeywords);
     expect(outcome.plan.dropped.some((drop) => drop.code === 'migrateDroppedShape' && drop.params[0] === 'agreeTermsFields')).toBe(true);
   });
 
