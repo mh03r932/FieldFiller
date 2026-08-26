@@ -1,0 +1,838 @@
+import { describe, expect, it } from 'vitest';
+import { analyseMigration } from '@/lib/fakefiller-migrate';
+import { looksLikeFakeFiller } from '@/lib/fakefiller-recognise';
+import { analyseImport, MAX_IMPORT_SIZE } from '@/lib/settings-import';
+import { serialiseSettings } from '@/lib/settings-file';
+import { DEFAULT_SETTINGS, parseSettings, type Settings } from '@/lib/settings';
+
+/**
+ * UC-027's analysis: what a migration would do, before it does it.
+ *
+ * The failure this file is really guarding against is quieter than UC-026's.
+ * The importer's hazard was silence about an unrecognised file; the
+ * migration's is a *lookalike* — a backup translated into something that
+ * stores cleanly and behaves differently from what the user configured
+ * (BR-027-5). Every assertion below is therefore about one of three
+ * things: the translation is faithful where it claims to be, the losses
+ * are named where it is not, and nothing is guessed into an active state.
+ */
+
+/** One backup field, in the reference's documented shape (§2.2 of the research). */
+const field = (name: string, extra: Record<string, unknown> = {}): Record<string, unknown> => ({
+  type: 'text',
+  name,
+  match: [name],
+  ...extra,
+});
+
+/**
+ * A whole backup, version 1 by default.
+ *
+ * Deliberately minimal — `version` and the two lists and nothing else —
+ * because the reference's *documented defaults* (a `defaultMaxLength`, a
+ * random password mode, the full `fieldMatchSettings`) are each worth a
+ * note in their own right, and a fixture that carries them would put two
+ * standing notes on every plan below, burying the one each test is about.
+ * Tests that translate those settings state them.
+ */
+const backup = (extra: Record<string, unknown> = {}): Record<string, unknown> => ({
+  version: 1,
+  fields: [],
+  profiles: [],
+  ...extra,
+});
+
+/** The current configuration a migration would replace. */
+const current = (): Settings => ({
+  ...DEFAULT_SETTINGS,
+  rules: [
+    { ...ruleOf('existing'), id: 'existing', label: 'existing' },
+  ],
+});
+
+const ruleOf = (pattern: string): Settings['rules'][number] => ({
+  id: pattern,
+  label: pattern,
+  enabled: true,
+  match: { mode: 'contains', pattern },
+  generator: { type: 'email' },
+  fromPersona: true,
+});
+
+const analyse = (file: unknown, now: Settings = current()) =>
+  analyseMigration(JSON.stringify(file), now);
+
+describe('refusing a file (A1)', () => {
+  it('refuses text that is neither JSON nor the reference’s Base64 transport, saying which', () => {
+    const outcome = analyseMigration('{ not json', current());
+
+    expect(outcome.ok).toBe(false);
+    if (outcome.ok) return;
+    expect(outcome.refusal.code).toBe('migrateRefusedNotJson');
+    expect(outcome.refusal.params[0]).toBeTruthy();
+  });
+
+  it('refuses Base64 that does not decode to JSON', () => {
+    // Decodes fine, parses as nothing. A1's "which of the two it was".
+    const outcome = analyseMigration(btoa('plainly not json at all'), current());
+
+    expect(outcome.ok).toBe(false);
+    if (outcome.ok) return;
+    expect(outcome.refusal.code).toBe('migrateRefusedNotJson');
+  });
+
+  it('refuses JSON that is not an object (A1)', () => {
+    for (const value of [[], 42, 'backup', null]) {
+      const outcome = analyse(value);
+
+      expect(outcome.ok).toBe(false);
+      if (outcome.ok) continue;
+      expect(outcome.refusal.code).toBe('migrateRefusedNotObject');
+    }
+  });
+
+  it('refuses a file carrying none of the reference’s keys (A1, BR-027-2)', () => {
+    const outcome = analyse({ hello: 'world' });
+
+    expect(outcome.ok).toBe(false);
+    if (outcome.ok) return;
+    expect(outcome.refusal.code).toBe('migrateRefusedNotBackup');
+  });
+
+  it('refuses a file holding only keys both schemas share', () => {
+    // `version` and `profiles` are ours too, so recognition cannot run on
+    // them; a file carrying only those names nobody distinctive is not a
+    // backup this translation was written against.
+    const outcome = analyse({ version: 1, profiles: [] });
+
+    expect(outcome.ok).toBe(false);
+    if (outcome.ok) return;
+    expect(outcome.refusal.code).toBe('migrateRefusedNotBackup');
+  });
+
+  it('refuses this extension’s own export by pointing back at import (A1 step 2)', () => {
+    const outcome = analyseMigration(serialiseSettings(current()), current());
+
+    expect(outcome.ok).toBe(false);
+    if (outcome.ok) return;
+    expect(outcome.refusal.code).toBe('migrateRefusedOurs');
+  });
+
+  it('refuses a file past the bound before reading it (A8)', () => {
+    const outcome = analyseMigration('x'.repeat(MAX_IMPORT_SIZE + 1), current());
+
+    expect(outcome.ok).toBe(false);
+    if (outcome.ok) return;
+    expect(outcome.refusal.code).toBe('migrateRefusedTooLarge');
+    // UC-026 A9's numbers, not a second bound the two surfaces could disagree about.
+    expect(outcome.refusal.params[1]).toBe(String(Math.ceil(MAX_IMPORT_SIZE / 1024)));
+  });
+});
+
+describe('reading the reference’s transport (step 2)', () => {
+  it('reads a Base64-encoded backup exactly as its JSON twin', () => {
+    const file = backup({ fields: [field('phone', { type: 'telephone' })] });
+    const encoded = analyseMigration(btoa(JSON.stringify(file)), current());
+    const plain = analyse(file);
+
+    expect(encoded).toEqual(plain);
+    expect(encoded.ok).toBe(true);
+  });
+
+  it('tolerates the padding a hand-copied .txt may have lost', () => {
+    const file = backup({ fields: [field('email', { type: 'email' })] });
+    const encoded = btoa(JSON.stringify(file)).replace(/=+$/, '');
+
+    const outcome = analyseMigration(encoded, current());
+    expect(outcome.ok).toBe(true);
+  });
+});
+
+describe('recognising the source (step 3)', () => {
+  it('recognises any one of the reference’s unambiguous keys', () => {
+    for (const key of ['fields', 'ignoredFields', 'passwordSettings', 'triggerClickEvents']) {
+      expect(looksLikeFakeFiller({ [key]: true })).toBe(true);
+    }
+  });
+
+  it('does not recognise a file of ours on a shared key name', () => {
+    // `version` and `profiles` exist on both sides of the mirror; recognition
+    // must not fire on them, or our own exports would be migratable.
+    expect(looksLikeFakeFiller({ version: 1, profiles: [] })).toBe(false);
+  });
+});
+
+describe('translating fields (the mapping table)', () => {
+  it('maps the name types to parts of the name generator, exactly', () => {
+    const outcome = analyse(
+      backup({
+        fields: [
+          field('first', { type: 'first-name' }),
+          field('last', { type: 'last-name' }),
+          field('full', { type: 'full-name' }),
+        ],
+      }),
+    );
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    const parts = outcome.plan.settings.rules.map((rule) => rule.generator);
+    expect(parts).toEqual([
+      { type: 'name', part: 'first' },
+      { type: 'name', part: 'last' },
+      { type: 'name', part: 'full' },
+    ]);
+    // BR-027-4: what maps exactly leaves no note behind.
+    expect(outcome.plan.noted).toEqual([]);
+  });
+
+  it('maps the reference’s spelling of organization and the simple types', () => {
+    const outcome = analyse(
+      backup({
+        fields: [
+          field('org', { type: 'organization' }),
+          field('user', { type: 'username' }),
+          field('site', { type: 'url' }),
+          field('mail', { type: 'email' }),
+        ],
+      }),
+    );
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.plan.settings.rules.map((rule) => rule.generator.type)).toEqual([
+      'organisation',
+      'username',
+      'url',
+      'email',
+    ]);
+  });
+
+  it('names every email customisation the entry actually carried (A3)', () => {
+    const outcome = analyse(
+      backup({
+        fields: [
+          field('mail', {
+            type: 'email',
+            emailPrefix: 'qa-',
+            emailHostname: 'list',
+            emailHostnameList: ['example.com'],
+            emailUsername: 'regex',
+            emailUsernameRegEx: '^qa',
+          }),
+        ],
+      }),
+    );
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    // Named per rule, as a sentence about the rule the user recognises —
+    // not a count (A3 step 2).
+    expect(outcome.plan.noted).toHaveLength(1);
+    expect(outcome.plan.noted[0]?.code).toBe('migrateNotedField');
+    expect(outcome.plan.noted[0]?.params[0]).toBe('mail');
+    expect(outcome.plan.noted[0]?.params[1]).toContain('emailPrefix');
+    expect(outcome.plan.noted[0]?.params[1]).toContain('emailHostname');
+    expect(outcome.plan.noted[0]?.params[1]).toContain('emailUsernameRegEx');
+    // Keys the entry did not carry are not invented as losses.
+    expect(outcome.plan.noted[0]?.params[1]).not.toContain('emailUsernameList');
+  });
+
+  it('names a telephone template, and carries the rule', () => {
+    const outcome = analyse(
+      backup({ fields: [field('phone', { type: 'telephone', template: '+1 (XxX) XxX-XxxX' })] }),
+    );
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.plan.settings.rules[0]?.generator).toEqual({ type: 'telephone' });
+    expect(outcome.plan.noted[0]?.params[1]).toContain('+1 (XxX) XxX-XxxX');
+  });
+
+  it('carries number bounds that fit, and names the ones ours moves', () => {
+    const outcome = analyse(
+      backup({
+        fields: [
+          field('age', { type: 'number', min: 18, max: 99, decimalPlaces: 0 }),
+          field('huge', { type: 'number', min: 1e300, max: 5e300 }),
+          field('reversed', { type: 'number', min: 99, max: 18 }),
+        ],
+      }),
+    );
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    const rules = outcome.plan.settings.rules;
+    expect(rules[0]?.generator).toEqual({ type: 'number', min: 18, max: 99, decimals: 0 });
+
+    // A bound ours clamps is named as arriving changed, before the write.
+    const huge = rules[1]?.generator;
+    expect(huge).toMatchObject({ min: 1e15, max: 1e15 });
+    expect(outcome.plan.noted.some((note) => note.params[1]?.includes('min 1e+300'))).toBe(true);
+
+    // A reversed range arrives ordered and says so.
+    expect(rules[2]?.generator).toMatchObject({ min: 18, max: 99 });
+    expect(outcome.plan.noted.some((note) => note.params[1]?.includes('reordered'))).toBe(true);
+  });
+
+  it('names a text field’s character cap that has no word-count equivalent', () => {
+    const outcome = analyse(backup({ fields: [field('bio', { type: 'text', maxLength: 40 })] }));
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.plan.settings.rules[0]?.generator).toEqual({
+      type: 'text',
+      minWords: 5,
+      maxWords: 20,
+    });
+    expect(outcome.plan.noted[0]?.params[1]).toContain('maxLength 40');
+  });
+
+  it('translates a randomized list exactly', () => {
+    const outcome = analyse(
+      backup({ fields: [field('plan', { type: 'randomized-list', list: ['basic', 'pro'] })] }),
+    );
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.plan.settings.rules[0]?.generator).toEqual({
+      type: 'list',
+      items: ['basic', 'pro'],
+    });
+    expect(outcome.plan.noted).toEqual([]);
+  });
+
+  it('drops a randomized list with nothing in it', () => {
+    const outcome = analyse(backup({ fields: [field('plan', { type: 'randomized-list', list: [] })] }));
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.plan.settings.rules).toEqual([]);
+    expect(outcome.plan.dropped[0]?.code).toBe('migrateDroppedField');
+  });
+
+  it('drops a field of a type outside the documented fourteen', () => {
+    const outcome = analyse(backup({ fields: [field('odd', { type: 'ibans' })] }));
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.plan.dropped[0]?.code).toBe('migrateDroppedFieldUnknownType');
+    expect(outcome.plan.dropped[0]?.params).toEqual(['odd', 'ibans']);
+  });
+});
+
+describe('joining the reference’s pattern lists (BR-027-3)', () => {
+  it('joins several patterns into one alternation, wrapped non-capturing', () => {
+    const outcome = analyse(
+      backup({ fields: [field('contact', { type: 'telephone', match: ['phone', 'fax', 'tel'] })] }),
+    );
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.plan.settings.rules[0]?.match).toEqual({
+      mode: 'regex',
+      pattern: '(?:phone)|(?:fax)|(?:tel)',
+    });
+  });
+
+  it('drops the rule when the join fails validation, naming every pattern that went in (A4)', () => {
+    // The reference never screened a pattern in its life. One catastrophic
+    // pattern hides among honest ones — and the report names the whole
+    // list, because "the rule" was the user's whole list.
+    const outcome = analyse(
+      backup({
+        fields: [
+          field('danger', { type: 'text', match: ['address', '(a+)+b', 'street'] }),
+        ],
+      }),
+    );
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.plan.settings.rules).toEqual([]);
+    expect(outcome.plan.dropped).toHaveLength(1);
+    expect(outcome.plan.dropped[0]?.code).toBe('migrateDroppedFieldRefused');
+    expect(outcome.plan.dropped[0]?.params[0]).toBe('danger');
+    expect(outcome.plan.dropped[0]?.params[1]).toBe('address | (a+)+b | street');
+    // The fault itself, carried as the editor words it (A4 step 1).
+    expect(outcome.plan.dropped[0]?.problem?.code).toBe('ruleProblemPatternBacktracks');
+  });
+
+  it('drops a field whose match list is empty, for that reason', () => {
+    const outcome = analyse(backup({ fields: [field('nothing', { match: [] })] }));
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.plan.dropped[0]?.code).toBe('migrateDroppedFieldNoMatch');
+  });
+
+  it('refuses a regex generator the editor would refuse, with the editor’s own words', () => {
+    const outcome = analyse(
+      backup({ fields: [field('ref', { type: 'regex', template: '(a+)+b' })] }),
+    );
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.plan.dropped[0]?.code).toBe('migrateDroppedFieldRefused');
+    expect(outcome.plan.dropped[0]?.problem?.code).toBe('ruleProblemGeneratorBacktracks');
+  });
+});
+
+describe('translating templates', () => {
+  it('translates the date tokens ours shares, exactly (BR-027-4)', () => {
+    const outcome = analyse(
+      backup({
+        fields: [field('when', { type: 'date', template: 'DD/MM/YYYY HH:mm:ss' })],
+      }),
+    );
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.plan.settings.rules[0]?.generator).toMatchObject({ format: 'DD/MM/YYYY HH:mm:ss' });
+    // Exact tokens, no note: what maps exactly is stated as mapping exactly.
+    expect(outcome.plan.noted).toEqual([]);
+  });
+
+  it('carries moment’s bracket literals as our literals', () => {
+    const outcome = analyse(
+      backup({ fields: [field('when', { type: 'date', template: '[on] YYYY-MM-DD' })] }),
+    );
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.plan.settings.rules[0]?.generator).toMatchObject({ format: 'on YYYY-MM-DD' });
+  });
+
+  it('maps a full month name to the nearest token and names it', () => {
+    const outcome = analyse(
+      backup({ fields: [field('when', { type: 'date', template: 'MMMM YYYY' })] }),
+    );
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    // MMMM cannot pass through as a literal — our own MMM token matches
+    // inside it — so it becomes the nearest token, named (the module note's
+    // recorded deviation from the table's letter).
+    expect(outcome.plan.settings.rules[0]?.generator).toMatchObject({ format: 'MMM YYYY' });
+    expect(outcome.plan.noted[0]?.params[1]).toContain('MMMM');
+  });
+
+  it('drops homeless date tokens rather than emitting junk, naming each', () => {
+    const outcome = analyse(
+      backup({ fields: [field('when', { type: 'date', template: 'HH:mm A' })] }),
+    );
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    // `A` (AM/PM) has no counterpart; a literal would put "PM" in every
+    // generated date, so it is omitted and named.
+    expect(outcome.plan.settings.rules[0]?.generator).toMatchObject({ format: 'HH:mm ' });
+    expect(outcome.plan.noted[0]?.params[1]).toContain('"A"');
+  });
+
+  it('translates date bounds that parse as ISO, and names the rest', () => {
+    const outcome = analyse(
+      backup({
+        fields: [
+          field('born', {
+            type: 'date',
+            template: 'YYYY-MM-DD',
+            minDate: '1980-01-01',
+            maxDate: '01/03/2020',
+          }),
+        ],
+      }),
+    );
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.plan.settings.rules[0]?.generator).toMatchObject({
+      from: '1980-01-01',
+      // A moment-style date is not a number this side may reinterpret: the
+      // default bound stands and the loss is named (BR-027-5).
+      to: '2035-12-31',
+    });
+    expect(outcome.plan.noted[0]?.params[1]).toContain('maxDate "01/03/2020"');
+  });
+
+  it('translates alphanumeric placeholders exactly where ours shares them', () => {
+    const outcome = analyse(
+      backup({ fields: [field('serial', { type: 'alphanumeric', template: 'LLL-xxx' })] }),
+    );
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.plan.settings.rules[0]?.generator).toEqual({
+      type: 'alphanumeric',
+      template: '{upper}{upper}{upper}-{digit}{digit}{digit}',
+    });
+    expect(outcome.plan.noted).toEqual([]);
+  });
+
+  it('maps near-miss alphanumeric tokens to the nearest placeholder and names them', () => {
+    const outcome = analyse(
+      backup({ fields: [field('serial', { type: 'alphanumeric', template: 'CVX-[fixed]' })] }),
+    );
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    // The `-` between the placeholders and the literal is the reference's
+    // own rule for unknown characters — a literal — so it arrives as one.
+    expect(outcome.plan.settings.rules[0]?.generator).toEqual({
+      type: 'alphanumeric',
+      template: '{consonant}{vowel}{digit}-fixed',
+    });
+    const losses = outcome.plan.noted[0]?.params[1] ?? '';
+    expect(losses).toContain('C (uppercase consonant)');
+    expect(losses).toContain('V (uppercase vowel)');
+    expect(losses).toContain('X (nonzero digit)');
+  });
+
+  it('escapes braces arriving inside an alphanumeric literal', () => {
+    const outcome = analyse(
+      backup({ fields: [field('serial', { type: 'alphanumeric', template: 'x[{}]x' })] }),
+    );
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.plan.settings.rules[0]?.generator).toMatchObject({
+      template: '{digit}{{}}{digit}',
+    });
+  });
+});
+
+describe('translating profiles (A5, BR-027-5)', () => {
+  it('translates a profile’s rules and arrives the profile disabled, named', () => {
+    const outcome = analyse(
+      backup({
+        fields: [field('global')],
+        profiles: [
+          {
+            name: 'Staging',
+            urlMatch: '.*\\.staging\\.example\\.com.*',
+            fields: [field('internal', { type: 'username' })],
+          },
+        ],
+      }),
+    );
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    const profile = outcome.plan.settings.profiles[0];
+    expect(profile).toMatchObject({ label: 'Staging', enabled: false, urls: [] });
+    expect(profile?.rules).toHaveLength(1);
+    expect(outcome.plan.incoming.profiles).toBe(1);
+    // Named, with the pattern the user recognises, before the write.
+    const note = outcome.plan.noted.find((entry) => entry.code === 'migrateNotedProfileUrl');
+    expect(note?.params).toEqual(['Staging', '.*\\.staging\\.example\\.com.*']);
+  });
+
+  it('names losses on a profile’s own rules, with the profile', () => {
+    const outcome = analyse(
+      backup({
+        profiles: [
+          {
+            name: 'Checkout',
+            urlMatch: '^checkout',
+            fields: [field('mail', { type: 'email', emailPrefix: 'qa-' })],
+          },
+        ],
+      }),
+    );
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    const note = outcome.plan.noted.find((entry) => entry.code === 'migrateNotedProfileField');
+    expect(note?.params[0]).toBe('Checkout');
+    expect(note?.params[1]).toBe('mail');
+    expect(note?.params[2]).toContain('emailPrefix');
+  });
+
+  it('drops a profile rule that fails validation, with the profile named', () => {
+    const outcome = analyse(
+      backup({
+        profiles: [
+          { name: 'Odd', urlMatch: 'odd', fields: [field('bad', { type: 'regex', template: '(a+)+b' })] },
+        ],
+      }),
+    );
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.plan.settings.profiles[0]?.rules).toEqual([]);
+    expect(outcome.plan.dropped[0]?.code).toBe('migrateDroppedProfileFieldRefused');
+    expect(outcome.plan.dropped[0]?.params[0]).toBe('Odd');
+  });
+});
+
+describe('translating the root settings', () => {
+  it('carries the user’s source toggles, including class left on (BR-027-7)', () => {
+    const outcome = analyse(
+      backup({
+        fieldMatchSettings: {
+          matchClass: true,
+          matchName: false,
+          matchId: true,
+          matchLabel: true,
+          matchPlaceholder: false,
+          matchAriaLabel: true,
+          matchAriaLabelledBy: true,
+        },
+      }),
+    );
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.plan.settings.sources).toEqual({
+      ...DEFAULT_SETTINGS.sources,
+      // Preserved as set, not overridden by our default: overriding an
+      // explicit choice would be the quiet configuration loss this use
+      // case exists to prevent.
+      className: true,
+      name: false,
+      placeholder: false,
+    });
+  });
+
+  it('resolves an aria split onto the wider setting and names it', () => {
+    const outcome = analyse(
+      backup({
+        fieldMatchSettings: {
+          matchClass: true,
+          matchId: true,
+          matchLabel: true,
+          matchName: true,
+          matchPlaceholder: true,
+          matchAriaLabel: true,
+          matchAriaLabelledBy: false,
+        },
+      }),
+    );
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.plan.settings.sources.ariaLabel).toBe(true);
+    expect(outcome.plan.noted.some((note) => note.code === 'migrateNotedSourcesSplit')).toBe(true);
+  });
+
+  it('carries ignoredFields as regex-mode exclusions', () => {
+    const outcome = analyse(backup({ ignoredFields: ['captcha', 'hipinputtext'] }));
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.plan.settings.exclusions.fields).toEqual([
+      { mode: 'regex', pattern: 'captcha' },
+      { mode: 'regex', pattern: 'hipinputtext' },
+    ]);
+  });
+
+  it('splits the keyword lists on commas, including inside entries', () => {
+    const outcome = analyse(
+      backup({
+        agreeTermsFields: ['agree, terms', 'einwilligung'],
+        confirmFields: ['repeat'],
+      }),
+    );
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.plan.settings.behaviour.consentKeywords).toEqual(['agree', 'terms', 'einwilligung']);
+    expect(outcome.plan.settings.behaviour.confirmationKeywords).toEqual(['repeat']);
+  });
+
+  it('keeps an explicitly emptied keyword list empty', () => {
+    const outcome = analyse(backup({ agreeTermsFields: [], confirmFields: ['repeat'] }));
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    // "Tick nothing for consent" is a configuration, not an accident to undo.
+    expect(outcome.plan.settings.behaviour.consentKeywords).toEqual([]);
+  });
+
+  it('applies the global length cap to the single-line kinds only, and says so', () => {
+    const outcome = analyse(backup({ defaultMaxLength: 12 }));
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.plan.settings.behaviour.maxLengths).toEqual({ text: 12, search: 12 });
+    // Importing the cap verbatim would import the defect ND-10 replaced —
+    // a twelve-character textarea — so the textarea-sized kinds keep the
+    // built-in sizing and the report says so.
+    expect(outcome.plan.settings.behaviour.maxLengths.textarea).toBeUndefined();
+    expect(outcome.plan.noted.some((note) => note.code === 'migrateNotedDefaultMaxLength')).toBe(true);
+  });
+
+  it('emits length caps whose keys survive storage’s alphabetising unchanged', () => {
+    // `chrome.storage.local` hands a stored state back with every object’s
+    // keys alphabetised, and `maxLengths` is the one record whose keys are
+    // data — so a plan whose caps are not already alphabetical comes back
+    // reordered, fails the options page’s is-this-our-write comparison, and
+    // the adoption announcement talks over the migration’s own. The export
+    // path sorts its caps for exactly this reason (BR-025-3); this asserts
+    // the plan needs no such second look.
+    const outcome = analyse(backup({ defaultMaxLength: 12 }));
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    const caps = outcome.plan.settings.behaviour.maxLengths;
+    expect(Object.keys(caps)).toEqual([...Object.keys(caps)].sort());
+    // And the page’s own comparison, spelled the way main.ts spells it:
+    // the stored echo, alphabetised, parsed — against the memory, parsed.
+    const alphabetised: Record<string, number> = {};
+    for (const key of Object.keys(caps).sort()) alphabetised[key] = caps[key as keyof typeof caps] ?? 0;
+    const echo = { ...outcome.plan.settings, behaviour: { ...outcome.plan.settings.behaviour, maxLengths: alphabetised } };
+    expect(JSON.stringify(echo)).toBe(JSON.stringify(outcome.plan.settings));
+  });
+
+  it('drops no length cap when the backup states none', () => {
+    const outcome = analyse(backup({ defaultMaxLength: undefined }));
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.plan.settings.behaviour.maxLengths).toEqual({});
+    expect(outcome.plan.noted.some((note) => note.code === 'migrateNotedDefaultMaxLength')).toBe(false);
+  });
+
+  it('carries the behaviour and trigger switches by their new names', () => {
+    const outcome = analyse(
+      backup({
+        triggerClickEvents: false,
+        ignoreHiddenFields: false,
+        ignoreFieldsWithContent: true,
+        enableContextMenu: false,
+      }),
+    );
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.plan.settings.behaviour.dispatchEvents).toBe(false);
+    expect(outcome.plan.settings.behaviour.skipHidden).toBe(false);
+    expect(outcome.plan.settings.behaviour.skipPreFilled).toBe(true);
+    expect(outcome.plan.settings.triggers.contextMenu).toBe(false);
+  });
+
+  it('drops a defined password string and says what that changes (A6)', () => {
+    const outcome = analyse({
+      ...backup(),
+      passwordSettings: { mode: 'defined', password: 'Pa$$w0rd!' },
+    });
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.plan.settings.passwords).toEqual(DEFAULT_SETTINGS.passwords);
+    expect(outcome.plan.dropped.some((drop) => drop.code === 'migrateDroppedPasswordDefined')).toBe(true);
+    // The chosen string never reaches the report: it is a secret wearing a
+    // list item's clothing, and the sentence names the fact, not the value.
+    const drop = outcome.plan.dropped.find((entry) => entry.code === 'migrateDroppedPasswordDefined');
+    expect(drop?.params).toEqual([]);
+  });
+
+  it('carries a random password at the observed length of eight, named', () => {
+    const outcome = analyse(backup({ passwordSettings: { mode: 'random', password: '' } }));
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.plan.settings.passwords).toEqual({ ...DEFAULT_SETTINGS.passwords, length: 8 });
+    expect(outcome.plan.noted.some((note) => note.code === 'migrateNotedPasswordRandom')).toBe(true);
+  });
+
+  it('names a root key outside the documented schema', () => {
+    const outcome = analyse({ ...backup(), darkMode: true });
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.plan.dropped.some((drop) => drop.code === 'migrateDroppedKey' && drop.params[0] === 'darkMode')).toBe(true);
+  });
+});
+
+describe('the plan itself', () => {
+  it('replaces: nothing of the running configuration survives (BR-027-1)', () => {
+    const outcome = analyse(backup({ fields: [field('phone', { type: 'telephone' })] }));
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.plan.settings.rules.map((rule) => rule.label)).toEqual(['phone']);
+    expect(outcome.plan.current).toEqual({ rules: 1, profiles: 0 });
+    expect(outcome.plan.incoming).toEqual({ rules: 1, profiles: 0 });
+  });
+
+  it('produces a state the parser reads back unchanged', () => {
+    // The plan is what the user confirms; storage will normalise it, and a
+    // normalisation that *changed* anything would mean the plan the user
+    // agreed to is not the state they were given.
+    const outcome = analyse(
+      backup({
+        fields: [
+          field('phone', { type: 'telephone' }),
+          field('when', { type: 'date', template: 'DD/MM/YYYY' }),
+          field('serial', { type: 'alphanumeric', template: 'LLL-xxx' }),
+        ],
+        profiles: [{ name: 'Staging', urlMatch: 'staging', fields: [field('inner')] }],
+      }),
+    );
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(parseSettings(outcome.plan.settings)).toEqual(outcome.plan.settings);
+  });
+
+  it('mints ids unique within each list', () => {
+    const outcome = analyse(
+      backup({
+        fields: [field('a'), field('b')],
+        profiles: [
+          { name: 'One', urlMatch: 'one', fields: [field('x')] },
+          { name: 'Two', urlMatch: 'two', fields: [field('y')] },
+        ],
+      }),
+    );
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    const globalIds = outcome.plan.settings.rules.map((rule) => rule.id);
+    expect(new Set(globalIds).size).toBe(globalIds.length);
+    for (const profile of outcome.plan.settings.profiles) {
+      const ids = profile.rules.map((rule) => rule.id);
+      expect(new Set(ids).size).toBe(ids.length);
+      expect(ids.every((id) => !globalIds.includes(id))).toBe(true);
+    }
+  });
+
+  it('flags the version preamble only when the stated version is not the documented one (A2)', () => {
+    const silent = analyse(backup());
+    const stated = analyse({ ...backup(), version: 2 });
+    const absent = analyse({ ...backup(), version: undefined });
+
+    expect(silent.ok && silent.plan.versionStated && silent.plan.sourceVersion === 1).toBe(true);
+    expect(stated.ok && stated.plan.sourceVersion).toBe(2);
+    expect(absent.ok && !absent.plan.versionStated).toBe(true);
+    expect(absent.ok && absent.plan.sourceVersion).toBeUndefined();
+  });
+
+  it('flags the persona sentence only when a persona-backed rule arrives (BR-027-6)', () => {
+    const withPersona = analyse(backup({ fields: [field('mail', { type: 'email' })] }));
+    const without = analyse(backup({ fields: [field('serial', { type: 'alphanumeric', template: 'xxx' })] }));
+
+    expect(withPersona.ok && withPersona.plan.personaBacked).toBe(true);
+    expect(without.ok && !without.plan.personaBacked).toBe(true);
+  });
+
+  it('sets persona drawing on for the rules that can use it', () => {
+    const outcome = analyse(backup({ fields: [field('mail', { type: 'email' })] }));
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.plan.settings.rules[0]?.fromPersona).toBe(true);
+  });
+});
+
+describe('the two surfaces agree about what a Fake Filler backup is', () => {
+  it('refuses the same file in the importer, pointing at the migration', () => {
+    const file = backup({ fields: [field('mail', { type: 'email' })] });
+
+    const imported = analyseImport(JSON.stringify(file), current());
+    expect(imported.ok).toBe(false);
+    if (imported.ok) return;
+    expect(imported.refusal.code).toBe('importRefusedFakeFiller');
+  });
+});

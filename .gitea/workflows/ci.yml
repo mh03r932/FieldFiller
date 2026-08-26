@@ -438,12 +438,17 @@ jobs:
       - name: Build Chrome and Firefox
         run: pnpm run build:all
 
-      # NFR-003, ND-4, NFR-006, NFR-008 and NFR-012. The coverage-scope gate is
-      # the newest, and the others are why it exists: every gate here fails on a
-      # thing being *added* — a dependency, a permission, a kilobyte — because
-      # the additions are what arrive without anyone deciding. Coverage was the
-      # one floor that grew only when someone remembered to widen it by hand.
-      - name: Gate — page agent size, import graph, network absence, permissions, coverage scope
+      # NFR-003, ND-4, NFR-006, NFR-008, NFR-012 and the i18n catalog's
+      # load-bearing shape. The coverage-scope gate is the newest of the
+      # floors, and the messages gate the newest of them all: every gate here
+      # fails on a thing being *added* — a dependency, a permission, a
+      # kilobyte — because the additions are what arrive without anyone
+      # deciding. Coverage was the one floor that grew only when someone
+      # remembered to widen it by hand; the catalog was the one whose
+      # breakage (a $VARIABLE$ with no placeholder, added 2026-08-26) makes
+      # Chrome refuse to install the extension at all, with every unit test
+      # still green because nothing loads the catalog through Chrome.
+      - name: Gate — page agent size, import graph, network absence, permissions, coverage scope, i18n catalog
         run: pnpm run gate:all
 
       # Two clean builds, digests compared. Runs on every push rather than only

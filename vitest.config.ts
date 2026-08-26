@@ -79,6 +79,19 @@ export default defineConfig({
         // the confirmation, and a count that disagrees with the state it
         // describes is a user agreeing to a number that is not true.
         'src/lib/restore.ts': { lines: 90, functions: 90 },
+        // The migration analysis (UC-027), added 2026-08-25, held to the same
+        // floor as the import analysis it mirrors and for its sharper
+        // argument: this module's failure is a *lookalike* — a backup
+        // translated into something that stores cleanly and behaves
+        // differently from what the user configured. Every branch below is
+        // one mapping, and the wrong branch is invisible until the next
+        // page the migrant fills.
+        'src/lib/fakefiller-migrate.ts': { lines: 90, functions: 90 },
+        // Backup recognition (UC-027 step 3). The one property worth a floor:
+        // the importer and the migrator must agree about what a Fake Filler
+        // backup is, and they do it by importing this module — an untested
+        // branch here is a file one surface accepts and the other disowns.
+        'src/lib/fakefiller-recognise.ts': { lines: 90, functions: 90 },
         'src/lib/protocol.ts': { lines: 90, functions: 90 },
         // The exclusion list operations (UC-020, UC-021), added 2026-08-17 with
         // the screens that author them. Same floor and the same argument as the

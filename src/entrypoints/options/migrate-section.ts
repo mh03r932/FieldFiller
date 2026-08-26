@@ -1,0 +1,348 @@
+import { message, type MessageKey } from '@/lib/platform/i18n';
+import {
+  analyseMigration,
+  type MigrationDrop,
+  type MigrationNote,
+  type MigrationOutcome,
+  type MigrationPlan,
+  type MigrationRefusal,
+} from '@/lib/fakefiller-migrate';
+import { MAX_IMPORT_SIZE, oversizeRefusal } from '@/lib/settings-import';
+import type { OptionsHost } from './host';
+import { focusIn } from './controls';
+import { problemText } from './problems';
+import { reason } from './reason';
+
+/**
+ * UC-027 — a Fake Filler backup, translated and written, on screen.
+ *
+ * The import section's shape with the file's source swapped, because the
+ * two make the same promise and differ only in where the file came from:
+ * choosing a file produces a *plan* and nothing is written until a second,
+ * explicit action agrees to it (steps 5 and 6). The plan is what is on
+ * screen before the write — both sides, everything that will not arrive,
+ * and everything that arrives different — because a migration replaces
+ * every rule, every profile and every setting at once (BR-027-1), and its
+ * damage is invisible until the next fill on a page the user cares about.
+ *
+ * **Its own control, beside import rather than shared with it (step 1).**
+ * The two buttons make different promises — "read back what this
+ * extension wrote" and "translate what another product wrote" — and a
+ * shared chooser would have to ask which was meant only after the file
+ * was already open, which is the answer that should have decided the
+ * question. Recognition can usually tell (each refusal points at the
+ * other section), but starting the user in the right one is cheaper than
+ * correcting them, and a migrant who has never seen this extension's
+ * options page before is starting from the word "Fake Filler", which is
+ * on exactly one of the two headings.
+ *
+ * No bypass anywhere (ND-13): a refused file offers no way to proceed,
+ * and the dismiss button only puts it down.
+ */
+
+/**
+ * The file chosen but not yet applied.
+ *
+ * The *text*, not the plan, for the import section's reason: this section
+ * re-renders whenever settings change — including from another tab — and a
+ * stored plan would be showing "what is there now" from whenever the file
+ * was chosen. Re-analysing on every render cannot go stale, which is the
+ * half of the comparison BR-026-5 exists for.
+ *
+ * Module scope, like the import's pending file, so it survives a render.
+ */
+let pending: Pending | undefined;
+
+/**
+ * The chosen file, either read or refused for its size before being read.
+ *
+ * The size refusal exists as its own shape because it is the one refusal
+ * that cannot be expressed as text handed to `analyseMigration`: the whole
+ * point is that the text was never produced (A8).
+ */
+type Pending =
+  | { readonly kind: 'read'; readonly name: string; readonly text: string }
+  | { readonly kind: 'oversize'; readonly name: string; readonly size: number };
+
+export function renderMigrate(host: OptionsHost, into: HTMLElement): void {
+  const chooser = document.createElement('input');
+  chooser.type = 'file';
+  chooser.className = 'migrate-file';
+  // A hint to the picker, not a guarantee. The reference's exports
+  // download as `.txt` files containing Base64, and a backup renamed to
+  // `.json` is still a backup, so everything about the *contents* is
+  // decided after the read. Its size is the one thing checked before
+  // that, because reading is the part that costs (A8).
+  chooser.accept = '.txt,application/json,.json,text/plain';
+  chooser.addEventListener('change', () => {
+    void chosen(host, into, chooser.files?.[0]);
+  });
+
+  const label = document.createElement('label');
+  label.className = 'field';
+  const labelText = document.createElement('span');
+  labelText.textContent = message('migrateFileLabel');
+  label.append(labelText, chooser);
+
+  into.replaceChildren(label);
+
+  if (pending === undefined) return;
+  const outcome: MigrationOutcome =
+    pending.kind === 'oversize'
+      ? { ok: false, refusal: { ...oversizeRefusal(pending.size), code: 'migrateRefusedTooLarge' } }
+      : analyseMigration(pending.text, host.settings());
+  into.append(
+    outcome.ok
+      ? planView(host, into, pending.name, outcome.plan)
+      : refusalView(host, into, outcome.refusal),
+  );
+}
+
+async function chosen(host: OptionsHost, into: HTMLElement, file: File | undefined): Promise<void> {
+  if (file === undefined) {
+    pending = undefined;
+    renderMigrate(host, into);
+    return;
+  }
+
+  // Before `text()`, for the import section's reason and A8's: reading a
+  // file of arbitrary size into a string on this thread is the damage, and
+  // a bound applied to the string afterwards is a report on damage
+  // already done.
+  if (file.size > MAX_IMPORT_SIZE) {
+    pending = { kind: 'oversize', name: file.name, size: file.size };
+    renderMigrate(host, into);
+    return;
+  }
+
+  try {
+    pending = { kind: 'read', name: file.name, text: await file.text() };
+  } catch (error) {
+    pending = undefined;
+    host.announce(message('migrateUnreadable', [reason(error)]));
+  }
+  renderMigrate(host, into);
+}
+
+/**
+ * A1's refusals — stated, with no way past them.
+ *
+ * The dismiss button is not a way past it; it puts the file down, which is
+ * the one thing the user could not do before. `migrateRefusedOurs` is the
+ * one refusal that names a better destination rather than a fault, and its
+ * wording does the pointing (A1 step 2).
+ */
+function refusalView(
+  host: OptionsHost,
+  into: HTMLElement,
+  refusal: MigrationRefusal,
+): DocumentFragment {
+  const paragraph = document.createElement('p');
+  paragraph.className = 'problem migrate-refused';
+  paragraph.setAttribute('role', 'alert');
+  paragraph.textContent = message(refusal.code, refusal.params);
+
+  const dismiss = document.createElement('button');
+  dismiss.type = 'button';
+  dismiss.className = 'migrate-dismiss';
+  dismiss.textContent = message('migrateDismiss');
+  dismiss.addEventListener('click', () => {
+    discard(host, into, 'migrateDismissed');
+  });
+
+  const view = document.createDocumentFragment();
+  view.append(paragraph, dismiss);
+  return view;
+}
+
+/**
+ * Puts the chosen file down without migrating.
+ *
+ * One function for the plan's cancel and the refusal's dismiss, because it
+ * is one act — forget the file, redraw, say so — and only the wording
+ * differs, for the import section's reason: a cancelled migration is one
+ * that could have happened, a dismissed refusal is one that never could.
+ */
+function discard(host: OptionsHost, into: HTMLElement, announcement: MessageKey): void {
+  pending = undefined;
+  renderMigrate(host, into);
+  host.announce(message(announcement));
+  focusIn(into, '.migrate-file');
+}
+
+/**
+ * Step 5: the whole report, before the write.
+ *
+ * Ordered by how destructive each line is, top to bottom: the summary
+ * (what is replaced by what), the version preamble (A2 — what the
+ * translation was written against, when it matters), the persona sentence
+ * (BR-027-6 — the one deliberate behaviour change), then the two lists —
+ * drops first, because "gone" is the more serious claim of the two and a
+ * user who reads only the first list has read the more destructive one.
+ */
+function planView(
+  host: OptionsHost,
+  into: HTMLElement,
+  name: string,
+  plan: MigrationPlan,
+): HTMLElement {
+  const view = document.createElement('div');
+  view.className = 'import-plan migrate-plan';
+
+  const summary = document.createElement('p');
+  summary.className = 'import-summary migrate-summary';
+  summary.textContent = message('migratePlanSummary', [
+    String(plan.current.rules),
+    String(plan.current.profiles),
+    String(plan.incoming.rules),
+    String(plan.incoming.profiles),
+    name,
+  ]);
+  view.append(summary);
+
+  // A2, and it leads: everything below it is the translation's output, and
+  // the preamble is the one line about the translation's *premise*. Said
+  // whether the version is wrong or absent — an undocumented version is
+  // the same doubt with a blank where the number was.
+  if (!plan.versionStated || plan.sourceVersion !== 1) {
+    const version = document.createElement('p');
+    version.className = 'hint migrate-version';
+    version.textContent = plan.versionStated
+      ? message('migratePlanVersion', [String(plan.sourceVersion)])
+      : message('migratePlanVersionAbsent');
+    view.append(version);
+  }
+
+  // BR-027-6, once, rather than named on every persona-backed rule: it is
+  // the direction this product defines as correct, and a sentence per rule
+  // would bury the losses beneath a change none of them asked about.
+  if (plan.personaBacked) {
+    const persona = document.createElement('p');
+    persona.className = 'hint migrate-persona';
+    persona.textContent = message('migratePlanPersona');
+    view.append(persona);
+  }
+
+  if (plan.dropped.length > 0) view.append(droppedView(plan.dropped));
+  if (plan.noted.length > 0) view.append(notedView(plan.noted));
+
+  const actions = document.createElement('div');
+  actions.className = 'import-actions migrate-actions';
+
+  const confirm = document.createElement('button');
+  confirm.type = 'button';
+  confirm.className = 'primary migrate-confirm';
+  confirm.textContent = message('migrateConfirm');
+  confirm.addEventListener('click', () => {
+    void apply(host, into, name, plan);
+  });
+
+  const cancel = document.createElement('button');
+  cancel.type = 'button';
+  cancel.className = 'migrate-cancel';
+  cancel.textContent = message('migrateCancel');
+  cancel.addEventListener('click', () => {
+    discard(host, into, 'migrateCancelled');
+  });
+
+  actions.append(confirm, cancel);
+  view.append(actions);
+  return view;
+}
+
+/**
+ * Everything that will not arrive, each entry named with its reason
+ * (step 5, FR-056).
+ *
+ * A drop carrying a `problem` says why in the editor's own words (A4
+ * step 1), resolved by the same helper the import's drop list uses, and
+ * appended as a substitution so the catalog decides where in the sentence
+ * it lands (NFR-018).
+ */
+function droppedView(dropped: readonly MigrationDrop[]): HTMLElement {
+  const section = document.createElement('div');
+  section.className = 'import-dropped migrate-dropped';
+
+  const heading = document.createElement('p');
+  heading.className = 'import-dropped-heading migrate-dropped-heading';
+  heading.textContent = message('migratePlanDropped', [String(dropped.length)]);
+
+  const list = document.createElement('ul');
+  for (const drop of dropped) {
+    const item = document.createElement('li');
+    // `textContent`, always: every parameter here came out of the user's
+    // backup, and a field named `<img onerror=…>` is a name.
+    item.textContent = message(
+      drop.code,
+      drop.problem === undefined ? drop.params : [...drop.params, problemText(drop.problem)],
+    );
+    list.append(item);
+  }
+
+  section.append(heading, list);
+  return section;
+}
+
+/**
+ * Everything that arrives changed, beside the drops and never inside them
+ * (A3, FR-056).
+ *
+ * The same shape as the import's notes list, for the reason its heading
+ * exists: the two are read as one glance at a heading and a count, and a
+ * reader who has to parse each sentence to learn whether the entry
+ * survives has been given a worse preview than no list at all.
+ */
+function notedView(noted: readonly MigrationNote[]): HTMLElement {
+  const section = document.createElement('div');
+  section.className = 'import-noted migrate-noted';
+
+  const heading = document.createElement('p');
+  heading.className = 'import-noted-heading migrate-noted-heading';
+  heading.textContent = message('migratePlanNoted', [String(noted.length)]);
+
+  const list = document.createElement('ul');
+  for (const note of noted) {
+    const item = document.createElement('li');
+    item.textContent = message(note.code, note.params);
+    list.append(item);
+  }
+
+  section.append(heading, list);
+  return section;
+}
+
+/**
+ * Step 7: one write, or none (BR-027-1).
+ *
+ * `host.replace` is the import's single-replacement write, and it is
+ * load-bearing here for UC-028's reason as well as UC-026's: it settles
+ * when storage has, so A7 can say the migration did not happen rather
+ * than guess, and on a rejected write the previous configuration is still
+ * in force because nothing partial was ever written.
+ */
+async function apply(
+  host: OptionsHost,
+  into: HTMLElement,
+  name: string,
+  plan: MigrationPlan,
+): Promise<void> {
+  try {
+    await host.replace(plan.settings);
+  } catch {
+    // Announced by `replace` itself, in the same words every other
+    // rejected write on this page uses. The plan stays on screen, which is
+    // exactly what a retry needs.
+    return;
+  }
+
+  // Only now. Clearing the file first would leave a failed migration with
+  // nothing on screen to retry from.
+  pending = undefined;
+  host.redraw();
+  host.announce(
+    message('migrateDone', [String(plan.incoming.rules), String(plan.incoming.profiles), name]),
+  );
+  // The redraw destroyed the focused button; back to the chooser, where a
+  // second migration would start.
+  focusIn(into, '.migrate-file');
+}

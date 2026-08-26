@@ -1,6 +1,7 @@
 import { DEFAULT_SETTINGS, MATCH_SOURCES, parseSettings, type Rule, type Settings } from './settings';
 import { validateMatcher, validateRule, type RuleProblem } from './rules/validate';
 import { profileName } from './profiles';
+import { decodeBackupTransport, looksLikeFakeFiller } from './fakefiller-recognise';
 
 /**
  * Reading a configuration back in (UC-026, FR-053, FR-054, ND-13).
@@ -124,7 +125,8 @@ export type ImportRefusal = {
     | 'importRefusedNotJson'
     | 'importRefusedNotObject'
     | 'importRefusedNewer'
-    | 'importRefusedNothingOurs';
+    | 'importRefusedNothingOurs'
+    | 'importRefusedFakeFiller';
   readonly params: readonly string[];
 };
 
@@ -337,11 +339,14 @@ const PROFILE_WITNESS: Record<string, unknown> = {
  * Reads a file and works out what importing it would do.
  *
  * The order of the checks is the order of the use case's steps, and it is load
- * bearing: a file from a newer schema is refused on its version (A2, step 3)
- * before anything asks whether its contents are recognisable (A5, step 4). A
- * newer file whose sections this build cannot name would otherwise be refused
- * for the wrong reason, and the user would be told their file is not ours when
- * what it actually needs is a newer extension.
+ * bearing in both directions. A file from a newer schema is refused on its
+ * version (A2, step 3) before anything asks whether its contents are
+ * recognisable (A5, step 4) — a newer file whose sections this build cannot
+ * name would otherwise be refused for the wrong reason, and the user would be
+ * told their file is not ours when what it actually needs is a newer extension.
+ * And a Fake Filler backup is recognised before its version is even read,
+ * because the backup's `version` describes the reference's schema, not ours,
+ * and a version number borrowed from another product is not ours to refuse on.
  */
 export function analyseImport(text: string, current: Settings): ImportOutcome {
   // A9, and it is first because every line after it is unbounded work on a file
@@ -356,6 +361,21 @@ export function analyseImport(text: string, current: Settings): ImportOutcome {
   try {
     parsed = JSON.parse(text);
   } catch (error) {
+    // A Fake Filler backup arrives as Base64, and a migrant who points this
+    // section at one has made a natural mistake, not a file error — so the
+    // transport is decoded for recognition only. Whatever it decodes to, it
+    // is not this schema's JSON, and the not-JSON refusal below remains the
+    // answer for everything the recogniser cannot claim.
+    const decoded = decodeBackupTransport(text.trim());
+    if (decoded !== undefined) {
+      try {
+        const inner: unknown = JSON.parse(decoded);
+        if (looksLikeFakeFiller(inner)) return refuse('importRefusedFakeFiller', []);
+      } catch {
+        // Not JSON inside the transport either: the not-JSON refusal names
+        // the outer failure, which is the one the user can see.
+      }
+    }
     // A1, with the parser's own complaint. It names the offset, which is the
     // only useful thing anyone can say about a file that is not JSON.
     return refuse('importRefusedNotJson', [error instanceof Error ? error.message : String(error)]);
@@ -371,6 +391,27 @@ export function analyseImport(text: string, current: Settings): ImportOutcome {
   const file = parsed as Record<string, unknown>;
   const stated = typeof file['version'] === 'number' ? file['version'] : undefined;
 
+  // A5 / BR-026-4, sharpened by UC-027's owed pointer. The tolerant parser
+  // cannot fail: handed an object it does not recognise, it returns a
+  // complete and entirely default configuration, so the import would
+  // report success and the user would have lost everything they had.
+  //
+  // A Fake Filler backup is the one unrecognised file with a name and a
+  // destination, and it gets its own refusal for it rather than the
+  // generic one: recognition runs on the reference's documented key set,
+  // so a migrant is told where to go instead of told their file is
+  // nothing.
+  //
+  // **Before the version check**, because a backup's `version` describes
+  // the reference's schema, not ours — a Fake Filler export carrying
+  // version 2 is not "from a newer version of the settings format", and
+  // refusing it as one would name a reason that is not true. Recognition
+  // on keys rather than on failure-to-be-ours is what makes both refusals
+  // honest at once.
+  if (looksLikeFakeFiller(file)) {
+    return refuse('importRefusedFakeFiller', []);
+  }
+
   // A2. Refused, never coerced, and ND-13 forbids an override. Coercing forward
   // discards what this build cannot name, from a file that may be the only copy
   // — and neither we nor the user could see what went.
@@ -378,10 +419,6 @@ export function analyseImport(text: string, current: Settings): ImportOutcome {
     return refuse('importRefusedNewer', [String(stated), String(SCHEMA_VERSION)]);
   }
 
-  // A5 / BR-026-4. The check that has to exist because the tolerant parser
-  // cannot fail: handed an object it does not recognise, it returns a complete
-  // and entirely default configuration, so the import would report success and
-  // the user would have lost everything they had.
   if (!SECTION_KEYS.some((key) => key in file)) {
     return refuse('importRefusedNothingOurs', []);
   }

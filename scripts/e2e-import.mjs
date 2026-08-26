@@ -379,8 +379,23 @@ try {
     [
       'A5 · nothing in it is ours',
       'other-tool.json',
-      JSON.stringify({ fields: [{ type: 'text', name: 'email' }], ignoredFields: ['captcha'] }),
+      JSON.stringify({ hello: 'world', from: 'somewhere else entirely' }),
       'Nothing in that file',
+    ],
+    // UC-027's owed pointer, sharpened in the change that built the
+    // converter: a Fake Filler backup is the one foreign file with a name
+    // and a destination, and the importer says both rather than the
+    // generic nothing-is-ours. Recognised on the reference's documented
+    // keys — which is why this case's file is exactly such a backup.
+    [
+      'A5 · a Fake Filler backup, refused with its destination',
+      'fake-filler.txt',
+      Buffer.from(JSON.stringify({
+        version: 1,
+        fields: [{ type: 'text', name: 'email', match: ['email'] }],
+        ignoredFields: ['captcha'],
+      }), 'utf8').toString('base64'),
+      'Fake Filler backup',
     ],
     // A9, and the only refusal here that the unit tests cannot reach: this one
     // is decided from `File.size` before `text()` is called at all, so what is

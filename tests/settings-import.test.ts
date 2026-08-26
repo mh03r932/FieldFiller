@@ -81,13 +81,55 @@ describe('refusing a file', () => {
     expect(outcome.refusal.code).toBe('importRefusedNewer');
   });
 
-  it('refuses a file with no section of ours in it (A5, BR-026-4)', () => {
-    // Shaped like a backup from another form filler: plausible, structured, and
-    // holding nothing this schema can name.
+  it('refuses a Fake Filler backup by name, pointing at the migration (A5, sharpened by UC-027)', () => {
+    // Shaped exactly like a Fake Filler backup: the reference's documented
+    // keys, nothing of ours. Until the migration existed this file met the
+    // generic refusal below; now it meets its own, because the migrant's
+    // correction is a different feature, not a different file.
     const outcome = analyse({
       fields: [{ type: 'text', name: 'email' }],
       ignoredFields: ['captcha'],
       defaultMaxLength: 20,
+    });
+
+    expect(outcome.ok).toBe(false);
+    if (outcome.ok) return;
+    expect(outcome.refusal.code).toBe('importRefusedFakeFiller');
+  });
+
+  it('recognises a Fake Filler backup before reading its version (UC-027 A1’s mirror)', () => {
+    // A backup's `version` describes the reference's schema, not ours, so
+    // version 5 here is not "a newer version of the settings format". The
+    // wrong refusal would name a reason that is not true.
+    const outcome = analyse({
+      version: 5,
+      fields: [{ type: 'email', name: 'email', match: ['email'] }],
+    });
+
+    expect(outcome.ok).toBe(false);
+    if (outcome.ok) return;
+    expect(outcome.refusal.code).toBe('importRefusedFakeFiller');
+  });
+
+  it('recognises a backup in the reference’s Base64 transport, not just as JSON', () => {
+    // The reference's exports download as Base64 `.txt` files, and a
+    // migrant pointing the import section at one has made a natural mistake.
+    // "Not JSON" would name a fault the file does not have; the pointer
+    // names the section that reads it.
+    const backup = { version: 1, fields: [{ type: 'text', name: 'email', match: ['email'] }] };
+    const outcome = analyseImport(btoa(JSON.stringify(backup)), current());
+
+    expect(outcome.ok).toBe(false);
+    if (outcome.ok) return;
+    expect(outcome.refusal.code).toBe('importRefusedFakeFiller');
+  });
+
+  it('refuses a file with no section of ours in it (A5, BR-026-4)', () => {
+    // Not a Fake Filler backup either — the recogniser has said no — so the
+    // generic refusal is the honest one for whatever this is.
+    const outcome = analyse({
+      something: true,
+      somethingElse: [1, 2, 3],
     });
 
     expect(outcome.ok).toBe(false);
