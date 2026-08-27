@@ -96,11 +96,13 @@ export type MigrationDrop = {
     | 'migrateDroppedFieldNoMatch'
     | 'migrateDroppedFieldUnknownType'
     | 'migrateDroppedFieldRefused'
+    | 'migrateDroppedFieldShape'
     | 'migrateDroppedProfile'
     | 'migrateDroppedProfileField'
     | 'migrateDroppedProfileFieldNoMatch'
     | 'migrateDroppedProfileFieldUnknownType'
     | 'migrateDroppedProfileFieldRefused'
+    | 'migrateDroppedProfileFieldShape'
     | 'migrateDroppedPasswordDefined'
     | 'migrateDroppedShape'
     | 'migrateDroppedKey';
@@ -338,6 +340,23 @@ function translate(file: Record<string, unknown>, current: Settings): MigrationP
    * because garbage entries are skipped without renumbering.
    */
   const droppedProfileFields = new Map<number, Set<number>>();
+  /**
+   * Paths a *surviving* entry has already been given a shape line for, so
+   * `unknownEntryKeys` does not give them a second one.
+   *
+   * `settings-import.ts` has threaded exactly this set through `unknownKeys`
+   * since it was written — "A section already reported for its shape is not
+   * descended into" — and this module was built as its twin but carried the
+   * discipline across by hand, omitting `email*` from `ENTRY_KEY_KINDS` where
+   * the importer omits by construction. The hole that left: a key documented
+   * for *another* type, arriving mistyped on an entry that survives, is both
+   * a shape fault (the kind table names it) and an unknown key (its own
+   * type's `FIELD_KEYS` does not list it). `{type: 'email', template: 42}`
+   * earned a `migrateDroppedShape` and a `migrateDroppedKey` for one fault,
+   * two lines and +2 on the count the user is deciding on — the same
+   * double-report the corpse discipline exists to prevent, one level in.
+   */
+  const namedShapes = new Set<string>();
 
   const rules: Rule[] = [];
   for (const [index, entry] of listAt(file, 'fields').entries()) {
@@ -350,6 +369,7 @@ function translate(file: Record<string, unknown>, current: Settings): MigrationP
       // Survivable shape faults first: the rule arrives, and what was
       // unreadable on it is named as a drop beside the note that describes
       // what did arrive.
+      for (const at of outcome.shape) namedShapes.add(at);
       dropped.push(...outcome.shape.map((at) => ({ code: 'migrateDroppedShape' as const, params: [at] })));
       if (outcome.losses.length > 0) {
         noted.push({ code: 'migrateNotedField', params: [outcome.name], losses: outcome.losses });
@@ -389,6 +409,7 @@ function translate(file: Record<string, unknown>, current: Settings): MigrationP
         droppedProfileFields.set(index, corpse);
       } else {
         profileRules.push(outcome.rule);
+        for (const fault of outcome.shape) namedShapes.add(fault);
         dropped.push(
           ...outcome.shape.map((at2) => ({ code: 'migrateDroppedShape' as const, params: [at2] })),
         );
@@ -497,6 +518,7 @@ function translate(file: Record<string, unknown>, current: Settings): MigrationP
       fields: droppedFields,
       profiles: droppedProfiles,
       profileFields: droppedProfileFields,
+      shapes: namedShapes,
     }),
   );
 
@@ -737,6 +759,8 @@ function unknownEntryKeys(
     readonly fields: ReadonlySet<number>;
     readonly profiles: ReadonlySet<number>;
     readonly profileFields: ReadonlyMap<number, ReadonlySet<number>>;
+    /** Paths already given a shape line on a surviving entry. */
+    readonly shapes: ReadonlySet<string>;
   },
 ): readonly MigrationDrop[] {
   const drops: MigrationDrop[] = [];
@@ -746,7 +770,17 @@ function unknownEntryKeys(
     const known = FIELD_KEYS.get(typeof record['type'] === 'string' ? record['type'] : '');
     if (known === undefined) return; // an unknown type is already a drop of its own
     for (const key of Object.keys(record)) {
-      if (!known.has(key)) drops.push({ code: 'migrateDroppedKey', params: [`${prefix}fields[${index}].${key}`] });
+      if (known.has(key)) continue;
+      const at = `${prefix}fields[${index}].${key}`;
+      // One loss per fault. A key the kind table has already named is not
+      // named again here: the two checks ask different questions of the same
+      // key — "is this the kind the schema documents" and "does this type
+      // have a place for it" — and a key documented for another type can
+      // fail both at once. The shape line is the more specific of the two
+      // (it says the value was unreadable, not merely homeless), so it is
+      // the one that stands. BR-027-8.
+      if (reported.shapes.has(at)) continue;
+      drops.push({ code: 'migrateDroppedKey', params: [at] });
     }
   };
 
@@ -818,8 +852,19 @@ type FieldDrop =
   | { readonly reason: 'noMatch'; readonly name: string }
   | { readonly reason: 'unknownType'; readonly name: string; readonly type: string }
   | { readonly reason: 'refused'; readonly name: string; readonly patterns: readonly string[]; readonly problem: RuleProblem }
-  /** A documented key so mistyped the entry cannot be translated at all. */
-  | { readonly reason: 'shape'; readonly paths: readonly string[] };
+  /**
+   * A documented key so mistyped the entry cannot be translated at all.
+   *
+   * Carries the entry's `name` as every other arm does. The paths alone were
+   * what this reported until 2026-08-28, under `migrateDroppedShape` — the
+   * code worded for the *survivable* fault, which ends "This extension's own
+   * default stands". That sentence is true of a rule that arrived with one
+   * setting defaulted and false of an entry that is gone: nothing defaults
+   * for a field there is no longer a rule for. One code cannot mean both, so
+   * the fatal case has its own, and it says what a lost field's line has
+   * always said everywhere else in this report — which field. BR-027-8.
+   */
+  | { readonly reason: 'shape'; readonly name: string; readonly paths: readonly string[] };
 
 function asGlobalDrops(drop: FieldDrop): readonly MigrationDrop[] {
   switch (drop.reason) {
@@ -829,8 +874,14 @@ function asGlobalDrops(drop: FieldDrop): readonly MigrationDrop[] {
       return [{ code: 'migrateDroppedFieldNoMatch', params: [drop.name] }];
     case 'unknownType':
       return [{ code: 'migrateDroppedFieldUnknownType', params: [drop.name, drop.type] }];
+    // One line, not one per path: the loss is the field, and the corpse
+    // discipline this module states everywhere else — an entry already
+    // reported as a drop is not picked over for what else was wrong with it
+    // — applies to an entry's own keys as much as to the scan that walks
+    // them. Every unreadable path is named inside that one line, because the
+    // user still needs to know which key to fix.
     case 'shape':
-      return drop.paths.map((at) => ({ code: 'migrateDroppedShape', params: [at] }));
+      return [{ code: 'migrateDroppedFieldShape', params: [drop.name, drop.paths.join(', ')] }];
     case 'refused':
       // BR-027-3: the report names every pattern that went into the join,
       // because "the rule" was the user's whole list, not the one pattern
@@ -854,7 +905,12 @@ function asProfileDrops(drop: FieldDrop, profile: string): readonly MigrationDro
     case 'unknownType':
       return [{ code: 'migrateDroppedProfileFieldUnknownType', params: [profile, drop.name, drop.type] }];
     case 'shape':
-      return drop.paths.map((at) => ({ code: 'migrateDroppedShape', params: [at] }));
+      return [
+        {
+          code: 'migrateDroppedProfileFieldShape',
+          params: [profile, drop.name, drop.paths.join(', ')],
+        },
+      ];
     case 'refused':
       return [
         {
@@ -896,8 +952,25 @@ function translateField(entry: unknown, index: number, id: string, path: string)
   const shapeFaults: string[] = [];
   const type = typeof record['type'] === 'string' ? record['type'] : undefined;
   for (const [key, kind] of ENTRY_KEY_KINDS) {
-    if (!(key in record) || kindOf(record[key]) === kind) continue;
-    shapeFaults.push(`${path}.${key}`);
+    if (!(key in record)) continue;
+    if (kindOf(record[key]) !== kind) {
+      shapeFaults.push(`${path}.${key}`);
+      continue;
+    }
+    // `Infinity` is a number the way `null` is an object: it satisfies the
+    // kind check and then falls straight through `bounded`'s finite guard to
+    // the fallback with nothing named. `JSON.parse` mints it from any
+    // literal past ~1.8e308, so a hand-edited `min: 1e400` used to arrive as
+    // a silent 0 — the silent-and-behaviour-changing class BR-027-5 forbids,
+    // and the one hole left in a kind table that otherwise names everything.
+    // `bounded`'s own note says a bound this side would quietly move belongs
+    // in the report before the write; this is what makes that true of the
+    // one value it could not state. `defaultMaxLength` at the root has asked
+    // `Number.isInteger` since the round-4 review — the same question, one
+    // level down.
+    if (kind === 'number' && !Number.isFinite(record[key])) {
+      shapeFaults.push(`${path}.${key}`);
+    }
   }
 
   // A match list that is present, well-shaped, and carries nothing readable
@@ -911,13 +984,22 @@ function translateField(entry: unknown, index: number, id: string, path: string)
 
   const fatal = shapeFaults.some((fault) => {
     const key = fault.slice(path.length + 1);
-    if (key === 'match' || key === 'type' || key === 'list') return true;
+    if (key === 'match' || key === 'type') return true;
+    // `list` builds the generator for exactly one type. Anywhere else it is
+    // a key the entry had no place for — which `unknownEntryKeys` reports as
+    // a dropped key and lets the rule through — so taking the whole rule for
+    // a *mistyped* one held the malformed case to a stricter standard than
+    // the well-formed one, and an email field carrying `list: 42` lost its
+    // patterns, its name and its generator over a key that means nothing to
+    // it. Same rule as `template` below: fatal where the generator is built
+    // from it, survivable where it is not (BR-027-8).
+    if (key === 'list') return type === 'randomized-list';
     // A template the template-built generators cannot read leaves nothing
     // to generate; for telephone and date it is a survivable default.
     return key === 'template' && (type === 'alphanumeric' || type === 'regex');
   });
   if (fatal) {
-    return { kind: 'drop', drop: { reason: 'shape', paths: shapeFaults } };
+    return { kind: 'drop', drop: { reason: 'shape', name, paths: shapeFaults } };
   }
 
   const patterns = patternsOf(record['match']);
@@ -1077,8 +1159,12 @@ function translateGenerator(
       // text by words, the reference's by characters, and importing the
       // cap verbatim would change what the rule *is* rather than lose a
       // setting. Our default sizing stands and the cap is named.
-      if (typeof record['maxLength'] === 'number') {
-        losses.push({ code: 'migrateLossMaxLength', params: [String(record['maxLength'])] });
+      // Finite, or the shape check above has already spoken for it: "the
+      // per-field cap of Infinity characters" is a sentence about a cap the
+      // backup does not carry, printed beside the drop that says so.
+      const cap = record['maxLength'];
+      if (typeof cap === 'number' && Number.isFinite(cap)) {
+        losses.push({ code: 'migrateLossMaxLength', params: [String(cap)] });
       }
       return { generator: { type: 'text', minWords: 5, maxWords: 20 }, losses };
     }

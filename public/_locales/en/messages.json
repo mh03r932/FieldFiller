@@ -1634,6 +1634,18 @@
       }
     }
   },
+  "migrateDroppedFieldShape": {
+    "message": "Field \"$NAME$\" carries $KEYS$ with a kind this extension cannot read, so no rule could be built for it.",
+    "description": "A fatal entry-level shape fault (UC-027 step 4). Distinct from migrateDroppedShape, which is worded for the survivable case and ends 'This extension's own default stands' \u2014 true when the rule arrives and one setting defaulted, false when the entry is gone and no default stands for it. The field is named here for the reason every other field drop names it: a bare path tells the user which key was wrong and not which of their fields they lost.",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      },
+      "keys": {
+        "content": "$2"
+      }
+    }
+  },
   "migrateDroppedProfile": {
     "message": "Profile #$INDEX$ in the backup is not shaped the way a Fake Filler profile is, so nothing from it could be translated.",
     "description": "A profiles[] entry that is not an object — dropped whole rather than becoming an empty profile the backup never carried. Named by position: an unreadable entry has no name to translate.",
@@ -1697,6 +1709,21 @@
       },
       "problem": {
         "content": "$4"
+      }
+    }
+  },
+  "migrateDroppedProfileFieldShape": {
+    "message": "In profile \"$PROFILE$\", field \"$NAME$\" carries $KEYS$ with a kind this extension cannot read, so no rule could be built for it.",
+    "description": "The fatal entry-level shape fault inside a profile. Every other profile-field drop names its profile; the shape arm was the one that did not, leaving a bare path where the rest of the report speaks in the user's own names.",
+    "placeholders": {
+      "profile": {
+        "content": "$1"
+      },
+      "name": {
+        "content": "$2"
+      },
+      "keys": {
+        "content": "$3"
       }
     }
   },

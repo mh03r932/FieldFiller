@@ -1130,9 +1130,19 @@ describe('translating the root settings', () => {
     expect(outcome.ok).toBe(true);
     if (!outcome.ok) return;
     expect(outcome.plan.settings.rules).toEqual([]);
+    // Named as the *field* that was lost, not as a bare path: the fatal
+    // sentence has to say which of the user's fields is gone, and it must
+    // not be the survivable code, which ends "This extension's own default
+    // stands" — no default stands for a rule that was never built.
     expect(
-      outcome.plan.dropped.some((drop) => drop.code === 'migrateDroppedShape' && drop.params[0] === 'fields[0].match'),
+      outcome.plan.dropped.some(
+        (drop) =>
+          drop.code === 'migrateDroppedFieldShape' &&
+          drop.params[0] === 'mail' &&
+          drop.params[1] === 'fields[0].match',
+      ),
     ).toBe(true);
+    expect(outcome.plan.dropped.some((drop) => drop.code === 'migrateDroppedShape')).toBe(false);
     expect(outcome.plan.dropped.some((drop) => drop.code === 'migrateDroppedFieldNoMatch')).toBe(false);
   });
 
@@ -1146,7 +1156,9 @@ describe('translating the root settings', () => {
     expect(garbage.ok && empty.ok).toBe(true);
     if (!garbage.ok || !empty.ok) return;
     expect(
-      garbage.plan.dropped.some((drop) => drop.code === 'migrateDroppedShape' && drop.params[0] === 'fields[0].match'),
+      garbage.plan.dropped.some(
+        (drop) => drop.code === 'migrateDroppedFieldShape' && drop.params[1] === 'fields[0].match',
+      ),
     ).toBe(true);
     expect(empty.plan.dropped.some((drop) => drop.code === 'migrateDroppedFieldNoMatch')).toBe(true);
   });
@@ -1201,11 +1213,148 @@ describe('translating the root settings', () => {
     expect(outcome.ok).toBe(true);
     if (!outcome.ok) return;
     expect(outcome.plan.settings.rules).toEqual([]);
-    const paths = outcome.plan.dropped.filter((drop) => drop.code === 'migrateDroppedShape').map((drop) => drop.params[0]);
-    expect(paths).toContain('fields[0].template');
-    expect(paths).toContain('fields[1].template');
-    // The generic "could not be translated" line is not added beside them.
+    const fatal = outcome.plan.dropped.filter((drop) => drop.code === 'migrateDroppedFieldShape');
+    expect(fatal.map((drop) => drop.params)).toEqual([
+      ['serial', 'fields[0].template'],
+      ['ref', 'fields[1].template'],
+    ]);
+    // The generic "could not be translated" line is not added beside them,
+    // and neither is the survivable shape code.
     expect(outcome.plan.dropped.some((drop) => drop.code === 'migrateDroppedField')).toBe(false);
+    expect(outcome.plan.dropped.some((drop) => drop.code === 'migrateDroppedShape')).toBe(false);
+  });
+
+  it('keeps a rule whose mistyped `list` its own type has no place for', () => {
+    // `list` builds the generator for `randomized-list` and for nothing
+    // else. A well-kinded one on a foreign type has always been survivable
+    // — `unknownEntryKeys` names it as a dropped key and the rule arrives —
+    // so a *mistyped* one being fatal held the malformed case to a stricter
+    // standard than the well-formed one, and an email field lost its
+    // patterns, its name and its generator over a key that means nothing to
+    // it. Fatal only where the generator is built from it.
+    const foreign = analyse(backup({ fields: [field('mail', { type: 'email', list: 42 })] }));
+    const own = analyse(backup({ fields: [field('pick', { type: 'randomized-list', list: 42 })] }));
+
+    expect(foreign.ok && own.ok).toBe(true);
+    if (!foreign.ok || !own.ok) return;
+
+    // The rule arrives, and the unreadable key is still named on it.
+    expect(foreign.plan.settings.rules).toHaveLength(1);
+    expect(foreign.plan.settings.rules[0]?.generator).toEqual({ type: 'email' });
+    expect(
+      foreign.plan.dropped.some(
+        (drop) => drop.code === 'migrateDroppedShape' && drop.params[0] === 'fields[0].list',
+      ),
+    ).toBe(true);
+
+    // Where the generator *is* the list, the same fault is fatal — and the
+    // fatal line names the field rather than leaving a bare path.
+    expect(own.plan.settings.rules).toEqual([]);
+    expect(
+      own.plan.dropped.some(
+        (drop) =>
+          drop.code === 'migrateDroppedFieldShape' &&
+          drop.params[0] === 'pick' &&
+          drop.params[1] === 'fields[0].list',
+      ),
+    ).toBe(true);
+  });
+
+  it('names a surviving entry’s mistyped key once, not once per check that saw it', () => {
+    // The corpse discipline, applied to an entry’s own keys. A key
+    // documented for *another* type, arriving mistyped on an entry that
+    // survives, fails two checks at once: the kind table says the value is
+    // unreadable, and the type’s own FIELD_KEYS says the name is homeless.
+    // Both used to speak — two lines and +2 on the count the user is
+    // deciding on, for one fault. `settings-import.ts` has threaded exactly
+    // this set through `unknownKeys` since it was written.
+    const outcome = analyse(
+      backup({
+        fields: [
+          field('mail', { type: 'email', template: 42 }),
+          field('bio', { type: 'text', min: '18' }),
+        ],
+      }),
+    );
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.plan.settings.rules).toHaveLength(2);
+
+    for (const at of ['fields[0].template', 'fields[1].min']) {
+      const lines = outcome.plan.dropped.filter((drop) => drop.params[0] === at);
+      expect(lines).toHaveLength(1);
+      expect(lines[0]?.code).toBe('migrateDroppedShape');
+    }
+
+    // A well-kinded key its type has no place for is still an unknown key:
+    // only the *doubling* is gone, not the report.
+    const wellKinded = analyse(backup({ fields: [field('mail', { type: 'email', template: 'x' })] }));
+    expect(wellKinded.ok).toBe(true);
+    if (!wellKinded.ok) return;
+    expect(
+      wellKinded.plan.dropped.filter((drop) => drop.params[0] === 'fields[0].template'),
+    ).toEqual([{ code: 'migrateDroppedKey', params: ['fields[0].template'] }]);
+
+    // The same, one level in. The scan walks a profile's fields under a
+    // prefix and the shape check names them under the same one, so the two
+    // agree there or the fix only ever covered the global list.
+    const inProfile = analyse(
+      backup({
+        profiles: [
+          { name: 'Staging', urlMatch: 's', fields: [field('mail', { type: 'email', template: 42 })] },
+        ],
+      }),
+    );
+    expect(inProfile.ok).toBe(true);
+    if (!inProfile.ok) return;
+    expect(inProfile.plan.settings.profiles[0]?.rules).toHaveLength(1);
+    expect(
+      inProfile.plan.dropped.filter((drop) => drop.params[0] === 'profiles[0].fields[0].template'),
+    ).toEqual([{ code: 'migrateDroppedShape', params: ['profiles[0].fields[0].template'] }]);
+  });
+
+  it('names a number literal that parsed to Infinity rather than defaulting on it', () => {
+    // `JSON.parse` mints Infinity from any literal past ~1.8e308. It passes
+    // the kind check — typeof is 'number' — and then falls straight through
+    // `bounded`'s finite guard to the fallback: a stated min of 1e400
+    // arrived as 0 with nothing in either list. That is the silent,
+    // behaviour-changing class BR-027-5 forbids, and the one hole left in a
+    // kind table that otherwise names everything.
+    // Written as raw text, not through `analyse`: `JSON.stringify` cannot
+    // express the literal — it serialises Infinity back out as `null` — so
+    // the value only exists on the way *in*, which is the whole point.
+    const outcome = analyseMigration(
+      '{"version":1,"agreeTermsConditions":true,"profiles":[],"fields":[' +
+        '{"type":"number","name":"count","match":["count"],"min":1e400,"max":5},' +
+        '{"type":"text","name":"bio","match":["bio"],"maxLength":-1e400}]}',
+      current(),
+    );
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+
+    // Both rules arrive on their defaults — the fault is survivable — and
+    // both defaults are named by path.
+    expect(outcome.plan.settings.rules).toHaveLength(2);
+    expect(outcome.plan.settings.rules[0]?.generator).toEqual({
+      type: 'number',
+      min: 0,
+      max: 5,
+      decimals: 0,
+    });
+    const paths = outcome.plan.dropped
+      .filter((drop) => drop.code === 'migrateDroppedShape')
+      .map((drop) => drop.params[0]);
+    expect(paths).toContain('fields[0].min');
+    expect(paths).toContain('fields[1].maxLength');
+
+    // And no loss sentence about a cap the backup does not carry: "the
+    // per-field cap of Infinity characters" is a claim about nothing,
+    // printed beside the drop that already says so.
+    expect(lossText(outcome.plan.noted.find((note) => note.params[0] === 'bio'))).not.toContain(
+      'migrateLossMaxLength',
+    );
   });
 
   it('names a mistyped match inside a profile by its full path', () => {
@@ -1218,9 +1367,16 @@ describe('translating the root settings', () => {
     expect(outcome.ok).toBe(true);
     if (!outcome.ok) return;
     expect(outcome.plan.settings.profiles[0]?.rules).toEqual([]);
+    // The profile is named too. Every other profile-field drop names it, and
+    // the shape arm was the one that did not — leaving a bare path where the
+    // rest of the report speaks in the user's own names.
     expect(
       outcome.plan.dropped.some(
-        (drop) => drop.code === 'migrateDroppedShape' && drop.params[0] === 'profiles[0].fields[0].match',
+        (drop) =>
+          drop.code === 'migrateDroppedProfileFieldShape' &&
+          drop.params[0] === 'Staging' &&
+          drop.params[1] === 'user' &&
+          drop.params[2] === 'profiles[0].fields[0].match',
       ),
     ).toBe(true);
   });
