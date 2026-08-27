@@ -429,6 +429,51 @@ describe('translating templates', () => {
     expect(lossText(outcome.plan.noted[0])).not.toContain('{');
   });
 
+  it('drops and names a literal that hides the grammar’s own tokens, rather than letting it half-substitute', () => {
+    // `[summertime]` is a moment literal; this grammar has no escape, and
+    // formatDate substitutes `mm` *anywhere* — so emitting the literal raw
+    // put the minutes of a random date inside the word, on every generated
+    // date, with no loss named. The homeless-token precedent, applied to
+    // the one place tokens can hide: token-bearing characters dropped and
+    // named, the rest of the literal carried.
+    const outcome = analyse(
+      backup({ fields: [field('when', { type: 'date', template: 'DD [summertime] YYYY' })] }),
+    );
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.plan.settings.rules[0]?.generator).toMatchObject({ format: 'DD suertime YYYY' });
+    expect(lossText(outcome.plan.noted[0])).toContain('migrateLossDateToken:mm');
+    // And no ruleProblemDateNoToken either way: a token-bearing format
+    // survives save-time validation precisely because of the hiding.
+    expect(outcome.plan.dropped).toEqual([]);
+  });
+
+  it('takes an impossible-date bound down the named path, not the refused-rule one', () => {
+    // 2026-02-31 parses on engines that roll impossible dates forward (this
+    // V8 still does) and is NaN on engines following the tightened parsing
+    // spec — engine-dependent either way, which is why the bound is asked
+    // through `isIsoDate`, the same engine-independent round-trip
+    // `validateRule` uses. Until it was, the rolling engines accepted the
+    // bound here and then `validateRule` refused the whole field as
+    // "cannot be stored" — the misleading outcome, two functions answering
+    // one question differently.
+    const outcome = analyse(
+      backup({
+        fields: [
+          field('when', { type: 'date', template: 'YYYY-MM-DD', minDate: '2026-02-31' }),
+        ],
+      }),
+    );
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.plan.settings.rules).toHaveLength(1);
+    expect(outcome.plan.settings.rules[0]?.generator).toMatchObject({ from: '1970-01-01' });
+    expect(lossText(outcome.plan.noted[0])).toContain('migrateLossDateBound:minDate,2026-02-31');
+    expect(outcome.plan.dropped).toEqual([]);
+  });
+
   it('maps a full month name to the nearest token and names it', () => {
     const outcome = analyse(
       backup({ fields: [field('when', { type: 'date', template: 'MMMM YYYY' })] }),

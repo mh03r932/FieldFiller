@@ -9,6 +9,7 @@ import {
   type SourceToggles,
 } from './settings';
 import { validateMatcher, validateRule, type RuleProblem } from './rules/validate';
+import { isIsoDate, withoutDateTokens } from './rules/dates';
 import { MAX_IMPORT_SIZE, oversizeRefusal, kindOf, type Counts } from './settings-import';
 import { decodeBackupTransport, looksLikeFakeFiller } from './fakefiller-recognise';
 
@@ -1003,9 +1004,17 @@ function isoOr(
   losses: MigrationLoss[],
 ): string {
   if (typeof value !== 'string') return fallback;
-  if (/^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(Date.parse(`${value}T00:00:00Z`))) {
-    return value;
-  }
+  // `isIsoDate`, the same function `validateRule` asks — one function, one
+  // answer, and the answer is engine-independent where the check this
+  // replaced was not. `!Number.isNaN(Date.parse(…))` accepts 2026-02-31 on
+  // engines that roll impossible dates forward (this V8 does, still) and
+  // rejects it on engines following the tightened parsing spec, so the same
+  // backup bounded differently per browser — and on the rolling engines the
+  // bound then failed `validateRule` wholesale, dropping the field as
+  // "cannot be stored" instead of taking this path: the default standing,
+  // the bound named. The round-trip inside `isIsoDate` is false on both
+  // engine behaviours, which is the only answer a translation can give.
+  if (isIsoDate(value)) return value;
   losses.push({ code: 'migrateLossDateBound', params: [name, value] });
   return fallback;
 }
@@ -1030,17 +1039,30 @@ function translateDateTemplate(template: string, losses: MigrationLoss[]): strin
     const character = template.charAt(index);
 
     // Moment's literal escape. Ours needs no escape, so the content is the
-    // literal — exact, not a loss, and emitted *raw*: the date grammar
+    // literal — exact, not a loss, and emitted raw: the date grammar
     // treats every character outside its tokens as an ordinary literal and
     // has no brace escape to un-escape. Doubling braces here (the
     // alphanumeric grammar's rule, where `{{` is how a literal brace is
     // written) used to make a template carrying `[{}]` render doubled
     // braces in every generated date, silently — the two grammars
     // disagree about braces, so they no longer share an escaper.
+    //
+    // One thing a literal cannot carry: the grammar's own tokens. There is
+    // no escape to protect them with — `formatDate` substitutes
+    // `YYYY|MMM|…|ss` *anywhere* — so a moment literal like `[summertime]`
+    // used to migrate to a format that substituted `mm` inside it on every
+    // generated date, with no loss named. The plausible conversion that is
+    // sometimes wrong is the class BR-027-5 exists to forbid, applied here
+    // with the homeless-token precedent: the token-bearing characters are
+    // dropped and named, the rest of the literal carried, exactly.
     if (character === '[') {
       const close = template.indexOf(']', index);
       const content = close === -1 ? template.slice(index + 1) : template.slice(index + 1, close);
-      out += content;
+      const safe = withoutDateTokens(content);
+      for (const token of safe.tokens) {
+        losses.push({ code: 'migrateLossDateToken', params: [token] });
+      }
+      out += safe.text;
       index = close === -1 ? template.length : close + 1;
       continue;
     }

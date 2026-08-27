@@ -62,6 +62,26 @@ export function hasDateToken(format: string): boolean {
 }
 
 /**
+ * What `formatDate` would substitute in an arbitrary piece of text, and what
+ * remains of the text with none of it.
+ *
+ * The grammar has no escape: a token matches *anywhere*, including inside
+ * what an author meant as a literal. `hasDateToken` answers the save-time
+ * question (is there anything to substitute at all); this answers the
+ * translation-time one — a moment-style `[literal]` carrying `mm` inside it
+ * cannot be represented in this grammar, and the caller needs to know both
+ * which characters would substitute and what is safely emittable. One regex,
+ * one alternation order, owned here so the answer cannot drift from what
+ * `formatDate` actually does.
+ */
+export function withoutDateTokens(
+  text: string,
+): { readonly text: string; readonly tokens: readonly string[] } {
+  const tokens = text.match(TOKENS) ?? [];
+  return { text: text.replace(TOKENS, ''), tokens };
+}
+
+/**
  * A date drawn uniformly between two ISO bounds, inclusive.
  *
  * UTC throughout. A date generated in local time drifts by a day either side of
