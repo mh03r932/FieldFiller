@@ -29,10 +29,23 @@ const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', '
 /** Longest first, so `MMM` is never read as `MM` followed by a literal `M`. */
 const TOKENS = /YYYY|MMM|YY|MM|DD|HH|mm|ss/g;
 
+/**
+ * What `TOKENS` can hand the substitution callback.
+ *
+ * Written out so the switch below can be exhaustive and carry no `default`.
+ * The arm it used to carry — `return token` — was unreachable by
+ * construction (nothing outside the alternation reaches that callback), which
+ * made it the one uncovered line in this module and, worse, a silent licence
+ * to add a ninth token to the regex without adding its case: the new token
+ * would have echoed itself into every generated date instead of failing to
+ * compile. The union and the alternation have to be edited together now.
+ */
+type DateToken = 'YYYY' | 'MMM' | 'YY' | 'MM' | 'DD' | 'HH' | 'mm' | 'ss';
+
 export function formatDate(date: Date, format: string): string {
   TOKENS.lastIndex = 0;
   return format.replace(TOKENS, (token) => {
-    switch (token) {
+    switch (token as DateToken) {
       case 'YYYY':
         return String(date.getUTCFullYear());
       case 'YY':
@@ -49,8 +62,6 @@ export function formatDate(date: Date, format: string): string {
         return pad(date.getUTCMinutes());
       case 'ss':
         return pad(date.getUTCSeconds());
-      default:
-        return token;
     }
   });
 }
@@ -103,7 +114,17 @@ export function isIsoDate(value: string): boolean {
   const parsed = Date.parse(`${value}T00:00:00Z`);
   if (Number.isNaN(parsed)) return false;
   // `Date.parse` accepts 2026-02-31 and rolls it forward, so the round trip is
-  // what actually rejects a day that does not exist.
+  // what actually rejects a day that does not exist. It is also engine-dependent
+  // in the other direction — the tightened parsing spec rejects what this V8
+  // rolls — which is why the round trip rather than the parse is the answer:
+  // it is false on both behaviours.
+  //
+  // `Temporal.PlainDate.from(value, { overflow: 'reject' })` throws on exactly
+  // this input by specification, and would delete both the round trip and the
+  // paragraph above it. It is deferred, not overlooked: NFR-016's floors
+  // (Chrome 120, Firefox 128) predate `Temporal` in both engines, and the
+  // implementation plan's Deferred table records the decision and what has to
+  // change for it to be revisited.
   return new Date(parsed).toISOString().startsWith(value);
 }
 
