@@ -55,6 +55,17 @@ type Pending =
   | { readonly kind: 'read'; readonly name: string; readonly text: string }
   | { readonly kind: 'oversize'; readonly name: string; readonly size: number };
 
+/**
+ * The last pick made, for the race the `await` in `chosen` opens — the
+ * migrate section's token, on this section's own terms: `pending` is written
+ * only after `file.text()` resolves, and the chooser is still mounted during
+ * that await, so a second pick races the first and whichever read resolves
+ * last wins. A token discards the superseded read; last *pick* wins, the
+ * invariant the picker itself promises. Pre-existing here, found with the
+ * migrate section's copy.
+ */
+let pick = 0;
+
 export function renderImport(host: OptionsHost, into: HTMLElement): void {
   const chooser = document.createElement('input');
   chooser.type = 'file';
@@ -89,6 +100,7 @@ export function renderImport(host: OptionsHost, into: HTMLElement): void {
 }
 
 async function chosen(host: OptionsHost, into: HTMLElement, file: File | undefined): Promise<void> {
+  const token = ++pick;
   if (file === undefined) {
     pending = undefined;
     renderImport(host, into);
@@ -109,14 +121,25 @@ async function chosen(host: OptionsHost, into: HTMLElement, file: File | undefin
     return;
   }
 
+  let text: string;
   try {
-    pending = { kind: 'read', name: file.name, text: await file.text() };
+    text = await file.text();
   } catch (error) {
     // The file was picked and could not be read — removed since, or unreadable.
     // Distinct from a file that read fine and is not ours, which is A1's job.
+    if (token !== pick) return; // a later pick superseded this read
     pending = undefined;
     host.announce(message('importUnreadable', [reason(error)]));
+    renderImport(host, into);
+    focusOutcome(into);
+    return;
   }
+
+  // A pick made while this read was in flight has already rendered its own
+  // outcome; this stale read writes nothing over it.
+  if (token !== pick) return;
+
+  pending = { kind: 'read', name: file.name, text };
   renderImport(host, into);
   focusOutcome(into);
 }

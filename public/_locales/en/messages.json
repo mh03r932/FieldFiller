@@ -1724,7 +1724,7 @@
   },
   "migrateNotedField": {
     "message": "Field \"$NAME$\" arrives without: $LOSSES$.",
-    "description": "A3's heart: every setting that did not survive, named on the rule the user recognises — a sentence, not a count.",
+    "description": "A3's heart: every setting that did not survive, named on the rule the user recognises — a sentence, not a count. $LOSSES$ is a joined list of migrateLoss* sentences, resolved each against the catalog (NFR-018), never prose assembled in code.",
     "placeholders": {
       "name": {
         "content": "$1"
@@ -1733,6 +1733,94 @@
         "content": "$2"
       }
     }
+  },
+  "migrateLossSetting": {
+    "message": "$SETTING$",
+    "description": "A setting identifier from the backup itself — emailPrefix, emailHostname — substituted as its own name. The file's own identifier is never translated; the message exists so the join around it is built from catalog entries like every other loss.",
+    "placeholders": {
+      "setting": {
+        "content": "$1",
+        "example": "emailPrefix"
+      }
+    }
+  },
+  "migrateLossTelephoneTemplate": {
+    "message": "the telephone template \"$TEMPLATE$\" (numbers here draw from the fill's person)",
+    "description": "The reference's telephone mask, dropped because ours generates coherent numbers.",
+    "placeholders": {
+      "template": {
+        "content": "$1",
+        "example": "+1 (XxX) XxX-XxxX"
+      }
+    }
+  },
+  "migrateLossRangeReordered": {
+    "message": "min and max, which arrived reversed and were stored reordered",
+    "description": "A number field whose bounds were the wrong way round; the parser orders them, and the report says the stored rule differs from the file."
+  },
+  "migrateLossClamped": {
+    "message": "$SETTING$, moved from $FROM$ to the nearest bound this side keeps ($TO$)",
+    "description": "A numeric setting outside the bounds this schema enforces.",
+    "placeholders": {
+      "setting": {
+        "content": "$1",
+        "example": "min"
+      },
+      "from": {
+        "content": "$2",
+        "example": "1e+300"
+      },
+      "to": {
+        "content": "$3",
+        "example": "1e+15"
+      }
+    }
+  },
+  "migrateLossDateToken": {
+    "message": "the date-format token \"$TOKEN$\"",
+    "description": "A moment-style token with no counterpart here — named per token, nearest-or-nothing per the module's recorded deviation.",
+    "placeholders": {
+      "token": {
+        "content": "$1",
+        "example": "MMMM"
+      }
+    }
+  },
+  "migrateLossDateBound": {
+    "message": "the date bound $SETTING$ (\"$VALUE$\" is not a date this side reads)",
+    "description": "A minDate/maxDate that does not parse as ISO; the default range stands for it.",
+    "placeholders": {
+      "setting": {
+        "content": "$1",
+        "example": "maxDate"
+      },
+      "value": {
+        "content": "$2",
+        "example": "01/03/2020"
+      }
+    }
+  },
+  "migrateLossMaxLength": {
+    "message": "the per-field cap of $LENGTH$ characters (this side sizes text by words)",
+    "description": "The reference's character cap has no word-count equivalent.",
+    "placeholders": {
+      "length": {
+        "content": "$1",
+        "example": "40"
+      }
+    }
+  },
+  "migrateLossUpperConsonant": {
+    "message": "C (an uppercase consonant — consonants here have no case)",
+    "description": "The reference's template letter, mapped to the nearest placeholder."
+  },
+  "migrateLossUpperVowel": {
+    "message": "V (an uppercase vowel — vowels here have no case)",
+    "description": "The reference's template letter, mapped to the nearest placeholder."
+  },
+  "migrateLossNonzeroDigit": {
+    "message": "X (a nonzero digit — digits here include zero)",
+    "description": "The reference's template letter, mapped to the nearest placeholder."
   },
   "migrateNotedExclusion": {
     "message": "The backup's ignored-field pattern \u201c$PATTERN$\u201d is carried across as it is: $PROBLEM$",

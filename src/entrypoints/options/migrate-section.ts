@@ -64,6 +64,20 @@ type Pending =
   | { readonly kind: 'read'; readonly name: string; readonly text: string }
   | { readonly kind: 'oversize'; readonly name: string; readonly size: number };
 
+/**
+ * The last pick made, for the race the `await` in `chosen` opens.
+ *
+ * `pending` is written only after `file.text()` resolves, and the chooser is
+ * still mounted during that await — so a second pick starts a second `chosen`
+ * and whichever read resolves *last* wins `pending` and the final render: a
+ * large first file can overwrite a later, smaller pick. Element identity
+ * cannot guard this (both picks land on the same still-mounted input), so a
+ * token does: every pick increments, and a read whose token has been
+ * superseded is discarded on resolution. Last *pick* wins, whatever the
+ * reads' completion order — the invariant the picker itself promises.
+ */
+let pick = 0;
+
 export function renderMigrate(host: OptionsHost, into: HTMLElement): void {
   const chooser = document.createElement('input');
   chooser.type = 'file';
@@ -99,6 +113,7 @@ export function renderMigrate(host: OptionsHost, into: HTMLElement): void {
 }
 
 async function chosen(host: OptionsHost, into: HTMLElement, file: File | undefined): Promise<void> {
+  const token = ++pick;
   if (file === undefined) {
     pending = undefined;
     renderMigrate(host, into);
@@ -121,12 +136,24 @@ async function chosen(host: OptionsHost, into: HTMLElement, file: File | undefin
     return;
   }
 
+  let text: string;
   try {
-    pending = { kind: 'read', name: file.name, text: await file.text() };
+    text = await file.text();
   } catch (error) {
+    if (token !== pick) return; // a later pick superseded this read
     pending = undefined;
     host.announce(message('migrateUnreadable', [reason(error)]));
+    renderMigrate(host, into);
+    focusOutcome(into);
+    return;
   }
+
+  // The race guard's whole duty: a pick made while this read was in flight
+  // has already rendered its own outcome, and this stale read writes
+  // nothing over it.
+  if (token !== pick) return;
+
+  pending = { kind: 'read', name: file.name, text };
   renderMigrate(host, into);
   focusOutcome(into);
 }
@@ -342,15 +369,23 @@ function notedView(noted: readonly MigrationNote[]): HTMLElement {
   for (const note of noted) {
     const item = document.createElement('li');
     // As in `droppedView`: every parameter came out of the user's backup, so
-    // it is written as text and can never become markup. The fault is
-    // appended only where there is one — an exclusion note carries its
-    // `RuleProblem` the way a refused rule's drop does, and `problemText`
-    // resolves it so the catalog decides where in the sentence it lands
-    // (NFR-018).
-    item.textContent = message(
-      note.code,
-      note.problem === undefined ? note.params : [...note.params, problemText(note.problem)],
-    );
+    // it is written as text and can never become markup. Two joinings, both
+    // deliberate: the fault (where there is one) is resolved by
+    // `problemText` and appended, so the catalog decides where in the
+    // sentence it lands; and a field's losses are each resolved against
+    // their own `migrateLoss*` key before being joined into the frame's
+    // $LOSSES$ slot — the wording of "min and max reordered" belongs to the
+    // catalog exactly as the sentence around it does, for `problems.ts`'s
+    // reason: a frame that can be translated with a payload that never
+    // could be is a sentence no translation will ever complete (NFR-018).
+    const frame = [
+      ...note.params,
+      note.losses === undefined
+        ? undefined
+        : note.losses.map((loss) => message(loss.code, loss.params)).join('; '),
+      note.problem === undefined ? undefined : problemText(note.problem),
+    ].filter((part): part is string => part !== undefined);
+    item.textContent = message(note.code, frame);
     list.append(item);
   }
 

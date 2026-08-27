@@ -136,11 +136,42 @@ export type MigrationNote = {
     | 'migrateNotedPasswordRandom';
   readonly params: readonly string[];
   /**
+   * The per-setting losses behind a field note (A3), carried as catalog keys
+   * and their substitutions — never as joined English prose. The catalogue
+   * owns the wording of "min and max reordered" exactly as it owns the
+   * sentence around it, for `problems.ts`'s reason: a frame that can be
+   * translated with a payload that never could is a sentence no translation
+   * will ever complete (NFR-018).
+   */
+  readonly losses?: readonly MigrationLoss[];
+  /**
    * The fault behind an exclusion note, carried rather than worded — the
    * importer's `ImportNote` discipline, for its reason: a `RuleProblem` is
    * already a catalog key, and the surface resolves it into the sentence.
    */
   readonly problem?: RuleProblem;
+};
+
+/**
+ * One setting a translated rule arrives without, as a catalog key plus its
+ * substitutions. The one code carrying an identifier from the file
+ * (`migrateLossSetting`) exists so an identifier need not be translated —
+ * it is the backup's own name for a setting, substituted into a message
+ * that is otherwise empty of prose.
+ */
+export type MigrationLoss = {
+  readonly code:
+    | 'migrateLossSetting'
+    | 'migrateLossTelephoneTemplate'
+    | 'migrateLossRangeReordered'
+    | 'migrateLossClamped'
+    | 'migrateLossDateToken'
+    | 'migrateLossDateBound'
+    | 'migrateLossMaxLength'
+    | 'migrateLossUpperConsonant'
+    | 'migrateLossUpperVowel'
+    | 'migrateLossNonzeroDigit';
+  readonly params: readonly string[];
 };
 
 /* --------------------------------------------------------------------- plan */
@@ -315,7 +346,7 @@ function translate(file: Record<string, unknown>, current: Settings): MigrationP
     } else {
       rules.push(outcome.rule);
       if (outcome.losses.length > 0) {
-        noted.push({ code: 'migrateNotedField', params: [outcome.name, outcome.losses.join('; ')] });
+        noted.push({ code: 'migrateNotedField', params: [outcome.name], losses: outcome.losses });
       }
     }
   }
@@ -350,7 +381,8 @@ function translate(file: Record<string, unknown>, current: Settings): MigrationP
         if (outcome.losses.length > 0) {
           noted.push({
             code: 'migrateNotedProfileField',
-            params: [name, outcome.name, outcome.losses.join('; ')],
+            params: [name, outcome.name],
+            losses: outcome.losses,
           });
         }
       }
@@ -658,7 +690,7 @@ function unknownEntryKeys(
  * around them.
  */
 type FieldOutcome =
-  | { readonly kind: 'rule'; readonly rule: Rule; readonly name: string; readonly losses: readonly string[] }
+  | { readonly kind: 'rule'; readonly rule: Rule; readonly name: string; readonly losses: readonly MigrationLoss[] }
   | { readonly kind: 'drop'; readonly drop: FieldDrop };
 
 /**
@@ -804,8 +836,8 @@ const FAKEFILLER_TYPES: ReadonlySet<string> = new Set([
  */
 function translateGenerator(
   record: Record<string, unknown>,
-): { readonly generator: Generator; readonly losses: readonly string[] } | undefined {
-  const losses: string[] = [];
+): { readonly generator: Generator; readonly losses: readonly MigrationLoss[] } | undefined {
+  const losses: MigrationLoss[] = [];
   const type = record['type'];
 
   switch (type) {
@@ -838,7 +870,7 @@ function translateGenerator(
         'emailUsernameList',
         'emailUsernameRegEx',
       ]) {
-        if (key in record) losses.push(key);
+        if (key in record) losses.push({ code: 'migrateLossSetting', params: [key] });
       }
       return { generator: { type: 'email' }, losses };
     }
@@ -848,7 +880,7 @@ function translateGenerator(
       // coherent with the record; the reference's template has no
       // equivalent and is named only when the entry carries one.
       if (typeof record['template'] === 'string' && record['template'] !== '') {
-        losses.push(`template "${record['template']}"`);
+        losses.push({ code: 'migrateLossTelephoneTemplate', params: [String(record['template'])] });
       }
       return { generator: { type: 'telephone' }, losses };
     }
@@ -864,7 +896,7 @@ function translateGenerator(
         losses,
       );
       const [low, high] = min <= max ? [min, max] : [max, min];
-      if (min > max) losses.push('min and max reordered');
+      if (min > max) losses.push({ code: 'migrateLossRangeReordered', params: [] });
       return { generator: { type: 'number', min: low, max: high, decimals }, losses };
     }
 
@@ -890,7 +922,9 @@ function translateGenerator(
       // text by words, the reference's by characters, and importing the
       // cap verbatim would change what the rule *is* rather than lose a
       // setting. Our default sizing stands and the cap is named.
-      if (typeof record['maxLength'] === 'number') losses.push(`maxLength ${String(record['maxLength'])}`);
+      if (typeof record['maxLength'] === 'number') {
+        losses.push({ code: 'migrateLossMaxLength', params: [String(record['maxLength'])] });
+      }
       return { generator: { type: 'text', minWords: 5, maxWords: 20 }, losses };
     }
 
@@ -940,22 +974,27 @@ function bounded(
   fallback: number,
   bounds: { readonly min: number; readonly max: number },
   name: string,
-  losses: string[]): number {
+  losses: MigrationLoss[]): number {
   if (typeof value !== 'number' || !Number.isFinite(value)) return fallback;
   const clamped = Math.min(bounds.max, Math.max(bounds.min, Math.trunc(value)));
   if (clamped !== value) {
-    losses.push(`${name} ${String(value)} → ${String(clamped)}`);
+    losses.push({ code: 'migrateLossClamped', params: [name, String(value), String(clamped)] });
   }
   return clamped;
 }
 
 /** A date bound: strict ISO from the backup, or our default, named. */
-function isoOr(name: string, value: unknown, fallback: string, losses: string[]): string {
+function isoOr(
+  name: string,
+  value: unknown,
+  fallback: string,
+  losses: MigrationLoss[],
+): string {
   if (typeof value !== 'string') return fallback;
   if (/^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(Date.parse(`${value}T00:00:00Z`))) {
     return value;
   }
-  losses.push(`${name} "${value}"`);
+  losses.push({ code: 'migrateLossDateBound', params: [name, value] });
   return fallback;
 }
 
@@ -971,7 +1010,7 @@ function isoOr(name: string, value: unknown, fallback: string, losses: string[])
  * "pass through as a literal" cannot be taken literally, `MMMM` being the
  * case that cannot be represented at all.
  */
-function translateDateTemplate(template: string, losses: string[]): string {
+function translateDateTemplate(template: string, losses: MigrationLoss[]): string {
   let out = '';
 
   let index = 0;
@@ -1016,7 +1055,7 @@ function translateDateTemplate(template: string, losses: string[]): string {
 const MOMENT_TOKEN_LETTERS: ReadonlySet<string> = new Set(['Y', 'M', 'D', 'H', 'h', 'm', 's', 'S', 'A', 'a', 'X', 'x']);
 
 /** One moment token's nearest equivalent in our grammar, with its loss named. */
-function dateToken(run: string, losses: string[]): string {
+function dateToken(run: string, losses: MigrationLoss[]): string {
   switch (run) {
     // Exact — carried with no loss and no flag (BR-027-4: what maps
     // exactly is stated as mapping exactly, by not being here at all).
@@ -1046,7 +1085,7 @@ function dateToken(run: string, losses: string[]): string {
         : head === 's' ? 'ss'
         : undefined;
 
-      losses.push(`date token ${JSON.stringify(run)}`);
+      losses.push({ code: 'migrateLossDateToken', params: [run] });
       return nearest ?? '';
     }
   }
@@ -1060,7 +1099,7 @@ function dateToken(run: string, losses: string[]): string {
  * everything else a literal in our grammar — which is the reference's own
  * rule for unknown characters and therefore exact rather than a guess.
  */
-function translateAlphanumeric(template: string, losses: string[]): string {
+function translateAlphanumeric(template: string, losses: MigrationLoss[]): string {
   let out = '';
 
   let index = 0;
@@ -1099,15 +1138,15 @@ function translateAlphanumeric(template: string, losses: string[]): string {
       // produce a zero; each maps to the nearest placeholder and is named.
       case 'C':
         out += '{consonant}';
-        losses.push('C (uppercase consonant)');
+        losses.push({ code: 'migrateLossUpperConsonant', params: [] });
         break;
       case 'V':
         out += '{vowel}';
-        losses.push('V (uppercase vowel)');
+        losses.push({ code: 'migrateLossUpperVowel', params: [] });
         break;
       case 'X':
         out += '{digit}';
-        losses.push('X (nonzero digit)');
+        losses.push({ code: 'migrateLossNonzeroDigit', params: [] });
         break;
       default:
         out += escapeTemplateLiteral(character);

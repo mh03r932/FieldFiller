@@ -62,6 +62,11 @@ const ruleOf = (pattern: string): Settings['rules'][number] => ({
 const analyse = (file: unknown, now: Settings = current()) =>
   analyseMigration(JSON.stringify(file), now);
 
+/** The loss codes on a field note, as `code:params` strings for `toContain`. */
+function lossText(note: { losses?: readonly { code: string; params: readonly string[] }[] } | undefined): string {
+  return (note?.losses ?? []).map((loss) => `${loss.code}:${loss.params.join(',')}`).join(' ');
+}
+
 describe('refusing a file (A1)', () => {
   it('refuses text that is neither JSON nor the reference’s Base64 transport, saying which', () => {
     const outcome = analyseMigration('{ not json', current());
@@ -231,11 +236,12 @@ describe('translating fields (the mapping table)', () => {
     expect(outcome.plan.noted).toHaveLength(1);
     expect(outcome.plan.noted[0]?.code).toBe('migrateNotedField');
     expect(outcome.plan.noted[0]?.params[0]).toBe('mail');
-    expect(outcome.plan.noted[0]?.params[1]).toContain('emailPrefix');
-    expect(outcome.plan.noted[0]?.params[1]).toContain('emailHostname');
-    expect(outcome.plan.noted[0]?.params[1]).toContain('emailUsernameRegEx');
+    const losses = lossText(outcome.plan.noted[0]);
+    expect(losses).toContain('migrateLossSetting:emailPrefix');
+    expect(losses).toContain('migrateLossSetting:emailHostname');
+    expect(losses).toContain('migrateLossSetting:emailUsernameRegEx');
     // Keys the entry did not carry are not invented as losses.
-    expect(outcome.plan.noted[0]?.params[1]).not.toContain('emailUsernameList');
+    expect(losses).not.toContain('migrateLossSetting:emailUsernameList');
   });
 
   it('names a telephone template, and carries the rule', () => {
@@ -246,7 +252,7 @@ describe('translating fields (the mapping table)', () => {
     expect(outcome.ok).toBe(true);
     if (!outcome.ok) return;
     expect(outcome.plan.settings.rules[0]?.generator).toEqual({ type: 'telephone' });
-    expect(outcome.plan.noted[0]?.params[1]).toContain('+1 (XxX) XxX-XxxX');
+    expect(lossText(outcome.plan.noted[0])).toContain('migrateLossTelephoneTemplate:+1 (XxX) XxX-XxxX');
   });
 
   it('carries number bounds that fit, and names the ones ours moves', () => {
@@ -268,11 +274,13 @@ describe('translating fields (the mapping table)', () => {
     // A bound ours clamps is named as arriving changed, before the write.
     const huge = rules[1]?.generator;
     expect(huge).toMatchObject({ min: 1e15, max: 1e15 });
-    expect(outcome.plan.noted.some((note) => note.params[1]?.includes('min 1e+300'))).toBe(true);
+    expect(
+      outcome.plan.noted.some((note) => lossText(note).includes('migrateLossClamped:min,1e+300')),
+    ).toBe(true);
 
     // A reversed range arrives ordered and says so.
     expect(rules[2]?.generator).toMatchObject({ min: 18, max: 99 });
-    expect(outcome.plan.noted.some((note) => note.params[1]?.includes('reordered'))).toBe(true);
+    expect(outcome.plan.noted.some((note) => lossText(note).includes('migrateLossRangeReordered'))).toBe(true);
   });
 
   it('names a text field’s character cap that has no word-count equivalent', () => {
@@ -285,7 +293,7 @@ describe('translating fields (the mapping table)', () => {
       minWords: 5,
       maxWords: 20,
     });
-    expect(outcome.plan.noted[0]?.params[1]).toContain('maxLength 40');
+    expect(lossText(outcome.plan.noted[0])).toContain('migrateLossMaxLength:40');
   });
 
   it('translates a randomized list exactly', () => {
@@ -414,7 +422,7 @@ describe('translating templates', () => {
     // inside it — so it becomes the nearest token, named (the module note's
     // recorded deviation from the table's letter).
     expect(outcome.plan.settings.rules[0]?.generator).toMatchObject({ format: 'MMM YYYY' });
-    expect(outcome.plan.noted[0]?.params[1]).toContain('MMMM');
+    expect(lossText(outcome.plan.noted[0])).toContain('migrateLossDateToken:MMMM');
   });
 
   it('drops homeless date tokens rather than emitting junk, naming each', () => {
@@ -427,7 +435,7 @@ describe('translating templates', () => {
     // `A` (AM/PM) has no counterpart; a literal would put "PM" in every
     // generated date, so it is omitted and named.
     expect(outcome.plan.settings.rules[0]?.generator).toMatchObject({ format: 'HH:mm ' });
-    expect(outcome.plan.noted[0]?.params[1]).toContain('"A"');
+    expect(lossText(outcome.plan.noted[0])).toContain('migrateLossDateToken:A');
   });
 
   it('translates date bounds that parse as ISO, and names the rest', () => {
@@ -452,7 +460,7 @@ describe('translating templates', () => {
       // default bound stands and the loss is named (BR-027-5).
       to: '2035-12-31',
     });
-    expect(outcome.plan.noted[0]?.params[1]).toContain('maxDate "01/03/2020"');
+    expect(lossText(outcome.plan.noted[0])).toContain('migrateLossDateBound:maxDate,01/03/2020');
   });
 
   it('translates alphanumeric placeholders exactly where ours shares them', () => {
@@ -482,10 +490,10 @@ describe('translating templates', () => {
       type: 'alphanumeric',
       template: '{consonant}{vowel}{digit}-fixed',
     });
-    const losses = outcome.plan.noted[0]?.params[1] ?? '';
-    expect(losses).toContain('C (uppercase consonant)');
-    expect(losses).toContain('V (uppercase vowel)');
-    expect(losses).toContain('X (nonzero digit)');
+    const losses = lossText(outcome.plan.noted[0]);
+    expect(losses).toContain('migrateLossUpperConsonant');
+    expect(losses).toContain('migrateLossUpperVowel');
+    expect(losses).toContain('migrateLossNonzeroDigit');
   });
 
   it('escapes braces arriving inside an alphanumeric literal', () => {
@@ -545,7 +553,7 @@ describe('translating profiles (A5, BR-027-5)', () => {
     const note = outcome.plan.noted.find((entry) => entry.code === 'migrateNotedProfileField');
     expect(note?.params[0]).toBe('Checkout');
     expect(note?.params[1]).toBe('mail');
-    expect(note?.params[2]).toContain('emailPrefix');
+    expect(lossText(note)).toContain('migrateLossSetting:emailPrefix');
   });
 
   it('drops a profile rule that fails validation, with the profile named', () => {
