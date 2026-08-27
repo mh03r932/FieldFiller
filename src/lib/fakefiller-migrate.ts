@@ -341,12 +341,16 @@ function translate(file: Record<string, unknown>, current: Settings): MigrationP
 
   const rules: Rule[] = [];
   for (const [index, entry] of listAt(file, 'fields').entries()) {
-    const outcome = translateField(entry, index, `ff-rule-${String(index)}`);
+    const outcome = translateField(entry, index, `ff-rule-${String(index)}`, `fields[${String(index)}]`);
     if (outcome.kind === 'drop') {
       dropped.push(...asGlobalDrops(outcome.drop));
       droppedFields.add(index);
     } else {
       rules.push(outcome.rule);
+      // Survivable shape faults first: the rule arrives, and what was
+      // unreadable on it is named as a drop beside the note that describes
+      // what did arrive.
+      dropped.push(...outcome.shape.map((at) => ({ code: 'migrateDroppedShape' as const, params: [at] })));
       if (outcome.losses.length > 0) {
         noted.push({ code: 'migrateNotedField', params: [outcome.name], losses: outcome.losses });
       }
@@ -372,7 +376,12 @@ function translate(file: Record<string, unknown>, current: Settings): MigrationP
     const profileRules: Rule[] = [];
 
     for (const [at, field] of listAt(record, 'fields').entries()) {
-      const outcome = translateField(field, at, `ff-profile-${String(index)}-rule-${String(at)}`);
+      const outcome = translateField(
+        field,
+        at,
+        `ff-profile-${String(index)}-rule-${String(at)}`,
+        `profiles[${String(index)}].fields[${String(at)}]`,
+      );
       if (outcome.kind === 'drop') {
         dropped.push(...asProfileDrops(outcome.drop, name));
         const corpse = droppedProfileFields.get(index) ?? new Set<number>();
@@ -380,6 +389,9 @@ function translate(file: Record<string, unknown>, current: Settings): MigrationP
         droppedProfileFields.set(index, corpse);
       } else {
         profileRules.push(outcome.rule);
+        dropped.push(
+          ...outcome.shape.map((at2) => ({ code: 'migrateDroppedShape' as const, params: [at2] })),
+        );
         if (outcome.losses.length > 0) {
           noted.push({
             code: 'migrateNotedProfileField',
@@ -633,6 +645,35 @@ const FIELD_KEYS: ReadonlyMap<string, ReadonlySet<string>> = new Map([
 const PROFILE_KEYS: ReadonlySet<string> = new Set(['name', 'urlMatch', 'fields']);
 
 /**
+ * The kind each documented scalar on a `fields[]` entry carries (§2.2's
+ * `ICustomField`), for the entry-level shape check — the last level the
+ * kinds discipline reached, after the root (`mistypedRoots`), the two object
+ * sections (`SECTION_KEYS`), and a profile's `fields`.
+ *
+ * Two deliberate exclusions. `name` is cosmetic when mistyped — the entry
+ * falls back to its position, blessed by the round-4 survey — and naming it
+ * would report a loss nobody suffered. The `email*` keys are omitted because
+ * the email branch already names every one of them the entry carries,
+ * whatever its value's kind; a shape line beside a loss line is the
+ * double-report the corpse discipline exists to prevent.
+ *
+ * `template` and `list` are listed here though their fatality depends on the
+ * entry's type — see `translateField`, which decides.
+ */
+const ENTRY_KEY_KINDS: ReadonlyMap<string, string> = new Map([
+  ['type', 'string'],
+  ['match', 'list'],
+  ['min', 'number'],
+  ['max', 'number'],
+  ['decimalPlaces', 'number'],
+  ['maxLength', 'number'],
+  ['template', 'string'],
+  ['list', 'list'],
+  ['minDate', 'string'],
+  ['maxDate', 'string'],
+]);
+
+/**
  * The keys the two documented *object* sections carry (§2.2), for the
  * unknown-key report one level inside them.
  *
@@ -751,7 +792,20 @@ function unknownEntryKeys(
  * around them.
  */
 type FieldOutcome =
-  | { readonly kind: 'rule'; readonly rule: Rule; readonly name: string; readonly losses: readonly MigrationLoss[] }
+  | {
+      readonly kind: 'rule';
+      readonly rule: Rule;
+      readonly name: string;
+      readonly losses: readonly MigrationLoss[];
+      /**
+       * Documented keys on this entry present with the wrong kind, whose
+       * defaults are survivable — named as drops while the rule still
+       * arrives. The path form matches the entry-key report
+       * (`fields[0].min`), because it is the same §4 threat model one
+       * level down.
+       */
+      readonly shape: readonly string[];
+    }
   | { readonly kind: 'drop'; readonly drop: FieldDrop };
 
 /**
@@ -763,7 +817,9 @@ type FieldDrop =
   | { readonly reason: 'unreadable'; readonly name: string }
   | { readonly reason: 'noMatch'; readonly name: string }
   | { readonly reason: 'unknownType'; readonly name: string; readonly type: string }
-  | { readonly reason: 'refused'; readonly name: string; readonly patterns: readonly string[]; readonly problem: RuleProblem };
+  | { readonly reason: 'refused'; readonly name: string; readonly patterns: readonly string[]; readonly problem: RuleProblem }
+  /** A documented key so mistyped the entry cannot be translated at all. */
+  | { readonly reason: 'shape'; readonly paths: readonly string[] };
 
 function asGlobalDrops(drop: FieldDrop): readonly MigrationDrop[] {
   switch (drop.reason) {
@@ -773,6 +829,8 @@ function asGlobalDrops(drop: FieldDrop): readonly MigrationDrop[] {
       return [{ code: 'migrateDroppedFieldNoMatch', params: [drop.name] }];
     case 'unknownType':
       return [{ code: 'migrateDroppedFieldUnknownType', params: [drop.name, drop.type] }];
+    case 'shape':
+      return drop.paths.map((at) => ({ code: 'migrateDroppedShape', params: [at] }));
     case 'refused':
       // BR-027-3: the report names every pattern that went into the join,
       // because "the rule" was the user's whole list, not the one pattern
@@ -795,6 +853,8 @@ function asProfileDrops(drop: FieldDrop, profile: string): readonly MigrationDro
       return [{ code: 'migrateDroppedProfileFieldNoMatch', params: [profile, drop.name] }];
     case 'unknownType':
       return [{ code: 'migrateDroppedProfileFieldUnknownType', params: [profile, drop.name, drop.type] }];
+    case 'shape':
+      return drop.paths.map((at) => ({ code: 'migrateDroppedShape', params: [at] }));
     case 'refused':
       return [
         {
@@ -822,9 +882,43 @@ function asProfileDrops(drop: FieldDrop, profile: string): readonly MigrationDro
  * that this extension will ever see. After this it is storage, and
  * storage coerces rather than refuses — this is the last boundary.
  */
-function translateField(entry: unknown, index: number, id: string): FieldOutcome {
+function translateField(entry: unknown, index: number, id: string, path: string): FieldOutcome {
   const record = asRecord(entry);
   const name = stringOf(record['name'], `#${String(index + 1)}`);
+
+  // The entry-level shape check, before any tolerant reader runs: every
+  // documented key present with the wrong kind is named by path, so a stated
+  // `min: "18"` stops silently becoming 0 and a `match: "email"` stops being
+  // blamed as "lists no match patterns" — a sentence about the backup's
+  // content where the fault is its shape. Some faults are fatal (the entry
+  // cannot be translated at all); the rest are survivable defaults, named
+  // while the rule arrives.
+  const shapeFaults: string[] = [];
+  const type = typeof record['type'] === 'string' ? record['type'] : undefined;
+  for (const [key, kind] of ENTRY_KEY_KINDS) {
+    if (!(key in record) || kindOf(record[key]) === kind) continue;
+    shapeFaults.push(`${path}.${key}`);
+  }
+
+  // A match list that is present, well-shaped, and carries nothing readable
+  // is the keyword lists' total-loss boundary one level down: not "no
+  // patterns", which is a choice an empty list makes, but a list whose every
+  // entry is unreadable. Fatal, and named on the key that was wrong.
+  const rawMatch = record['match'];
+  if (Array.isArray(rawMatch) && rawMatch.length > 0 && patternsOf(rawMatch).length === 0) {
+    shapeFaults.push(`${path}.match`);
+  }
+
+  const fatal = shapeFaults.some((fault) => {
+    const key = fault.slice(path.length + 1);
+    if (key === 'match' || key === 'type' || key === 'list') return true;
+    // A template the template-built generators cannot read leaves nothing
+    // to generate; for telephone and date it is a survivable default.
+    return key === 'template' && (type === 'alphanumeric' || type === 'regex');
+  });
+  if (fatal) {
+    return { kind: 'drop', drop: { reason: 'shape', paths: shapeFaults } };
+  }
 
   const patterns = patternsOf(record['match']);
   if (patterns.length === 0) {
@@ -857,7 +951,7 @@ function translateField(entry: unknown, index: number, id: string): FieldOutcome
     return { kind: 'drop', drop: { reason: 'refused', name, patterns, problem } };
   }
 
-  return { kind: 'rule', rule, name, losses: generator.losses };
+  return { kind: 'rule', rule, name, losses: generator.losses, shape: shapeFaults };
 }
 
 /** Which unreadable shape a field had, for the drop that names it. */
@@ -1284,20 +1378,32 @@ function translateBehaviour(
   };
 
   const cap = file['defaultMaxLength'];
-  if (typeof cap === 'number' && Number.isFinite(cap) && cap > 0) {
-    const length = Math.trunc(cap);
-    // Alphabetical keys, for a hazard the export path already guards against
-    // and this path now shares: `chrome.storage.local` hands a stored state
-    // back with every object's keys alphabetised, and `maxLengths` is the one
-    // record whose keys are *data* — chosen per kind — so the parser re-emits
-    // it in whatever order storage gave. A plan whose caps are not already
-    // alphabetical is therefore not stable across the write: the echo of the
-    // page's own write comes back reordered, fails the page's is-this-ours
-    // comparison, and the adoption announcement talks over the migration's
-    // own. `settings-file.ts` sorts its caps for the same reason (BR-025-3's
-    // measured behaviour, one module over).
-    behaviour.maxLengths = { search: length, text: length };
-    noted.push({ code: 'migrateNotedDefaultMaxLength', params: [String(length)] });
+  // A positive *integer* carries; every other number is named and not
+  // carried. The reference's UI emits integers, so anything else is a
+  // hand-edit — and `Math.trunc` on it was the plan-vs-storage divergence
+  // this module's own round-trip test exists to pin: a `0.5` truncated to a
+  // cap of `0`, which `parseMaxLengths` then drops on the write as not
+  // greater than zero, leaving the confirmed plan describing caps storage
+  // does not hold. A `2.7` silently becoming `2` is the same absorption
+  // class one order over — so the rule is one line: only a count carries.
+  if (typeof cap === 'number') {
+    if (Number.isInteger(cap) && cap >= 1) {
+      const length = cap;
+      // Alphabetical keys, for a hazard the export path already guards against
+      // and this path now shares: `chrome.storage.local` hands a stored state
+      // back with every object's keys alphabetised, and `maxLengths` is the one
+      // record whose keys are *data* — chosen per kind — so the parser re-emits
+      // it in whatever order storage gave. A plan whose caps are not already
+      // alphabetical is therefore not stable across the write: the echo of the
+      // page's own write comes back reordered, fails the page's is-this-ours
+      // comparison, and the adoption announcement talks over the migration's
+      // own. `settings-file.ts` sorts its caps for the same reason (BR-025-3's
+      // measured behaviour, one module over).
+      behaviour.maxLengths = { search: length, text: length };
+      noted.push({ code: 'migrateNotedDefaultMaxLength', params: [String(length)] });
+    } else {
+      dropped.push({ code: 'migrateDroppedShape', params: ['defaultMaxLength'] });
+    }
   }
 
   // Each list on its own answer, and a total loss named where it happens:

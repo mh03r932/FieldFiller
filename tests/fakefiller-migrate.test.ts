@@ -832,6 +832,31 @@ describe('translating the root settings', () => {
     expect(outcome.plan.noted.some((note) => note.code === 'migrateNotedDefaultMaxLength')).toBe(true);
   });
 
+  it('carries no length cap that is not a positive integer, and names it instead of truncating', () => {
+    // `Math.trunc(0.5)` was a cap of 0 — which `parseMaxLengths` drops on
+    // the write, leaving the confirmed plan describing caps storage does
+    // not hold: the plan-vs-storage divergence the round-trip test pins,
+    // reached through a value the truncation silently absorbed. A 2.7
+    // silently becoming 2 is the same class one order over, so the rule is
+    // one line: only a count carries.
+    for (const cap of [0.5, 2.7, 0, -3, Number.NaN, Number.POSITIVE_INFINITY]) {
+      const outcome = analyse(backup({ defaultMaxLength: cap }));
+
+      expect(outcome.ok).toBe(true);
+      if (!outcome.ok) continue;
+      expect(outcome.plan.settings.behaviour.maxLengths).toEqual({});
+      expect(
+        outcome.plan.dropped.some(
+          (drop) => drop.code === 'migrateDroppedShape' && drop.params[0] === 'defaultMaxLength',
+        ),
+      ).toBe(true);
+      expect(outcome.plan.noted.some((note) => note.code === 'migrateNotedDefaultMaxLength')).toBe(false);
+      // And the plan is stable: what the user confirmed is what storage
+      // holds, for this section as for the rest.
+      expect(JSON.stringify(parseSettings(outcome.plan.settings))).toBe(JSON.stringify(outcome.plan.settings));
+    }
+  });
+
   it('emits length caps whose keys survive storage’s alphabetising unchanged', () => {
     // `chrome.storage.local` hands a stored state back with every object’s
     // keys alphabetised, and `maxLengths` is the one record whose keys are
@@ -1095,6 +1120,111 @@ describe('translating the root settings', () => {
     ).toBe(false);
   });
 
+  it('names a mistyped match by its shape fault, not as content the backup failed to list', () => {
+    // `match: "email"` used to meet "lists no match patterns" — a sentence
+    // about the backup's content where the fault is its shape, sending the
+    // user to add patterns to a file whose patterns are simply not a list.
+    // Fatal: no patterns, no rule. Path form matches the entry-key report.
+    const outcome = analyse(backup({ fields: [field('mail', { match: 'email' })] }));
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.plan.settings.rules).toEqual([]);
+    expect(
+      outcome.plan.dropped.some((drop) => drop.code === 'migrateDroppedShape' && drop.params[0] === 'fields[0].match'),
+    ).toBe(true);
+    expect(outcome.plan.dropped.some((drop) => drop.code === 'migrateDroppedFieldNoMatch')).toBe(false);
+  });
+
+  it('names a match list whose every entry is unreadable, but keeps an empty list a choice', () => {
+    // The keyword lists' total-loss boundary, one level down: `[]` is the
+    // backup saying "match nothing" (a choice, the NoMatch drop's own
+    // wording), `[42]` is a list whose contents cannot be read (a fault).
+    const garbage = analyse(backup({ fields: [field('odd', { match: [42] })] }));
+    const empty = analyse(backup({ fields: [field('odd', { match: [] })] }));
+
+    expect(garbage.ok && empty.ok).toBe(true);
+    if (!garbage.ok || !empty.ok) return;
+    expect(
+      garbage.plan.dropped.some((drop) => drop.code === 'migrateDroppedShape' && drop.params[0] === 'fields[0].match'),
+    ).toBe(true);
+    expect(empty.plan.dropped.some((drop) => drop.code === 'migrateDroppedFieldNoMatch')).toBe(true);
+  });
+
+  it('names mistyped entry scalars by path while the rule arrives on their defaults', () => {
+    // A stated `min: "18"` used to become 0 with no line in either list —
+    // the survivable half of the entry-level gap, after the root, the
+    // object sections, and a profile's `fields` had all been reached.
+    // (Wrong *values* of the right kind — a fractional decimalPlaces — are
+    // the clamp path's to name, and already are.)
+    const outcome = analyse(
+      backup({
+        fields: [
+          field('age', { type: 'number', min: '18', max: 99, decimalPlaces: '1' }),
+          field('bio', { type: 'text', maxLength: '40' }),
+          field('phone', { type: 'telephone', template: 42 }),
+          field('when', { type: 'date', template: 'YYYY-MM-DD', minDate: 1980 }),
+        ],
+      }),
+    );
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    // All four rules arrive…
+    expect(outcome.plan.settings.rules).toHaveLength(4);
+    const paths = outcome.plan.dropped.filter((drop) => drop.code === 'migrateDroppedShape').map((drop) => drop.params[0]);
+    // …each with its unreadable setting named by path, and the defaults
+    // standing: min 0, no decimals, no text cap, no telephone template
+    // loss (there was no readable template to name), the default date
+    // range.
+    expect(paths).toContain('fields[0].min');
+    expect(paths).toContain('fields[0].decimalPlaces');
+    expect(paths).toContain('fields[1].maxLength');
+    expect(paths).toContain('fields[2].template');
+    expect(paths).toContain('fields[3].minDate');
+    expect(lossText(outcome.plan.noted.find((note) => note.params[0] === 'phone'))).not.toContain('migrateLossTelephoneTemplate');
+  });
+
+  it('names a mistyped template as fatal where the generator is built from it', () => {
+    // For alphanumeric and regex the template *is* the generator: nothing
+    // readable means nothing to translate, fatal like a mistyped match —
+    // where for telephone and date the same fault is survivable above.
+    const outcome = analyse(
+      backup({
+        fields: [
+          field('serial', { type: 'alphanumeric', template: 42 }),
+          field('ref', { type: 'regex', template: true }),
+        ],
+      }),
+    );
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.plan.settings.rules).toEqual([]);
+    const paths = outcome.plan.dropped.filter((drop) => drop.code === 'migrateDroppedShape').map((drop) => drop.params[0]);
+    expect(paths).toContain('fields[0].template');
+    expect(paths).toContain('fields[1].template');
+    // The generic "could not be translated" line is not added beside them.
+    expect(outcome.plan.dropped.some((drop) => drop.code === 'migrateDroppedField')).toBe(false);
+  });
+
+  it('names a mistyped match inside a profile by its full path', () => {
+    const outcome = analyse(
+      backup({
+        profiles: [{ name: 'Staging', urlMatch: 's', fields: [field('user', { match: 'user' })] }],
+      }),
+    );
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.plan.settings.profiles[0]?.rules).toEqual([]);
+    expect(
+      outcome.plan.dropped.some(
+        (drop) => drop.code === 'migrateDroppedShape' && drop.params[0] === 'profiles[0].fields[0].match',
+      ),
+    ).toBe(true);
+  });
+
   it('drops a garbage profiles[] entry whole rather than translating it into an empty profile', () => {
     // `asRecord` tolerance used to turn a non-object entry into a disabled
     // profile named #n with a urlMatch note — a thing the backup never
@@ -1260,7 +1390,11 @@ describe('the plan itself', () => {
   it('produces a state the parser reads back unchanged', () => {
     // The plan is what the user confirms; storage will normalise it, and a
     // normalisation that *changed* anything would mean the plan the user
-    // agreed to is not the state they were given.
+    // agreed to is not the state they were given. `defaultMaxLength` is in
+    // the fixture deliberately: it is the one setting whose truncation-on-
+    // carry once broke this invariant (a fractional cap became a cap of 0,
+    // which the parser drops), and a round trip without it did not test
+    // the path that failed.
     const outcome = analyse(
       backup({
         fields: [
@@ -1269,12 +1403,16 @@ describe('the plan itself', () => {
           field('serial', { type: 'alphanumeric', template: 'LLL-xxx' }),
         ],
         profiles: [{ name: 'Staging', urlMatch: 'staging', fields: [field('inner')] }],
+        defaultMaxLength: 20,
       }),
     );
 
     expect(outcome.ok).toBe(true);
     if (!outcome.ok) return;
     expect(parseSettings(outcome.plan.settings)).toEqual(outcome.plan.settings);
+    // String equality too, because the page's is-this-our-write comparison
+    // is string-based and key order matters to it.
+    expect(JSON.stringify(parseSettings(outcome.plan.settings))).toBe(JSON.stringify(outcome.plan.settings));
   });
 
   it('mints ids unique within each list', () => {
