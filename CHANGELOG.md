@@ -93,6 +93,14 @@ rather than a set of changes to it.
   compile, imported as it stands and flagged rather than quietly dropped; a number range the
   file states backwards, imported the right way round and said so; two rules claiming one
   identity, which the rule list would otherwise treat as a single rule.
+- Bring a configuration over from Fake Filler. Hand it that extension's backup — the plain
+  JSON or the Base64 `.txt` its export actually downloads — and the whole report arrives
+  before anything is written: what will be stored, every field and profile that cannot be
+  translated with the reason it cannot, and, separately, every rule that arrives *changed* —
+  the email customisation with nowhere to go, a date token this format has no equivalent for,
+  a bound moved to fit. Nothing is guessed into an active state: a profile whose URL match
+  will not translate arrives switched off with its original pattern quoted, and a pattern
+  this extension would refuse from its own editor is refused here too, in the same words.
 - Restore the shipped defaults behind a confirmation that says, in counts, what it will
   discard — rules, profiles, both exclusion lists — and names export as the way back before
   anything is written. There is no undo: the copy you might want is the one you make first.
