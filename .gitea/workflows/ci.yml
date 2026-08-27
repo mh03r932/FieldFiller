@@ -295,6 +295,26 @@ jobs:
         # a green screen over a configuration that is gone.
         run: pnpm run import:chrome
 
+      - name: Migrate from a Fake Filler backup (Chromium)
+        # UC-027. The translation is decided by unit tests; what only a browser
+        # can see is everything around it — the Base64 transport through the
+        # page's own file input, the two-list report on screen, the write only
+        # on the second click, and the importer and the migrator pointing at
+        # each other's files rather than both claiming them or neither. It was
+        # this tier that caught the catalog placeholders bug that made the
+        # extension uninstallable with every unit test green, which is the
+        # reason a harness ships wired rather than by hand.
+        run: pnpm run migrate:chrome
+
+      - name: Restore the shipped defaults (Chromium)
+        # UC-028. The counts are the confirmation (BR-028-2), so the checks
+        # that matter most are order and liveness: nothing written before the
+        # second click, the counts following same-page edits and foreign
+        # writes while the confirmation stands open, and the way back named
+        # before the write rather than after it. Pre-existing here only by
+        # omission — wired with the migrate harness that shared the gap.
+        run: pnpm run restore:chrome
+
       - name: Corpus per locale (Chromium)
         # The path a unit test cannot reach: a locale written to storage, parsed
         # back, resolved, and turned into a record on a real page. Until this

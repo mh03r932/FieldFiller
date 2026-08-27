@@ -1853,13 +1853,22 @@
   },
   "migrateNotedProfileUrl": {
     "message": "Profile \"$PROFILE$\" arrives disabled: its URL match \"$PATTERN$\" is a regular expression, and URL patterns here are globs — a conversion would be sometimes right and silently wrong the rest of the time. Its rules arrive; set URL patterns on it once and it works again.",
-    "description": "A5/BR-027-5: nothing guessed into an active state, nothing silently lost.",
+    "description": "A5/BR-027-5 for a profile that stated a non-empty urlMatch: nothing guessed into an active state, nothing silently lost.",
     "placeholders": {
       "profile": {
         "content": "$1"
       },
       "pattern": {
         "content": "$2"
+      }
+    }
+  },
+  "migrateNotedProfileUrlUnrestricted": {
+    "message": "Profile \"$PROFILE$\" arrives disabled: it carried no URL match, so in Fake Filler it applied on every page. Profiles here are inert until URL patterns are set on them, and arriving active on every page is not this extension's decision to make for you. Its rules arrive; set URL patterns once and it works again.",
+    "description": "The absent-or-empty urlMatch case, worded for what the backup actually carried: no restriction, not a regex to quote. A distinct sentence from migrateNotedProfileUrl because asserting 'its URL match is a regular expression' about a profile that set none would be a false claim about the backup.",
+    "placeholders": {
+      "profile": {
+        "content": "$1"
       }
     }
   },

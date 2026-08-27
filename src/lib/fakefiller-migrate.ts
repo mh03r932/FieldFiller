@@ -131,6 +131,7 @@ export type MigrationNote = {
     | 'migrateNotedField'
     | 'migrateNotedProfileField'
     | 'migrateNotedProfileUrl'
+    | 'migrateNotedProfileUrlUnrestricted'
     | 'migrateNotedSourcesSplit'
     | 'migrateNotedDefaultMaxLength'
     | 'migrateNotedPasswordRandom';
@@ -400,8 +401,19 @@ function translate(file: Record<string, unknown>, current: Settings): MigrationP
     // regex matches every page, and `*` would be exact — but A5 draws no
     // such case, and a specialism the report has to explain is a worse
     // trade than a line the user already knows how to act on.
+    // Two sentences, because the two cases make different claims. A stated
+    // non-empty `urlMatch` is a regex the report can quote. An absent or
+    // empty one is *no restriction at all* — in the reference that profile
+    // applies on every page — and a sentence asserting 'its URL match "" is
+    // a regular expression' about it would be a false claim about the
+    // backup, the exact dishonesty this report exists to prevent. Both
+    // arrive disabled (A5's uniform rule); the words say why, truthfully.
     const urlMatch = stringOf(record['urlMatch'], '');
-    noted.push({ code: 'migrateNotedProfileUrl', params: [name, urlMatch] });
+    if (urlMatch !== '') {
+      noted.push({ code: 'migrateNotedProfileUrl', params: [name, urlMatch] });
+    } else {
+      noted.push({ code: 'migrateNotedProfileUrlUnrestricted', params: [name] });
+    }
     profiles.push({
       id: `ff-profile-${String(index)}`,
       label: name,
@@ -1018,23 +1030,29 @@ function translateDateTemplate(template: string, losses: MigrationLoss[]): strin
     const character = template.charAt(index);
 
     // Moment's literal escape. Ours needs no escape, so the content is the
-    // literal — exact, not a loss, though its own braces must be doubled
-    // to survive our grammar.
+    // literal — exact, not a loss, and emitted *raw*: the date grammar
+    // treats every character outside its tokens as an ordinary literal and
+    // has no brace escape to un-escape. Doubling braces here (the
+    // alphanumeric grammar's rule, where `{{` is how a literal brace is
+    // written) used to make a template carrying `[{}]` render doubled
+    // braces in every generated date, silently — the two grammars
+    // disagree about braces, so they no longer share an escaper.
     if (character === '[') {
       const close = template.indexOf(']', index);
       const content = close === -1 ? template.slice(index + 1) : template.slice(index + 1, close);
-      out += escapeTemplateLiteral(content);
+      out += content;
       index = close === -1 ? template.length : close + 1;
       continue;
     }
 
     // Only moment's token letters start a token; everything else — the `T`
     // of an ISO timestamp, an `at` between date and time, every `/` and
-    // `:` and space — is a literal. Treating any letter as a token run
-    // would have eaten the separators, and `DD/MM/YYYY` would have arrived
-    // as `DDMMYYYY` with two named "losses" nobody lost.
+    // `:` and space — is a literal, emitted raw for the reason above.
+    // Treating any letter as a token run would have eaten the separators,
+    // and `DD/MM/YYYY` would have arrived as `DDMMYYYY` with two named
+    // "losses" nobody lost.
     if (!MOMENT_TOKEN_LETTERS.has(character)) {
-      out += escapeTemplateLiteral(character);
+      out += character;
       index += 1;
       continue;
     }

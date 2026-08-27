@@ -411,6 +411,24 @@ describe('translating templates', () => {
     expect(outcome.plan.settings.rules[0]?.generator).toMatchObject({ format: 'on YYYY-MM-DD' });
   });
 
+  it('keeps a date template’s literal braces literal, not doubled for another grammar', () => {
+    // The date grammar has no brace escape — formatDate passes every
+    // character outside its tokens through as an ordinary literal — so
+    // doubling braces here (the alphanumeric grammar's rule, where {{ is
+    // how a literal brace is written) made every generated date render
+    // {{}} where the backup said {}. Two grammars that disagree about
+    // braces do not share an escaper.
+    const outcome = analyse(
+      backup({ fields: [field('when', { type: 'date', template: '[{}] YYYY-MM-DD' })] }),
+    );
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.plan.settings.rules[0]?.generator).toMatchObject({ format: '{} YYYY-MM-DD' });
+    // And nothing about it is a loss — the braces are carried, exactly.
+    expect(lossText(outcome.plan.noted[0])).not.toContain('{');
+  });
+
   it('maps a full month name to the nearest token and names it', () => {
     const outcome = analyse(
       backup({ fields: [field('when', { type: 'date', template: 'MMMM YYYY' })] }),
@@ -533,6 +551,29 @@ describe('translating profiles (A5, BR-027-5)', () => {
     // Named, with the pattern the user recognises, before the write.
     const note = outcome.plan.noted.find((entry) => entry.code === 'migrateNotedProfileUrl');
     expect(note?.params).toEqual(['Staging', '.*\\.staging\\.example\\.com.*']);
+  });
+
+  it('a profile with no URL match is reported as unrestricted, not as quoting a regex it never set', () => {
+    // The reference’s absent-or-empty urlMatch applies the profile on every
+    // page; a sentence asserting 'its URL match "" is a regular expression'
+    // about that is a false claim about the backup. Both states arrive
+    // disabled (A5’s uniform rule); the words say why, truthfully.
+    for (const profile of [
+      { name: 'Absent', fields: [] },
+      { name: 'Empty', urlMatch: '', fields: [] },
+    ]) {
+      const outcome = analyse(backup({ profiles: [profile] }));
+
+      expect(outcome.ok).toBe(true);
+      if (!outcome.ok) continue;
+      expect(outcome.plan.settings.profiles[0]?.enabled).toBe(false);
+      const note = outcome.plan.noted.find(
+        (entry) => entry.code === 'migrateNotedProfileUrlUnrestricted',
+      );
+      expect(note?.params).toEqual([profile.name]);
+      // And the regex-quoting sentence is not made about it.
+      expect(outcome.plan.noted.some((entry) => entry.code === 'migrateNotedProfileUrl')).toBe(false);
+    }
   });
 
   it('names losses on a profile’s own rules, with the profile', () => {
