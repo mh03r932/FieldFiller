@@ -20,7 +20,7 @@
  *   CHROME_PATH=…  override the browser binary
  *   HEADFUL=1      show the window
  */
-import { chmodSync, existsSync, mkdtempSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -458,11 +458,15 @@ try {
   // Same path the migrate harness drives, on this section's own chooser: the
   // failure is announced rather than rendered, so neither of focusOutcome's
   // first two destinations exists, and until the chooser became the last
-  // resort the focus fell to <body>.
+  // resort the focus fell to <body>. A dangling symlink for the unreadable
+  // file, for the reason the migrate harness states: ENOENT fails for root
+  // too, and a chmod-000 file reads fine under a root CI runner's Chromium.
   await openOptions();
-  const unreadablePath = join(filesDir, 'no-permissions.json');
-  writeFileSync(unreadablePath, '{ "version": 1 }');
-  chmodSync(unreadablePath, 0o000);
+  const unreadableReal = join(filesDir, 'no-permissions.real');
+  const unreadableLink = join(filesDir, 'no-permissions.json');
+  writeFileSync(unreadableReal, '{ "version": 1 }');
+  symlinkSync(unreadableReal, unreadableLink);
+  rmSync(unreadableReal);
   {
     const { root } = await cdp.send('DOM.getDocument', {}, page);
     const { nodeId } = await cdp.send(
@@ -470,7 +474,7 @@ try {
       { nodeId: root.nodeId, selector: '#import .import-file' },
       page,
     );
-    await cdp.send('DOM.setFileInputFiles', { files: [unreadablePath], nodeId }, page);
+    await cdp.send('DOM.setFileInputFiles', { files: [unreadableLink], nodeId }, page);
   }
   await sleep(500);
 

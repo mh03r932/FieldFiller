@@ -500,6 +500,23 @@ function translate(file: Record<string, unknown>, current: Settings): MigrationP
     }
   }
 
+  // The same discipline one level into the two documented object sections,
+  // by path — the importer descends into its sections (`SECTION_SHAPES` +
+  // `unknownKeys`), and a report that names `fields[2].sparkle` but not
+  // `passwordSettings.someFutureKey` is asymmetric in depth for no reason
+  // the threat model supplies. Only when the section itself is an object:
+  // a mistyped section is `mistypedRoots`' to name, and picking through it
+  // would double-report.
+  for (const [section, known] of SECTION_KEYS) {
+    const value = file[section];
+    if (kindOf(value) !== 'object') continue;
+    for (const key of Object.keys(value as Record<string, unknown>)) {
+      if (!known.has(key)) {
+        dropped.push({ code: 'migrateDroppedKey', params: [`${section}.${key}`] });
+      }
+    }
+  }
+
   // Shapes last, as the importer orders them: the per-entry losses name the
   // user's own fields first, the file's own structure after.
   dropped.push(...mistypedRoots(file));
@@ -614,6 +631,37 @@ const FIELD_KEYS: ReadonlyMap<string, ReadonlySet<string>> = new Map([
 
 /** The keys a `profiles[]` entry may carry (§2.2's `IProfile`). */
 const PROFILE_KEYS: ReadonlySet<string> = new Set(['name', 'urlMatch', 'fields']);
+
+/**
+ * The keys the two documented *object* sections carry (§2.2), for the
+ * unknown-key report one level inside them.
+ *
+ * The §4 threat model — the store build runs ahead of the published source —
+ * is the stated justification for `migrateDroppedKey` at the root and for
+ * `unknownEntryKeys` over `fields[]` and `profiles[]`; the two object
+ * sections were the one surface it did not reach, and a
+ * `passwordSettings.someFutureKey` vanished from both lists while the very
+ * same argument covered it. `fieldMatchSettings`' toggles are listed here as
+ * a set rather than reusing `translateSources`' pairs, because the question
+ * is "which names has the documented schema got", not "which names does the
+ * translation read" — a store build's new toggle should report as unknown
+ * here even on the day a translation update has not yet learned it.
+ */
+const SECTION_KEYS: ReadonlyMap<string, ReadonlySet<string>> = new Map([
+  ['passwordSettings', new Set(['mode', 'password'])],
+  [
+    'fieldMatchSettings',
+    new Set([
+      'matchClass',
+      'matchId',
+      'matchLabel',
+      'matchName',
+      'matchPlaceholder',
+      'matchAriaLabel',
+      'matchAriaLabelledBy',
+    ]),
+  ],
+]);
 
 /**
  * Unknown keys on the entries, named rather than silently ignored (step 4,

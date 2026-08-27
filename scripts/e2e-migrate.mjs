@@ -22,7 +22,7 @@
  *   CHROME_PATH=…  override the browser binary
  *   HEADFUL=1      show the window
  */
-import { chmodSync, existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -200,19 +200,27 @@ try {
    * nor a refusal: `text()` rejects, the failure is announced, and the only
    * thing on screen is the chooser again. That is the path the focus work
    * kept leaving on `<body>` — no action button exists to receive it — so
-   * it is driven for real, with permissions rather than a stub.
+   * it is driven for real.
+   *
+   * A **dangling symlink** rather than a permissions trick, deliberately:
+   * opening a file that is not there fails for root too, and CI runners
+   * launch Chromium as root by default, where a chmod-000 file reads fine
+   * and the check would fail hard on the runner while passing on a
+   * developer's machine. ENOENT is the one unreadability every uid shares.
    */
   const chooseUnreadable = async (name) => {
-    const path = join(filesDir, name);
-    writeFileSync(path, 'cannot read me');
-    chmodSync(path, 0o000);
+    const real = join(filesDir, `${name}.real`);
+    const link = join(filesDir, name);
+    writeFileSync(real, 'cannot read me');
+    symlinkSync(real, link);
+    rmSync(real);
     const { root } = await cdp.send('DOM.getDocument', {}, page);
     const { nodeId } = await cdp.send(
       'DOM.querySelector',
       { nodeId: root.nodeId, selector: '#migrate .migrate-file' },
       page,
     );
-    await cdp.send('DOM.setFileInputFiles', { files: [path], nodeId }, page);
+    await cdp.send('DOM.setFileInputFiles', { files: [link], nodeId }, page);
   };
 
   const stored = async () =>

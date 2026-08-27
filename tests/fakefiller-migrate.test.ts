@@ -1055,6 +1055,46 @@ describe('translating the root settings', () => {
     expect(paths).toContain('profiles[0].fields[0].wobble');
   });
 
+  it('names an unknown key inside the two documented object sections, by path', () => {
+    // The §4 threat model — the store build runs ahead of the published
+    // source — was the stated justification for the root and entry key
+    // reports; the two object sections were the one surface it did not
+    // reach, and a passwordSettings.someFutureKey vanished from both lists
+    // while fields[2].sparkle was named one function over. The importer
+    // descends into its sections; this report now does too.
+    const outcome = analyse(
+      backup({
+        passwordSettings: { mode: 'defined', password: 'x', someFutureKey: 1 },
+        fieldMatchSettings: { matchName: true, sparkle: true },
+      }),
+    );
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    const paths = outcome.plan.dropped.filter((drop) => drop.code === 'migrateDroppedKey').map((drop) => drop.params[0]);
+    expect(paths).toContain('passwordSettings.someFutureKey');
+    expect(paths).toContain('fieldMatchSettings.sparkle');
+    // The documented keys are not losses — `password` is named by the A6
+    // drop when defined mode reads it, not as an unknown key.
+    expect(paths).not.toContain('passwordSettings.password');
+    expect(paths).not.toContain('fieldMatchSettings.matchName');
+  });
+
+  it('does not pick through an object section that is mistyped whole', () => {
+    // A non-object passwordSettings is mistypedRoots' to name; scanning it
+    // here too would double-report the same loss.
+    const outcome = analyse(backup({ passwordSettings: 'hunter2' }));
+
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(
+      outcome.plan.dropped.some((drop) => drop.code === 'migrateDroppedShape' && drop.params[0] === 'passwordSettings'),
+    ).toBe(true);
+    expect(
+      outcome.plan.dropped.some((drop) => drop.code === 'migrateDroppedKey' && drop.params[0]?.startsWith('passwordSettings.')),
+    ).toBe(false);
+  });
+
   it('drops a garbage profiles[] entry whole rather than translating it into an empty profile', () => {
     // `asRecord` tolerance used to turn a non-object entry into a disabled
     // profile named #n with a urlMatch note — a thing the backup never
