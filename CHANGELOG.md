@@ -105,12 +105,30 @@ rather than a set of changes to it.
   discard — rules, profiles, both exclusion lists — and names export as the way back before
   anything is written. There is no undo: the copy you might want is the one you make first.
   A configuration that already is the shipped one is told so, and can still be restored.
+- Synchronise the configuration across your browsers, through the browser's own synchronised
+  storage. Off by default and switched on separately on each browser — there is no account of
+  ours anywhere in it, and the switch itself is never carried, so turning it off on one
+  machine leaves the others alone. Switching it on over a browser that already holds a
+  different configuration asks which one to keep, in counts, before either is replaced.
+- Two things about synchronisation are said on the screen permanently rather than buried in a
+  dialogue, because both describe how it ordinarily works: it holds roughly 399 rules and
+  stops rather than carrying part of your list, and when two browsers change settings at the
+  same time the later change wins and up to eight rules of the earlier are discarded.
+- Past that ceiling nothing is truncated. The browser you are on keeps every rule, the shared
+  copy is marked as no longer current so no other browser applies a partial one, and the
+  screen says it stopped, what stopped it, and what would restore it.
+- What the screen claims is what the extension can actually see: written, refused, or stopped.
+  Never "your devices are up to date" — no extension can know that, and one that says so is
+  guessing at the moment you most need it not to be.
 
 **Privacy and verifiability**
 
 - No network access of any kind. The extension makes no outbound request, contains no code
   capable of making one, and has no runtime dependencies.
-- Settings are stored locally on the device and are not synchronised anywhere.
+- Settings are stored locally on the device. They are copied to the browser's own synchronised
+  storage only if you switch synchronisation on, which is off when the extension is installed
+  and decided separately on each browser. Nothing else is ever stored or copied anywhere:
+  not page contents, not generated values, not which sites you used it on.
 - Five gates run in CI and fail the build rather than warn: page agent size budget, the page
   agent's import graph, absence of any network or remote-code capability, the permission set,
   and unit-test coverage scope.

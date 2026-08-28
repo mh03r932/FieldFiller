@@ -224,6 +224,15 @@ data-types list, and affirm all three certifications.
 Privacy policy URL: the published location of `PRIVACY.md`. Chrome will not accept the
 listing without a reachable one.
 
+**Amended 2026-08-28 by UC-029, and the answers above are unchanged by it.** Synchronised
+settings leave the device, so the *claim* changes shape — "stored on the device" becomes
+"stored on the device and, where you have turned it on, in your browser's own
+synchronisation" — but every certification stays `No`, because the data goes to the user's
+own browser account under their browser vendor's terms and never to us: there is no server,
+no account and no collection to declare. `PRIVACY.md` was rewritten in the same change rather
+than after somebody asked (BR-029-1). What this row still owes is publication: a reachable
+URL, which is C-011's outstanding half.
+
 ### 2.7 Images
 
 Store icon, screenshots and promo tiles are specified in [`art_brief.md`](art_brief.md).

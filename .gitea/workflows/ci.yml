@@ -315,6 +315,18 @@ jobs:
         # omission — wired with the migrate harness that shared the gap.
         run: pnpm run restore:chrome
 
+      - name: Synchronise across devices (Chromium)
+        # UC-029. Wired from the day it was written, because this harness is
+        # where the feature was actually designed: four defects that every unit
+        # test passed through were found here, and all four were about the order
+        # two correct operations ran in — a re-entrant flush reporting a written
+        # replica as still queued, a delta that read storage's alphabetised echo
+        # as a change and so rewrote every shard, a queued retry painting over a
+        # ceiling the user had to act on, and a pull reverting a local edit that
+        # was still waiting behind the rate gate. Unit tests check operations;
+        # harnesses check sequences.
+        run: pnpm run sync:chrome
+
       - name: Corpus per locale (Chromium)
         # The path a unit test cannot reach: a locale written to storage, parsed
         # back, resolved, and turned into a record on a real page. Until this

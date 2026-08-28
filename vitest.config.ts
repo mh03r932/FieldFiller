@@ -92,6 +92,14 @@ export default defineConfig({
         // backup is, and they do it by importing this module — an untested
         // branch here is a file one surface accepts and the other disowns.
         'src/lib/fakefiller-recognise.ts': { lines: 90, functions: 90 },
+        // The synchronised replica (UC-029), added 2026-08-28. The floor is the
+        // import analysis's argument in a store the user cannot open: what this
+        // module gets wrong is which configuration a *second* machine ends up
+        // with, and every wrong answer looks like a working feature from either
+        // screen. The completeness check is the sharpest case — read a shard
+        // short and a device adopts a prefix of somebody's rule list as though
+        // it were the list, with both browsers reporting success.
+        'src/lib/sync.ts': { lines: 90, functions: 90 },
         'src/lib/protocol.ts': { lines: 90, functions: 90 },
         // The exclusion list operations (UC-020, UC-021), added 2026-08-17 with
         // the screens that author them. Same floor and the same argument as the

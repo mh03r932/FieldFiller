@@ -1261,7 +1261,7 @@
   },
   "importDroppedRuleRefused": {
     "message": "Rule \"$NAME$\" cannot be stored: $PROBLEM$",
-    "description": "A rule the file states perfectly readably that the editor would refuse to save (FR-070) \u2014 a pattern that backtracks catastrophically, an impossible range, a list generator with no items. Distinct from importDroppedRule, where the file itself could not be read: nothing is wrong with the JSON, and saying so would send the user to fix the wrong thing. $PROBLEM$ is a whole sentence resolved from a ruleProblem* key, never prose assembled in code.",
+    "description": "A rule the file states perfectly readably that the editor would refuse to save (FR-070) — a pattern that backtracks catastrophically, an impossible range, a list generator with no items. Distinct from importDroppedRule, where the file itself could not be read: nothing is wrong with the JSON, and saying so would send the user to fix the wrong thing. $PROBLEM$ is a whole sentence resolved from a ruleProblem* key, never prose assembled in code.",
     "placeholders": {
       "name": {
         "content": "$1",
@@ -1636,7 +1636,7 @@
   },
   "migrateDroppedFieldShape": {
     "message": "Field \"$NAME$\" carries $KEYS$ with a kind this extension cannot read, so no rule could be built for it.",
-    "description": "A fatal entry-level shape fault (UC-027 step 4). Distinct from migrateDroppedShape, which is worded for the survivable case and ends 'This extension's own default stands' \u2014 true when the rule arrives and one setting defaulted, false when the entry is gone and no default stands for it. The field is named here for the reason every other field drop names it: a bare path tells the user which key was wrong and not which of their fields they lost.",
+    "description": "A fatal entry-level shape fault (UC-027 step 4). Distinct from migrateDroppedShape, which is worded for the survivable case and ends 'This extension's own default stands' — true when the rule arrives and one setting defaulted, false when the entry is gone and no default stands for it. The field is named here for the reason every other field drop names it: a bare path tells the user which key was wrong and not which of their fields they lost.",
     "placeholders": {
       "name": {
         "content": "$1"
@@ -1850,7 +1850,7 @@
     "description": "The reference's template letter, mapped to the nearest placeholder."
   },
   "migrateNotedExclusion": {
-    "message": "The backup's ignored-field pattern \u201c$PATTERN$\u201d is carried across as it is: $PROBLEM$",
+    "message": "The backup's ignored-field pattern “$PATTERN$” is carried across as it is: $PROBLEM$",
     "description": "An ignored-field pattern kept with a fault, on the importer's terms: the reference never screened its patterns (A4's own argument), so a backup is as likely to carry a catastrophic one here as in a field's match list. Kept rather than refused because the exclusion editor stores invalid patterns on purpose (UC-005 A5), and a migration must not be stricter than the screen that corrects them. $PROBLEM$ is a ruleProblem* sentence, written to read after a colon.",
     "placeholders": {
       "pattern": {
@@ -2050,5 +2050,173 @@
   "restoreDone": {
     "message": "Your settings are back to the shipped defaults. The next fill uses them, in every open tab.",
     "description": "Announced politely after a restore lands (UC-028 step 6). FR-051's live-effect claim, worded the way the rest of this page words it: nothing is pushed anywhere, so there is nothing to reload."
+  },
+  "syncHeading": {
+    "message": "Synchronise across devices",
+    "description": "UC-029 section heading. The last section on the options page."
+  },
+  "syncIntro": {
+    "message": "Off by default, and decided separately on each browser. When it is on, this configuration is written to your browser's own synchronised storage — there is no account of ours anywhere in this, and nothing reaches a server we run.",
+    "description": "UC-029 section introduction (FR-058, BR-029-1). States the absence of an account of ours, which is the product claim."
+  },
+  "syncEnableLabel": {
+    "message": "Synchronise my configuration through this browser",
+    "description": "UC-029 step 1, the opt-in toggle (BR-029-1)."
+  },
+  "syncEnableHint": {
+    "message": "Stored locally on this device, and never carried to the others — turning it off here leaves your other browsers as they are.",
+    "description": "UC-029 hint under the toggle. BR-029-1: the toggle itself is deliberately excluded from what is synchronised."
+  },
+  "syncEnabled": {
+    "message": "Synchronisation is on for this browser.",
+    "description": "UC-029 step 1, announced after turning it on with nothing to decide."
+  },
+  "syncDisabled": {
+    "message": "Synchronisation is off for this browser. Your configuration is unchanged, and the copy in synchronised storage was left as it is.",
+    "description": "UC-029 A5, announced after turning it off. Says what was not touched, because A5's whole point is that nothing was."
+  },
+  "syncChoiceNeeded": {
+    "message": "Synchronised storage already holds a different configuration. Choose which one to keep before anything is written.",
+    "description": "UC-029 step 3, announced when the store held something different."
+  },
+  "syncChoiceSides": {
+    "message": "This browser has $HERERULES$ rule(s) and $HEREPROFILES$ profile(s). Synchronised storage has $THERERULES$ rule(s) and $THEREPROFILES$ profile(s). Whichever you keep replaces the other.",
+    "description": "UC-029 step 3. Both sides in one sentence, in counts (BR-029-3's readability, UC-028's confirmation shape).",
+    "placeholders": {
+      "hererules": {
+        "content": "$1",
+        "example": "31"
+      },
+      "hereprofiles": {
+        "content": "$2",
+        "example": "4"
+      },
+      "thererules": {
+        "content": "$3",
+        "example": "12"
+      },
+      "thereprofiles": {
+        "content": "$4",
+        "example": "1"
+      }
+    }
+  },
+  "syncChoiceKeepHere": {
+    "message": "Keep this browser's configuration",
+    "description": "UC-029 step 3, the choice that overwrites the synchronised copy."
+  },
+  "syncChoiceTakeThere": {
+    "message": "Take the synchronised configuration",
+    "description": "UC-029 step 3, the choice that replaces this browser's configuration."
+  },
+  "syncChoiceKeptHere": {
+    "message": "Kept this browser's configuration. It will be written to synchronised storage, replacing what was there.",
+    "description": "UC-029 step 3, announced after choosing this device."
+  },
+  "syncChoiceTookThere": {
+    "message": "Took the synchronised configuration. It has replaced everything above.",
+    "description": "UC-029 step 3, announced after adopting the store's copy through the single-replacement write."
+  },
+  "syncChoiceGone": {
+    "message": "The synchronised configuration is no longer readable, so nothing was replaced. This browser's configuration will be written instead.",
+    "description": "UC-029 step 3, when the replica stopped being usable while the choice was on screen."
+  },
+  "syncStatusOff": {
+    "message": "Not synchronising. Your configuration is stored on this device only.",
+    "description": "UC-029 status line with the feature off."
+  },
+  "syncStatusChoice": {
+    "message": "Waiting for you to choose which configuration to keep. Nothing has been written.",
+    "description": "UC-029 status line while step 3 is unanswered."
+  },
+  "syncStatusIdle": {
+    "message": "On. Nothing has been written to synchronised storage yet.",
+    "description": "UC-029 status line before the first write. BR-029-6: says what this device did, never what other devices have."
+  },
+  "syncStatusWaiting": {
+    "message": "A change is queued. Writes to synchronised storage are spaced out, so this one has not gone yet.",
+    "description": "UC-029 status line while a change waits behind the write-rate gate (BR-029-4, NFR-023). Says it has not gone rather than when it will: the timer lives in a background worker the browser may stop at any time, and a promise about timing is a claim this extension cannot keep (BR-029-6)."
+  },
+  "syncStatusWritten": {
+    "message": "Your configuration was written to synchronised storage. Whether another browser has received it is something this extension cannot see.",
+    "description": "UC-029 status line after a successful write. BR-029-6 and A4: written is the claim, up-to-date is not."
+  },
+  "syncStatusAdopted": {
+    "message": "A configuration arrived from synchronised storage and replaced the one on this device.",
+    "description": "UC-029 status line after a change from another device was applied here (step 5)."
+  },
+  "syncStatusStopped": {
+    "message": "Synchronisation has stopped: $RULES$ rules no longer fit in synchronised storage, which holds roughly $CEILING$. Nothing was truncated and this device still has every rule. Remove some rules, or turn synchronisation off and keep the configuration here.",
+    "description": "UC-029 A1 and FR-059. Says that it stopped, what stopped it, and what restores it — the three things A1 requires.",
+    "placeholders": {
+      "rules": {
+        "content": "$1",
+        "example": "412"
+      },
+      "ceiling": {
+        "content": "$2",
+        "example": "399"
+      }
+    }
+  },
+  "syncStatusRefused": {
+    "message": "Synchronised storage refused the last write: $REASON$. This device's configuration is unaffected.",
+    "description": "UC-029 A4. The store's own words; the page does not diagnose a cause it cannot know (NFR-020).",
+    "placeholders": {
+      "reason": {
+        "content": "$1",
+        "example": "QUOTA_BYTES quota exceeded"
+      }
+    }
+  },
+  "syncStatusUnreadable": {
+    "message": "Synchronised storage could not be read: $REASON$. Nothing was written, and this browser's configuration is unaffected.",
+    "description": "UC-029. A failed *read* of the synchronised store, which is a different fact from a refused write and must not borrow its sentence: nothing was attempted, so nothing was refused. Naming it separately is also what stops a failed read being treated as an empty store, which would seed over whatever is really there.",
+    "placeholders": {
+      "reason": {
+        "content": "$1",
+        "example": "An unexpected error occurred"
+      }
+    }
+  },
+  "syncStatusArrivalUnsaved": {
+    "message": "A configuration arrived from synchronised storage but could not be saved on this browser: $REASON$. Your settings here are unchanged.",
+    "description": "UC-029. A local storage write failing while adopting an arrival. Reported as itself rather than as the synchronised store refusing something, which it did not (NFR-020: a failure states its own cause). The settings are unchanged because a failed write leaves the previous state whole (NFR-021).",
+    "placeholders": {
+      "reason": {
+        "content": "$1",
+        "example": "QuotaExceededError"
+      }
+    }
+  },
+  "syncEnableUnreadable": {
+    "message": "Synchronisation was not switched on: synchronised storage could not be read ($REASON$). Nothing was written anywhere. Try again.",
+    "description": "UC-029 step 2. Turning the feature on has to look at what the store holds first, and a store that could not be read is not an empty one — treating it as empty would skip the question in step 3 and seed over a configuration that was there all along. Consent over an unknown state is not consent, so the feature stays off.",
+    "placeholders": {
+      "reason": {
+        "content": "$1",
+        "example": "An unexpected error occurred"
+      }
+    }
+  },
+  "syncStandingCeiling": {
+    "message": "Synchronised storage holds roughly $CEILING$ rules. Past that, synchronisation stops and says so — it never carries part of your rule list.",
+    "description": "UC-029 BR-029-3, first standing sentence. Permanent text, present before the feature is switched on.",
+    "placeholders": {
+      "ceiling": {
+        "content": "$1",
+        "example": "399"
+      }
+    }
+  },
+  "syncStandingConflict": {
+    "message": "If two browsers change settings at the same time, the later change wins and up to $SHARD$ rules of the earlier one are discarded. Nothing detects or repairs this.",
+    "description": "UC-029 BR-029-3, second standing sentence, and A2 stated before it can happen rather than after.",
+    "placeholders": {
+      "shard": {
+        "content": "$1",
+        "example": "8"
+      }
+    }
   }
 }

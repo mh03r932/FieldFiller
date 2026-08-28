@@ -688,7 +688,8 @@ p.samples {
  */
 .import-plan,
 .migrate-plan,
-.restore-plan {
+.restore-plan,
+.sync-choice {
   margin-block-start: 0.75rem;
   padding: 0.75rem;
   border: 1px solid var(--ff-rule);
@@ -697,7 +698,8 @@ p.samples {
 
 .import-summary,
 .migrate-summary,
-.restore-summary {
+.restore-summary,
+.sync-choice-summary {
   margin-block-start: 0;
   font-weight: 600;
 }
@@ -729,7 +731,8 @@ p.samples {
 
 .import-actions,
 .migrate-actions,
-.restore-actions {
+.restore-actions,
+.sync-choice-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 0.75rem;
@@ -743,4 +746,31 @@ p.samples {
 .import-dismiss,
 .migrate-dismiss {
   margin-block-start: 0.75rem;
+}
+
+/*
+ * UC-029. The status line carries weight because it is the section's answer to
+ * the only question the user has — did anything leave this browser — and it sits
+ * above the two standing sentences rather than below them, so the changing text
+ * is not something a reader has to look past permanent text to find.
+ *
+ * The standing sentences take the muted `.hint` colour every other explanatory
+ * line on this page takes, and deliberately nothing more. They describe ordinary
+ * operation (BR-029-3), not a warning: styling them as one would make a user
+ * read the ceiling and the discard as faults to be fixed, and there is nothing
+ * to fix. Their weight comes from being permanently present.
+ */
+.sync-status {
+  margin-block-start: 0.75rem;
+  font-weight: 600;
+}
+
+.sync-standing {
+  margin-block-start: 0.75rem;
+  padding-inline-start: 0.75rem;
+  border-inline-start: 3px solid var(--ff-rule);
+}
+
+.sync-standing p {
+  margin-block: 0.35rem;
 }

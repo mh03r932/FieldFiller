@@ -185,6 +185,19 @@ async function mountSettings(): Promise<void> {
    * keystroke wrote the whole stale state back and reverted the other tab.
    */
   browser.storage.onChanged.addListener((changes, areaName) => {
+    // UC-029's preferences, which are local state this page reads and the
+    // background writes (BR-029-1) — a different key, and a different question.
+    // The sync section's status line and step-3 counts are computed over a store
+    // this page does not own, so unlike every other section it can go stale
+    // without anything on the page having changed: the background writes an
+    // outcome the moment a replica is written, refused or stopped. `refresh`
+    // rather than a render, on the whole registry rather than by name, because
+    // that is the contract every section already holds — computed text patched
+    // in place, no control rebuilt, safe while the user is typing anywhere.
+    if (areaName === 'local' && 'sync' in changes) {
+      for (const [section, into] of sectionHosts()) section.refresh?.(editor, into);
+    }
+
     if (areaName !== 'local' || !('settings' in changes)) return;
     void getSettings().then((stored) => {
       // Our own write comes back through here too, and it is *not* what we asked

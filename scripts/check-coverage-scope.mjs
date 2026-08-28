@@ -50,6 +50,15 @@ const ALLOWED_UNGATED = new Map([
     'A wrapper over `browser.storage.local`. Same argument — and what it ' +
       'reads and writes is `parseSettings`, which is gated.',
   ],
+  [
+    'src/lib/platform/sync-store.ts',
+    'An executor over `browser.storage.sync` and the local preferences key ' +
+      '(UC-029). Every decision it makes is `planPush`, `planPull` or ' +
+      '`readReplica` in `src/lib/sync.ts`, which is gated at the same floor ' +
+      'as the rest of the schema — this file reads two stores and does what ' +
+      'the plan said. The entry is only honest for as long as that stays ' +
+      'true: a branch that decides something here belongs over there.',
+  ],
 ]);
 
 const config = readFileSync(CONFIG, 'utf8');

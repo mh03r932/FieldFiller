@@ -49,6 +49,7 @@
     "import:chrome": "node scripts/e2e-import.mjs",
     "migrate:chrome": "node scripts/e2e-migrate.mjs",
     "restore:chrome": "node scripts/e2e-restore.mjs",
+    "sync:chrome": "node scripts/e2e-sync.mjs",
     "spike:combobox": "node scripts/spike-combobox.mjs",
     "spike:coldstart": "node scripts/spike-coldstart.mjs",
     "spike:rulescale": "node scripts/spike-rule-scale.mjs",

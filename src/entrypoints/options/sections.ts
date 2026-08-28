@@ -29,6 +29,7 @@ import { renderImport, refreshImport } from './import-section';
 import { renderMigrate, refreshMigrate } from './migrate-section';
 import { renderProfiles } from './profiles-section';
 import { renderRestore, refreshRestore } from './restore-section';
+import { renderSync, refreshSync } from './sync-section';
 import { rowAt, rowMovedUnderYou } from './rows';
 
 /**
@@ -821,4 +822,13 @@ export const SECTIONS: ReadonlyArray<{
   // back, or put nothing back — and the page's last word on the settings above
   // is the one that says what "nothing" costs.
   { id: 'restore', render: renderRestore, refresh: refreshRestore },
+  // UC-029, last because it is the only section that is about the settings
+  // *leaving the device* rather than about what they are — a reader working
+  // down the page has met every section it would carry before being asked
+  // whether to carry them. `refresh` is the fourth consent surface, and the
+  // one with two reasons to need it: step 3's counts are computed over live
+  // settings like the restore confirmation's, and the status line is computed
+  // over a store this page does not write, so it goes stale from the outside
+  // as well as from within.
+  { id: 'sync', render: renderSync, refresh: refreshSync },
 ];
