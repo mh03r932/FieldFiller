@@ -32,6 +32,14 @@
  *     accounting and not under the other, and reports which one the browser
  *     kept.
  *
+ * **Extended 2026-08-28 with the other store's ceiling.** `storage.sync` is where
+ * a configuration stops travelling; `storage.local` is where it stops existing,
+ * and FR-044 ("no cap on the number of rules") had no measurement behind it at
+ * all. The same fixture and the same bisection answer both, which is the only
+ * way the two numbers can be quoted in one sentence — the search runs inside the
+ * worker, because at this store's scale shipping each candidate over CDP is not
+ * a thing worth doing.
+ *
  * What this does not measure: Firefox. Its documented constants match Chrome's,
  * but no harness here can reach an installed add-on's storage — `smoke-firefox`
  * proves the add-on installs and `e2e-firefox` runs the engine with no extension
@@ -523,6 +531,94 @@ try {
     console.log(`      stopped by: ${reason}`);
   }
   console.log('');
+
+  // ── The other store's ceiling, which is the one FR-044 is about ────────────
+  // `storage.sync` is where a configuration stops travelling; `storage.local` is
+  // where it stops *existing*, and until 2026-08-28 that number was nowhere —
+  // FR-044 promised an uncapped rule list and no measurement said what the
+  // platform would actually hold. Measured here rather than in a spike of its
+  // own because the fixture, the bisection and the browser are already here, and
+  // a per-rule cost measured against one store and quoted about the other is the
+  // kind of borrowed number this file exists to stop.
+  //
+  // The whole search runs inside the worker. The sync bisection above ships each
+  // candidate over CDP, which is fine at 401 rules and absurd at the tens of
+  // thousands this ceiling turns out to sit at — so the fixture builders are sent
+  // once, as their own source, and the loop runs where the storage API is. Their
+  // source rather than a second copy of them: a fixture that drifted from the one
+  // above would make the two ceilings incomparable, which is the only reason to
+  // report them together.
+  const fixtureSource = [
+    `const LABELS = ${JSON.stringify(LABELS)};`,
+    `const PATTERNS = ${JSON.stringify(PATTERNS)};`,
+    generatorFor.toString(),
+    ruleId.toString(),
+    seedRules.toString(),
+    seedProfiles.toString(),
+    seedSettings.toString(),
+  ].join('\n');
+
+  const localQuota = await inWorker('chrome.storage.local.QUOTA_BYTES ?? null');
+  const localCeiling = await inWorker(`(async () => {
+    ${fixtureSource}
+    const write = async (value) => {
+      try {
+        await chrome.storage.local.set({ probe: value });
+        return { ok: true };
+      } catch (error) {
+        return { ok: false, message: String(error && error.message ? error.message : error) };
+      }
+    };
+
+    // The control probe again, in this store's own terms: if an item twice the
+    // reported quota is accepted, this browser is not enforcing it and the
+    // bisection below would run to its bound and report a bound.
+    const guard = await write('x'.repeat((chrome.storage.local.QUOTA_BYTES ?? 0) * 2 || 32 * 1024 * 1024));
+    if (guard.ok) {
+      await chrome.storage.local.remove('probe');
+      return { enforced: false };
+    }
+
+    let low = 0;
+    // Doubled from a number the sync ceilings make plausible rather than from
+    // one that would build a 60 MB fixture on its first attempt.
+    let high = 4096;
+    let reason = 'no write failed below ' + high + ' rules';
+    // Doubling first, so the bound is found rather than assumed. A fixed upper
+    // bound that happened to fit would report itself as the ceiling.
+    while (true) {
+      const attempt = await write(seedSettings(high));
+      if (!attempt.ok) { reason = attempt.message; break; }
+      low = high;
+      if (high >= 1048576) return { enforced: true, max: low, reason: 'no write failed below ' + high + ' rules' };
+      high *= 2;
+    }
+    while (low < high) {
+      const mid = Math.floor((low + high + 1) / 2);
+      const attempt = await write(seedSettings(mid));
+      if (attempt.ok) low = mid;
+      else { high = mid - 1; reason = attempt.message; }
+    }
+    const bytes = JSON.stringify(seedSettings(low)).length;
+    await chrome.storage.local.remove('probe');
+    return { enforced: true, max: low, reason, bytes };
+  })()`);
+
+  console.log('  And the store the configuration actually lives in (FR-044):\n');
+  if (!localCeiling.enforced) {
+    console.log('  ⚠ storage.local accepted an item twice its reported quota, so this browser is not');
+    console.log('    enforcing it and no ceiling was measured. The number is absent, not large.\n');
+  } else {
+    console.log(
+      `  · storage.local ${'(the whole configuration, one item)'.padEnd(38)} holds ${localCeiling.max} global rules`,
+    );
+    console.log(`      stopped by: ${localCeiling.reason}`);
+    console.log(
+      `      ${localCeiling.bytes} B of a reported ${localQuota ?? 'unreported'} B quota` +
+        `, ${(localCeiling.bytes / Math.max(1, localCeiling.max)).toFixed(0)} B a rule`,
+    );
+    console.log('');
+  }
 
   // ── What a save costs against the write-rate limits ────────────────────────
   // The other half of sharding's price, and the one a byte count cannot answer:

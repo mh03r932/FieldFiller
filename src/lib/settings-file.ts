@@ -64,11 +64,20 @@ export const SETTINGS_FILE_TYPE = 'application/json';
  * default never changes.
  */
 export function serialiseSettings(settings: Settings): string {
-  return `${JSON.stringify(fileShape(settings), undefined, 2)}\n`;
+  return `${JSON.stringify(canonicalSettings(settings), undefined, 2)}\n`;
 }
 
 /**
  * The state, rebuilt key by key in the schema's order.
+ *
+ * **Exported since 2026-08-28, because the file is no longer the only place a
+ * configuration is written key by key.** UC-029's synchronised replica needs the
+ * same canonical form for two reasons the export already had — a stable byte
+ * count to measure against a quota, and a normal form to compare a returning
+ * write against — plus one of its own: the replica is compared against local
+ * settings on every arrival, and two states that differ only in key order would
+ * read as a foreign write on every sync event, in a loop. One definition, so the
+ * file and the replica cannot disagree about what a rule looks like.
  *
  * Not `JSON.stringify(settings)` directly, and the reason is BR-025-3 rather
  * than tidiness. A JavaScript object's keys come out in insertion order, and the
@@ -88,7 +97,7 @@ export function serialiseSettings(settings: Settings): string {
  * something different the moment a default changed, and UC-026 could not tell
  * "the user chose this" from "the user's version did not have this key yet".
  */
-function fileShape(settings: Settings): Record<string, unknown> {
+export function canonicalSettings(settings: Settings): Record<string, unknown> {
   return {
     version: settings.version,
     locale: settings.locale,

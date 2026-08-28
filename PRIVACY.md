@@ -1,7 +1,7 @@
 # Privacy Policy
 
 **FieldFiller browser extension**
-Last updated: 22 August 2026. Applies from the first published release.
+Last updated: 28 August 2026. Applies from the first published release.
 
 ---
 
@@ -19,16 +19,38 @@ network request, and that is checked mechanically on every change — see
 
 ## What FieldFiller stores
 
-One thing, in one place: **your settings**, in the browser's extension-local storage
-(`storage.local`) on the device where you set them.
+One thing: **your settings**, in the browser's extension-local storage (`storage.local`) on
+the device where you set them.
 
 That is your rules, profiles, field and domain exclusions, password policy, behaviour
 toggles, and corpus locale — the contents of the options page, and nothing else.
 
-Settings stay on that device. FieldFiller does not use the browser's sync storage, so your
-configuration is not copied to your other devices or to your browser vendor. Moving a
-configuration between machines is a deliberate act you perform: you export a JSON file from
-the options page and import it on the other machine. The file goes where you put it.
+### Settings stay on the device unless you say otherwise
+
+By default, they stay put. FieldFiller does not use the browser's synchronised storage
+unless you switch it on, and the switch is off when the extension is installed.
+
+**If you switch it on**, a copy of those same settings is written to the browser's own
+synchronised storage (`storage.sync`) so that your other browsers signed into the same
+browser account receive it. That copy is handled by your browser and your browser vendor,
+under their terms, exactly as your bookmarks and saved passwords are. FieldFiller has no
+account, no server and no way to read it: there is nowhere for it to go that your browser
+was not already going.
+
+Two things about that switch are worth knowing before you use it:
+
+- **It is decided separately on each browser**, and the setting itself is never carried. Turning
+  synchronisation off on your laptop does not turn it off on your desktop, and does not touch
+  the copy your other browsers are using.
+- **It carries settings, and only settings.** The same list as above. Nothing about pages you
+  visited, nothing generated, nothing about the device.
+
+You can turn it off at any time. Your settings stay on the device, complete, and the copy
+your other browsers use is left where it is.
+
+Either way, moving a configuration between machines by hand is still a deliberate act you
+perform: you export a JSON file from the options page and import it on the other machine. The
+file goes where you put it.
 
 **FieldFiller does not store:** the contents of any page you visit, the values it generated,
 which sites you used it on, when you used it, how often, or anything identifying you or your
@@ -61,7 +83,7 @@ external source.
 
 | Permission | Why it is needed |
 |---|---|
-| `storage` | To save your settings on this device. Nothing else is written to it. |
+| `storage` | To save your settings on this device — and, only if you switch synchronisation on, to write the same settings to the browser's own synchronised storage. Nothing else is written to either. |
 | `activeTab` | To act on the tab you are looking at when you click the toolbar button or press a shortcut. It grants access to that one tab, at that moment, because you asked. |
 | `scripting` | To dispatch the fill into each frame of the page, including nested and cross-origin frames — a form in an iframe cannot be reached from its parent document. |
 | `contextMenus` | To add the three right-click entries: fill all inputs, fill this form, fill this input. |
@@ -113,10 +135,8 @@ the gates above.
 
 ## Contact
 
-<!-- TODO before publishing: both stores require a working contact address on the listing,
-     and a privacy policy without one is a review finding. Substitute the address you want
-     to receive mail at — a personal address here becomes permanently public. -->
+Questions about this policy, or about what the extension does: open an issue at
+**https://github.com/mh03r932/FieldFiller/issues** — it reaches the maintainer directly,
+and the answer lands in public where the next person with the same question finds it.
 
-Questions about this policy, or about what the extension does: **[CONTACT ADDRESS]**
-
-Issues and source: **[REPOSITORY URL]**
+Source: **https://github.com/mh03r932/FieldFiller**

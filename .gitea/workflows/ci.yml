@@ -315,6 +315,18 @@ jobs:
         # omission — wired with the migrate harness that shared the gap.
         run: pnpm run restore:chrome
 
+      - name: Synchronise across devices (Chromium)
+        # UC-029. Wired from the day it was written, because this harness is
+        # where the feature was actually designed: four defects that every unit
+        # test passed through were found here, and all four were about the order
+        # two correct operations ran in — a re-entrant flush reporting a written
+        # replica as still queued, a delta that read storage's alphabetised echo
+        # as a change and so rewrote every shard, a queued retry painting over a
+        # ceiling the user had to act on, and a pull reverting a local edit that
+        # was still waiting behind the rate gate. Unit tests check operations;
+        # harnesses check sequences.
+        run: pnpm run sync:chrome
+
       - name: Corpus per locale (Chromium)
         # The path a unit test cannot reach: a locale written to storage, parsed
         # back, resolved, and turned into a record on a real page. Until this
@@ -499,3 +511,92 @@ jobs:
           name: fieldfiller-packages
           path: artefacts
           if-no-files-found: error
+
+  # C-012: a release is a pushed `v*` tag, not a dashboard session. This job is
+  # the second half of that — the stores' upload APIs, driven by the official
+  # CLIs through the same `release:*` scripts a developer runs by hand, so CI
+  # and a laptop cannot drift apart.
+  #
+  # It runs only on tags, and only after every other job has passed: an upload
+  # is the one thing this workflow does that cannot be undone by pushing
+  # another commit. AMO is always submitted (the add-on is live there). The
+  # Chrome Web Store is skipped until CWS_EXTENSION_ID exists, because the API
+  # cannot create the item — the first submission is a manual one, and until it
+  # has happened the skip is the honest state, not a failure.
+  #
+  # Secrets (Settings → Actions → Secrets): WEB_EXT_API_KEY and
+  # WEB_EXT_API_SECRET for AMO. For the Chrome Web Store, the account-level
+  # credentials this repository shares with its sibling extension — client,
+  # secret and refresh token are properties of the publishing Google account,
+  # not of an item — plus CHROME_EXTENSION_GWS_FIELDFILLER_ID, the one value
+  # that is per-extension, added after the first manual submission. A missing
+  # AMO key fails loudly rather than skipping, so a release tag can never go
+  # out half-processed in the other direction either.
+  release:
+    needs: [quality, browser, package]
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5.1.0
+
+      # No `cache: pnpm`, and the store cached by hand instead — see the
+      # `quality` job, where the reason is written out in full.
+      - name: Set up Node.js
+        uses: actions/setup-node@v4.4.0
+        with:
+          node-version: 24
+
+      - name: Install pnpm
+        # From the pin in `package.json` — see the `quality` job for why this is
+        # not `pnpm/action-setup`.
+        run: |
+          set -euo pipefail
+          version="$(node -p "require('./package.json').packageManager.split('@')[1]")"
+          npm install --global "pnpm@${version}"
+          pnpm --version
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # The zip a store receives is the one the digests were taken of, so the
+      # version this job submits is package.json's, not the tag's. A tag that
+      # disagrees with it would upload a package whose digest the changelog
+      # records under the wrong name — checked here, where the reason can be
+      # said in one sentence, rather than at AMO as "version already exists".
+      - name: Check the tag matches the version
+        run: |
+          set -euo pipefail
+          version="$(node -p "require('./package.json').version")"
+          if [ "v${version}" != "${GITHUB_REF_NAME}" ]; then
+            echo "✖ tag ${GITHUB_REF_NAME} does not match package.json version v${version}"
+            exit 1
+          fi
+
+      - name: Build the packages
+        run: pnpm run zip:all
+
+      - name: Submit to AMO
+        env:
+          WEB_EXT_API_KEY: ${{ secrets.WEB_EXT_API_KEY }}
+          WEB_EXT_API_SECRET: ${{ secrets.WEB_EXT_API_SECRET }}
+        run: pnpm run release:firefox
+
+      # Gated in the shell rather than in the step's `if`, because the
+      # runner's handling of the secrets context in `if` conditions is not a
+      # thing to build a release on. A shell test is the same one line on every
+      # runner that can execute this job at all, and it can explain itself.
+      - name: Upload to the Chrome Web Store
+        env:
+          EXTENSION_ID: ${{ secrets.CHROME_EXTENSION_GWS_FIELDFILLER_ID }}
+          CLIENT_ID: ${{ secrets.CHROME_EXTENSION_GWS_CLIENT_ID }}
+          CLIENT_SECRET: ${{ secrets.CHROME_EXTENSION_GWS_CLIENT_SECRET }}
+          REFRESH_TOKEN: ${{ secrets.CHROME_EXTENSION_GWS_REFRESH_TOKEN }}
+        run: |
+          if [ -z "${EXTENSION_ID}" ]; then
+            echo '→ skipped: CHROME_EXTENSION_GWS_FIELDFILLER_ID is not set. Create the item once at'
+            echo '  https://chromewebstore.google.com/devconsole, then add that one secret — the other'
+            echo '  three are account-level and already exist for this account.'
+            exit 0
+          fi
+          pnpm run release:chrome

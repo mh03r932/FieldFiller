@@ -35,7 +35,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const OUT_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'public', 'icon');
-const SIZES = [16, 32, 48, 96, 128];
+const SIZES = [16, 32, 48, 64, 96, 128];
 
 /** Supersampling factor per axis. 4× is enough to keep 16px edges from stepping. */
 const SAMPLES = 4;

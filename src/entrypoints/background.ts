@@ -2,6 +2,7 @@ import { defineBackground } from 'wxt/utils/define-background';
 import { browser } from 'wxt/browser';
 import { message, type MessageKey } from '@/lib/platform/i18n';
 import { getSettings } from '@/lib/platform/settings-store';
+import { startSyncEngine } from '@/lib/platform/sync-store';
 import { agentSettings, fillableExclusions } from '@/lib/settings';
 import {
   createPersona,
@@ -822,6 +823,20 @@ export default defineBackground(() => {
   // reconciles them — and an MV3 worker that was evicted while the user turned
   // the menu off in another window has no other moment to learn of it.
   void syncContextMenus();
+
+  /**
+   * UC-029, both directions. Registered here and nowhere else, so `storage.sync`
+   * has exactly one writer in the extension — the options page reads the replica
+   * to draw its section and to offer step 3's choice, and writes only the local
+   * preferences.
+   *
+   * At registration time rather than behind a settings read, for the reason the
+   * menu reconciliation above is unconditional: an MV3 worker is started *by*
+   * the event it needs to handle, and a listener attached after an await would
+   * miss the change that woke it. Everything behind it is a no-op while the
+   * feature is off, which is its shipped state (BR-029-1).
+   */
+  startSyncEngine();
 
   // UC-023 step 5: the change takes effect in pages already open. Nothing is
   // pushed to a tab — `contextMenus` is per-browser rather than per-page, so

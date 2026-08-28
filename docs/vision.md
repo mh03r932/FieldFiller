@@ -1127,6 +1127,19 @@ adds — which is little enough to be worth writing down:
 | **8** — chosen | **23** | **399 rules** | **up to 8 rules** |
 | 4 | 35 | 398 rules | up to 4 rules |
 
+**Re-run 2026-08-28, extended with the store the configuration actually lives in.** The three
+rows this decision turns on came back identical — 401 greedy, **399 at eight**, 209 for L5 —
+which is what makes the table above safe to keep quoting. Two things moved and are recorded
+rather than tidied away: the four-per-shard row measured **397** where the table says 398, and
+the 100-rule fixture serialised to 32 374 bytes where it was 32 360, so something in the schema
+or the fixture has grown by fourteen bytes in the six days between. Neither touches the chosen
+row, and chasing a fourteen-byte drift would cost more than knowing it is there. The extension
+also measured `storage.local` for the first time, because FR-044 had no number behind it at all:
+**44 840 global rules**, at 234 bytes each, stopping on `kQuotaBytes` at 10 476 739 of a reported
+10 485 760. That is the ceiling on *having* a configuration, two orders of magnitude past the
+ceiling on *carrying* one, and stating both together is what let FR-044 be rewritten as a fact
+rather than a promise.
+
 Eight costs **two rules of 401** — half a percent of a ceiling four times larger than any
 configuration this project has measured — and cuts what a conflict destroys by a factor of
 four. Four costs one rule more than eight and would have been defensible; eight is where the
@@ -1144,10 +1157,18 @@ for a quiet one, which is the trade this project has refused everywhere else it 
 than a missing one).
 
 **Two obligations follow, and both belong to UC-029's spec rather than to the storage layer.**
+*(Both were discharged on 2026-08-28 when UC-029 was built: the two sentences are permanent
+text on the sync screen, present with the toggle still off, and `scripts/e2e-sync.mjs` asserts
+they are there before the feature is ever switched on. The ceiling half also gained a third
+clause the spec did not spell out and A1 requires — what restores it.)*
 
-- **Sync stops carrying the configuration at ~399 rules** while FR-044 promises an unlimited
+- **Sync stops carrying the configuration at ~399 rules** while FR-044 promised an unlimited
   rule set. It has to *say* it has stopped rather than truncate, which is what makes FR-059
-  load-bearing rather than a nicety.
+  load-bearing rather than a nicety. **FR-044 was rewritten on 2026-08-28 rather than left to
+  be contradicted by this paragraph**: the product imposes no cap, three platform ceilings do,
+  and the requirement is now that each is named where the user meets it. The one this decision
+  produces is the only one a user can actually reach, which is why it is the only one said in
+  advance (BR-029-3).
 - **A conflict is last-writer-wins per shard and discards up to eight rules.** The interface
   says so in those terms. No layout avoids saying it; this one keeps what has to be said small
   and true.
