@@ -680,12 +680,14 @@ p.samples {
  * so it reads as a statement with two buttons under it. The refusal beside it
  * uses `.problem`, which is where this page puts things that did not happen.
  *
- * UC-028's confirmation shares these rules rather than growing a near-copy: it
- * is the same thing on screen — a stated consequence with two buttons under
- * it — and the one difference worth a rule of its own is that its counts are
- * the confirmation, so the summary keeps the same weight.
+ * UC-028's confirmation and UC-027's migration preview share these rules
+ * rather than growing near-copies: both are the same thing on screen — a
+ * stated consequence with two buttons under it — and the migration's
+ * elements carry a `migrate-*` class beside the `import-*` one so its own
+ * queries never have to reach into another feature's names.
  */
 .import-plan,
+.migrate-plan,
 .restore-plan {
   margin-block-start: 0.75rem;
   padding: 0.75rem;
@@ -694,6 +696,7 @@ p.samples {
 }
 
 .import-summary,
+.migrate-summary,
 .restore-summary {
   margin-block-start: 0;
   font-weight: 600;
@@ -725,16 +728,19 @@ p.samples {
 }
 
 .import-actions,
+.migrate-actions,
 .restore-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 0.75rem;
 }
 
-.import-refused {
+.import-refused,
+.migrate-refused {
   margin-block-start: 0.75rem;
 }
 
-.import-dismiss {
+.import-dismiss,
+.migrate-dismiss {
   margin-block-start: 0.75rem;
 }

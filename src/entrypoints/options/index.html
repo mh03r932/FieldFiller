@@ -152,6 +152,21 @@
       </section>
 
       <!--
+        UC-027. Its own control beside the import, not shared with it: the
+        two make different promises — read back what this extension wrote,
+        or translate what another product wrote — and a shared chooser
+        would have to ask which was meant only after the file was open.
+        Refused files are pointed between the two sections by recognition
+        of what they contain. What the translation cannot carry is shown,
+        in two lists, before anything is written.
+      -->
+      <section aria-labelledby="migrate-heading">
+        <h2 id="migrate-heading" data-i18n="migrateHeading"></h2>
+        <p data-i18n="migrateIntro"></p>
+        <div id="migrate"></div>
+      </section>
+
+      <!--
         UC-028. The way back from any configuration: the shipped defaults,
         written over everything above in one replacement, behind a confirmation
         that says in counts what it will discard. Last of the portability trio —

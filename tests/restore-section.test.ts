@@ -5,6 +5,7 @@ import type { OptionsHost } from '@/entrypoints/options/host';
 import type * as I18n from '@/lib/platform/i18n';
 import type * as Sections from '@/entrypoints/options/sections';
 import type * as ImportSection from '@/entrypoints/options/import-section';
+import type * as MigrateSection from '@/entrypoints/options/migrate-section';
 import type * as RestoreSection from '@/entrypoints/options/restore-section';
 
 /**
@@ -57,6 +58,7 @@ vi.mock('@/lib/platform/i18n', async (importOriginal) => ({
 type Modules = {
   sections: typeof Sections;
   import: typeof ImportSection;
+  migrate: typeof MigrateSection;
   restore: typeof RestoreSection;
 };
 
@@ -68,6 +70,7 @@ beforeEach(async () => {
   mod = {
     sections: await import('@/entrypoints/options/sections'),
     import: await import('@/entrypoints/options/import-section'),
+    migrate: await import('@/entrypoints/options/migrate-section'),
     restore: await import('@/entrypoints/options/restore-section'),
   };
 });
@@ -151,15 +154,19 @@ describe('the confirmation a foreign write arrives on', () => {
     expect(entry?.refresh).toBe(mod.restore.refreshRestore);
   });
 
-  it('registers the import preview’s refresh under the same contract', () => {
+  it('registers the import preview’s and the migration summary’s refreshes under the same contract', () => {
     // The same review that found the restore counts going stale across
     // same-page saves named the import preview’s "what is there now" half as
     // the sibling gap, and the same save loop in `main.ts` is the caller for
-    // both. Pinned here so a section that grows computed text over live
-    // settings without a refresh is a failing test rather than a lying
-    // sentence — the registry is what the loop iterates.
-    const entry = mod.sections.SECTIONS.find((section) => section.id === 'import');
-    expect(entry?.refresh).toBe(mod.import.refreshImport);
+    // all of these. The migration summary was the third such surface and was
+    // missed by the very commit that pinned this — review caught it, and the
+    // pin now names every section that shows computed text over live
+    // settings, so growing a fourth without a refresh is a failing test
+    // rather than a lying sentence. The registry is what the loop iterates.
+    const importEntry = mod.sections.SECTIONS.find((section) => section.id === 'import');
+    expect(importEntry?.refresh).toBe(mod.import.refreshImport);
+    const migrateEntry = mod.sections.SECTIONS.find((section) => section.id === 'migrate');
+    expect(migrateEntry?.refresh).toBe(mod.migrate.refreshMigrate);
   });
 
   it('opens focused on cancel — the state that makes the adoption render skip', () => {

@@ -1514,8 +1514,484 @@
     }
   },
   "importRefusedNothingOurs": {
-    "message": "Nothing in that file is a setting this extension knows, so it was not imported and your settings are unchanged. If it is a backup from a different form filler, bringing it across needs a converter this version does not have yet.",
-    "description": "UC-026 A5. The refusal exists because the tolerant parser would otherwise succeed and return a full set of defaults, reporting a successful import of an empty configuration. Worded on what can be proved — no setting of ours is present — rather than naming a product the code cannot actually identify; UC-027 owns that."
+    "message": "Nothing in that file is a setting this extension knows, so it was not imported and your settings are unchanged. If it is a backup from a different form filler, the migration below reads Fake Filler backups only.",
+    "description": "UC-026 A5: the file parses as JSON but carries none of this schema's keys. Fake Filler backups are caught by their own check before this one; what remains is genuinely foreign."
+  },
+  "importRefusedFakeFiller": {
+    "message": "That file is a Fake Filler backup, and import reads this extension's own files. Use Migrate from Fake Filler below — it translates backups, and says what could not be carried. Nothing was imported and your settings are unchanged.",
+    "description": "UC-026 A5 sharpened by UC-027: recognition on the reference's documented keys, refused with a pointer to the migration section."
+  },
+  "migrateHeading": {
+    "message": "Migrate from Fake Filler",
+    "description": "Heading of the migration section (UC-027), beside import: the two make different promises."
+  },
+  "migrateIntro": {
+    "message": "Turn a Fake Filler backup into this extension's configuration. What the translation cannot carry is named below before anything is written, separately from what arrives changed.",
+    "description": "Explains the migration and its two-list report (FR-056)."
+  },
+  "migrateFileLabel": {
+    "message": "Fake Filler backup",
+    "description": "Label of the file chooser. The reference's exports download as .txt files."
+  },
+  "migratePlanSummary": {
+    "message": "This would replace your $NOWRULES$ rule(s) and $NOWPROFILES$ profile(s) with $NEWRULES$ rule(s) and $NEWPROFILES$ profile(s) translated from $FILE$.",
+    "description": "Both sides of the replacement before the write (BR-026-5's shape).",
+    "placeholders": {
+      "nowrules": {
+        "content": "$1"
+      },
+      "nowprofiles": {
+        "content": "$2"
+      },
+      "newrules": {
+        "content": "$3"
+      },
+      "newprofiles": {
+        "content": "$4"
+      },
+      "file": {
+        "content": "$5"
+      }
+    }
+  },
+  "migratePlanVersion": {
+    "message": "This backup states schema version $VERSION$; the translation was written against version 1, the only documented one. A field whose meaning changed between them cannot be detected from here.",
+    "description": "A2's preamble, leading the report when the stated version is not the documented one or is absent.",
+    "placeholders": {
+      "version": {
+        "content": "$1"
+      }
+    }
+  },
+  "migratePlanVersionAbsent": {
+    "message": "This backup states no schema version; the translation was written against version 1, the only documented one. A field whose meaning changed between them cannot be detected from here.",
+    "description": "A2's preamble for a backup that carries no version at all."
+  },
+  "migratePlanPersona": {
+    "message": "Migrated name, email, username, organisation, telephone and URL rules draw from the fill's person, so an email a migrated rule writes still matches the name beside it. Fake Filler generated each value freshly.",
+    "description": "BR-027-6, said once at the top of the report rather than named on every rule."
+  },
+  "migratePlanDropped": {
+    "message": "$COUNT$ thing(s) in this backup cannot be carried and will not arrive:",
+    "description": "Heading of the drop list — the entries that will not be there afterwards.",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "migratePlanNoted": {
+    "message": "$COUNT$ thing(s) arrive changed from the backup:",
+    "description": "Heading of the second list — entries that do arrive, differently. The two promises must not be mistaken for each other.",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "migrateDroppedField": {
+    "message": "Field \"$NAME$\" could not be translated and was not carried.",
+    "description": "A fields[] entry whose settings cannot become a rule — an empty list, a blank template.",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "migrateDroppedFieldNoMatch": {
+    "message": "Field \"$NAME$\" lists no match patterns, so no rule could be built for it.",
+    "description": "The reference matched fields by a list of regexes; an empty list matches nothing.",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "migrateDroppedFieldUnknownType": {
+    "message": "Field \"$NAME$\" is of type \"$TYPE$\", which has no counterpart here, and was not carried.",
+    "description": "A custom-field type outside the documented fourteen — most likely from a store build ahead of the published source.",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      },
+      "type": {
+        "content": "$2"
+      }
+    }
+  },
+  "migrateDroppedFieldRefused": {
+    "message": "Field \"$NAME$\", matching $PATTERNS$, cannot be stored: $PROBLEM$",
+    "description": "A4/BR-027-3: the joined rule failed the validation the editor applies. Every pattern that went into the join is named, because the user's rule was the whole list.",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      },
+      "patterns": {
+        "content": "$2"
+      },
+      "problem": {
+        "content": "$3"
+      }
+    }
+  },
+  "migrateDroppedFieldShape": {
+    "message": "Field \"$NAME$\" carries $KEYS$ with a kind this extension cannot read, so no rule could be built for it.",
+    "description": "A fatal entry-level shape fault (UC-027 step 4). Distinct from migrateDroppedShape, which is worded for the survivable case and ends 'This extension's own default stands' \u2014 true when the rule arrives and one setting defaulted, false when the entry is gone and no default stands for it. The field is named here for the reason every other field drop names it: a bare path tells the user which key was wrong and not which of their fields they lost.",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      },
+      "keys": {
+        "content": "$2"
+      }
+    }
+  },
+  "migrateDroppedProfile": {
+    "message": "Profile #$INDEX$ in the backup is not shaped the way a Fake Filler profile is, so nothing from it could be translated.",
+    "description": "A profiles[] entry that is not an object — dropped whole rather than becoming an empty profile the backup never carried. Named by position: an unreadable entry has no name to translate.",
+    "placeholders": {
+      "index": {
+        "content": "$1"
+      }
+    }
+  },
+  "migrateDroppedProfileField": {
+    "message": "In profile \"$PROFILE$\", field \"$NAME$\" could not be translated and was not carried.",
+    "description": "The unreadable-field drop inside a profile.",
+    "placeholders": {
+      "profile": {
+        "content": "$1"
+      },
+      "name": {
+        "content": "$2"
+      }
+    }
+  },
+  "migrateDroppedProfileFieldNoMatch": {
+    "message": "In profile \"$PROFILE$\", field \"$NAME$\" lists no match patterns, so no rule could be built for it.",
+    "description": "The no-patterns drop inside a profile.",
+    "placeholders": {
+      "profile": {
+        "content": "$1"
+      },
+      "name": {
+        "content": "$2"
+      }
+    }
+  },
+  "migrateDroppedProfileFieldUnknownType": {
+    "message": "In profile \"$PROFILE$\", field \"$NAME$\" is of type \"$TYPE$\", which has no counterpart here, and was not carried.",
+    "description": "The unknown-type drop inside a profile.",
+    "placeholders": {
+      "profile": {
+        "content": "$1"
+      },
+      "name": {
+        "content": "$2"
+      },
+      "type": {
+        "content": "$3"
+      }
+    }
+  },
+  "migrateDroppedProfileFieldRefused": {
+    "message": "In profile \"$PROFILE$\", field \"$NAME$\", matching $PATTERNS$, cannot be stored: $PROBLEM$",
+    "description": "A4/BR-027-3 inside a profile.",
+    "placeholders": {
+      "profile": {
+        "content": "$1"
+      },
+      "name": {
+        "content": "$2"
+      },
+      "patterns": {
+        "content": "$3"
+      },
+      "problem": {
+        "content": "$4"
+      }
+    }
+  },
+  "migrateDroppedProfileFieldShape": {
+    "message": "In profile \"$PROFILE$\", field \"$NAME$\" carries $KEYS$ with a kind this extension cannot read, so no rule could be built for it.",
+    "description": "The fatal entry-level shape fault inside a profile. Every other profile-field drop names its profile; the shape arm was the one that did not, leaving a bare path where the rest of the report speaks in the user's own names.",
+    "placeholders": {
+      "profile": {
+        "content": "$1"
+      },
+      "name": {
+        "content": "$2"
+      },
+      "keys": {
+        "content": "$3"
+      }
+    }
+  },
+  "migrateDroppedPasswordDefined": {
+    "message": "The backup fills every password field with one chosen string. Passwords here are generated under the policy above and fitted to each field's own limits, so there is nowhere to carry a chosen string. A workflow that relied on a known password is genuinely changed by migrating.",
+    "description": "A6, and the sentence exists so 'not supported' cannot read as 'not noticed'."
+  },
+  "migrateDroppedKey": {
+    "message": "The backup setting \"$KEY$\" has no counterpart here and was not carried.",
+    "description": "A root key outside the reference's documented schema — possibly a setting from a store build ahead of the published source — or an unknown key on a field or profile entry, reported by path (fields[2].emailHostname). Named rather than silently ignored, for the reason the importer descends into its entries: the store build runs ahead of the published source one level down too.",
+    "placeholders": {
+      "key": {
+        "content": "$1"
+      }
+    }
+  },
+  "migrateDroppedShape": {
+    "message": "The backup's \"$KEY$\" is not shaped the way a Fake Filler backup carries it, so nothing from it could be translated. This extension's own default stands.",
+    "description": "A documented key present with the wrong kind of value — a field list that is not a list, keyword lists as a bare string (UC-027 step 4). Distinct from migrateDroppedKey: the name was recognised, the value was not. Until this was reported, a hand-edited backup migrated as an empty configuration with an empty report.",
+    "placeholders": {
+      "key": {
+        "content": "$1"
+      }
+    }
+  },
+  "migrateNotedField": {
+    "message": "Field \"$NAME$\" arrives without: $LOSSES$.",
+    "description": "A3's heart: every setting that did not survive, named on the rule the user recognises — a sentence, not a count. $LOSSES$ is a joined list of migrateLoss* sentences, resolved each against the catalog (NFR-018), never prose assembled in code.",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      },
+      "losses": {
+        "content": "$2"
+      }
+    }
+  },
+  "migrateLossSetting": {
+    "message": "$SETTING$",
+    "description": "A setting identifier from the backup itself — emailPrefix, emailHostname — substituted as its own name. The file's own identifier is never translated; the message exists so the join around it is built from catalog entries like every other loss.",
+    "placeholders": {
+      "setting": {
+        "content": "$1",
+        "example": "emailPrefix"
+      }
+    }
+  },
+  "migrateLossTelephoneTemplate": {
+    "message": "the telephone template \"$TEMPLATE$\" (numbers here draw from the fill's person)",
+    "description": "The reference's telephone mask, dropped because ours generates coherent numbers.",
+    "placeholders": {
+      "template": {
+        "content": "$1",
+        "example": "+1 (XxX) XxX-XxxX"
+      }
+    }
+  },
+  "migrateLossRangeReordered": {
+    "message": "min and max, which arrived reversed and were stored reordered",
+    "description": "A number field whose bounds were the wrong way round; the parser orders them, and the report says the stored rule differs from the file."
+  },
+  "migrateLossClamped": {
+    "message": "$SETTING$, moved from $FROM$ to the nearest bound this side keeps ($TO$)",
+    "description": "A numeric setting outside the bounds this schema enforces.",
+    "placeholders": {
+      "setting": {
+        "content": "$1",
+        "example": "min"
+      },
+      "from": {
+        "content": "$2",
+        "example": "1e+300"
+      },
+      "to": {
+        "content": "$3",
+        "example": "1e+15"
+      }
+    }
+  },
+  "migrateLossDateToken": {
+    "message": "the date-format token \"$TOKEN$\"",
+    "description": "A moment-style token with no counterpart here — named per token, nearest-or-nothing per the module's recorded deviation.",
+    "placeholders": {
+      "token": {
+        "content": "$1",
+        "example": "MMMM"
+      }
+    }
+  },
+  "migrateLossDateBound": {
+    "message": "the date bound $SETTING$ (\"$VALUE$\" is not a date this side reads)",
+    "description": "A minDate/maxDate that does not parse as ISO; the default range stands for it.",
+    "placeholders": {
+      "setting": {
+        "content": "$1",
+        "example": "maxDate"
+      },
+      "value": {
+        "content": "$2",
+        "example": "01/03/2020"
+      }
+    }
+  },
+  "migrateLossMaxLength": {
+    "message": "the per-field cap of $LENGTH$ characters (this side sizes text by words)",
+    "description": "The reference's character cap has no word-count equivalent.",
+    "placeholders": {
+      "length": {
+        "content": "$1",
+        "example": "40"
+      }
+    }
+  },
+  "migrateLossUpperConsonant": {
+    "message": "C (an uppercase consonant — consonants here have no case)",
+    "description": "The reference's template letter, mapped to the nearest placeholder."
+  },
+  "migrateLossUpperVowel": {
+    "message": "V (an uppercase vowel — vowels here have no case)",
+    "description": "The reference's template letter, mapped to the nearest placeholder."
+  },
+  "migrateLossNonzeroDigit": {
+    "message": "X (a nonzero digit — digits here include zero)",
+    "description": "The reference's template letter, mapped to the nearest placeholder."
+  },
+  "migrateNotedExclusion": {
+    "message": "The backup's ignored-field pattern \u201c$PATTERN$\u201d is carried across as it is: $PROBLEM$",
+    "description": "An ignored-field pattern kept with a fault, on the importer's terms: the reference never screened its patterns (A4's own argument), so a backup is as likely to carry a catastrophic one here as in a field's match list. Kept rather than refused because the exclusion editor stores invalid patterns on purpose (UC-005 A5), and a migration must not be stricter than the screen that corrects them. $PROBLEM$ is a ruleProblem* sentence, written to read after a colon.",
+    "placeholders": {
+      "pattern": {
+        "content": "$1",
+        "example": "(a+)+b"
+      },
+      "problem": {
+        "content": "$2",
+        "example": "this pattern can backtrack catastrophically and would hang the extension."
+      }
+    }
+  },
+  "migrateNotedProfileField": {
+    "message": "In profile \"$PROFILE$\", field \"$NAME$\" arrives without: $LOSSES$.",
+    "description": "A3 inside a profile.",
+    "placeholders": {
+      "profile": {
+        "content": "$1"
+      },
+      "name": {
+        "content": "$2"
+      },
+      "losses": {
+        "content": "$3"
+      }
+    }
+  },
+  "migrateNotedProfileUrl": {
+    "message": "Profile \"$PROFILE$\" arrives disabled: its URL match \"$PATTERN$\" is a regular expression, and URL patterns here are globs — a conversion would be sometimes right and silently wrong the rest of the time. Its rules arrive; set URL patterns on it once and it works again.",
+    "description": "A5/BR-027-5 for a profile that stated a non-empty urlMatch: nothing guessed into an active state, nothing silently lost.",
+    "placeholders": {
+      "profile": {
+        "content": "$1"
+      },
+      "pattern": {
+        "content": "$2"
+      }
+    }
+  },
+  "migrateNotedProfileUrlUnrestricted": {
+    "message": "Profile \"$PROFILE$\" arrives disabled: it carried no URL match, so in Fake Filler it applied on every page. Profiles here are inert until URL patterns are set on them, and arriving active on every page is not this extension's decision to make for you. Its rules arrive; set URL patterns once and it works again.",
+    "description": "The absent-or-empty urlMatch case, worded for what the backup actually carried: no restriction, not a regex to quote. A distinct sentence from migrateNotedProfileUrl because asserting 'its URL match is a regular expression' about a profile that set none would be a false claim about the backup.",
+    "placeholders": {
+      "profile": {
+        "content": "$1"
+      }
+    }
+  },
+  "migrateNotedSourcesSplit": {
+    "message": "The backup set aria-label and aria-labelledby matching differently; here they are one source, switched on, because the wider of the two cannot lose a match the backup made.",
+    "description": "Two reference toggles feeding one source here."
+  },
+  "migrateNotedDefaultMaxLength": {
+    "message": "The backup's global length cap of $LENGTH$ is applied to single-line text and search fields only. Text areas keep this extension's built-in sizing — the reference's one cap for everything is the behaviour it replaced.",
+    "description": "The defaultMaxLength row: importing it verbatim would import the defect ND-10 exists to fix.",
+    "placeholders": {
+      "length": {
+        "content": "$1"
+      }
+    }
+  },
+  "migrateNotedPasswordRandom": {
+    "message": "Passwords arrive under this extension's default character classes, at the backup's observed random length of 8 characters.",
+    "description": "Random mode: the classes keep our defaults, the length is the reference's own."
+  },
+  "migrateRefusedTooLarge": {
+    "message": "That file is $SIZE$ KB, and this reads backups up to $LIMIT$ KB. Nothing was migrated and your settings are unchanged. A real backup is kilobytes — Fake Filler caps its free tier at twenty-five fields.",
+    "description": "A8, in UC-026 A9's bound and words: the cost is the read and the analysis, on the options page's thread.",
+    "placeholders": {
+      "size": {
+        "content": "$1"
+      },
+      "limit": {
+        "content": "$2"
+      }
+    }
+  },
+  "migrateRefusedNotJson": {
+    "message": "That file is neither JSON nor Fake Filler's Base64 export format, so nothing was translated. $DETAIL$. Your settings are unchanged.",
+    "description": "A1: says which of the two it failed to be, because the correction differs.",
+    "placeholders": {
+      "detail": {
+        "content": "$1"
+      }
+    }
+  },
+  "migrateRefusedNotObject": {
+    "message": "That file is valid JSON but not a settings backup. Nothing was migrated and your settings are unchanged.",
+    "description": "A1's second half: an array, a number, a bare string."
+  },
+  "migrateRefusedNotBackup": {
+    "message": "That file carries none of the keys a Fake Filler backup has, so there is nothing here to translate. Your settings are unchanged.",
+    "description": "A1: recognition runs on the reference's documented key set (BR-027-2)."
+  },
+  "migrateRefusedOurs": {
+    "message": "That file is this extension's own export. Migration is for Fake Filler backups; use Import above for this one. Your settings are unchanged.",
+    "description": "A1's mirror of UC-026 A5: our export pointed back at the import section."
+  },
+  "migrateConfirm": {
+    "message": "Migrate",
+    "description": "The second, explicit action (step 6). The first click only chose a file."
+  },
+  "migrateCancel": {
+    "message": "Cancel",
+    "description": "Puts the file down without writing."
+  },
+  "migrateCancelled": {
+    "message": "Migration cancelled. Your settings are unchanged.",
+    "description": "A cancellation is one that could have happened — distinct from a refusal, which never could."
+  },
+  "migrateDismiss": {
+    "message": "Dismiss",
+    "description": "Puts a refused file down; not a way past the refusal."
+  },
+  "migrateDismissed": {
+    "message": "The file was put down. Nothing was migrated and your settings are unchanged.",
+    "description": "The dismissal's announcement."
+  },
+  "migrateDone": {
+    "message": "Migrated $NEWRULES$ rule(s) and $NEWPROFILES$ profile(s) from $FILE$. These replace your previous settings, and the next fill in every open tab uses them.",
+    "description": "Step 8: what landed, and that it is in force now.",
+    "placeholders": {
+      "newrules": {
+        "content": "$1"
+      },
+      "newprofiles": {
+        "content": "$2"
+      },
+      "file": {
+        "content": "$3"
+      }
+    }
+  },
+  "migrateUnreadable": {
+    "message": "The file could not be read: $REASON$. Nothing was migrated and your settings are unchanged.",
+    "description": "The file was chosen and could not be read — removed since, or unreadable.",
+    "placeholders": {
+      "reason": {
+        "content": "$1"
+      }
+    }
   },
   "restoreHeading": {
     "message": "Restore default settings",

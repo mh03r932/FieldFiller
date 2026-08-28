@@ -55,6 +55,17 @@ type Pending =
   | { readonly kind: 'read'; readonly name: string; readonly text: string }
   | { readonly kind: 'oversize'; readonly name: string; readonly size: number };
 
+/**
+ * The last pick made, for the race the `await` in `chosen` opens — the
+ * migrate section's token, on this section's own terms: `pending` is written
+ * only after `file.text()` resolves, and the chooser is still mounted during
+ * that await, so a second pick races the first and whichever read resolves
+ * last wins. A token discards the superseded read; last *pick* wins, the
+ * invariant the picker itself promises. Pre-existing here, found with the
+ * migrate section's copy.
+ */
+let pick = 0;
+
 export function renderImport(host: OptionsHost, into: HTMLElement): void {
   const chooser = document.createElement('input');
   chooser.type = 'file';
@@ -89,9 +100,13 @@ export function renderImport(host: OptionsHost, into: HTMLElement): void {
 }
 
 async function chosen(host: OptionsHost, into: HTMLElement, file: File | undefined): Promise<void> {
+  const token = ++pick;
   if (file === undefined) {
     pending = undefined;
     renderImport(host, into);
+    // The chooser that opened the picker was destroyed by the re-render;
+    // back on it, where the next attempt starts, rather than `<body>`.
+    focusIn(into, '.import-file');
     return;
   }
 
@@ -102,18 +117,50 @@ async function chosen(host: OptionsHost, into: HTMLElement, file: File | undefin
   if (file.size > MAX_IMPORT_SIZE) {
     pending = { kind: 'oversize', name: file.name, size: file.size };
     renderImport(host, into);
+    focusOutcome(into);
     return;
   }
 
+  let text: string;
   try {
-    pending = { kind: 'read', name: file.name, text: await file.text() };
+    text = await file.text();
   } catch (error) {
     // The file was picked and could not be read — removed since, or unreadable.
     // Distinct from a file that read fine and is not ours, which is A1's job.
+    if (token !== pick) return; // a later pick superseded this read
     pending = undefined;
     host.announce(message('importUnreadable', [reason(error)]));
+    renderImport(host, into);
+    focusOutcome(into);
+    return;
   }
+
+  // A pick made while this read was in flight has already rendered its own
+  // outcome; this stale read writes nothing over it.
+  if (token !== pick) return;
+
+  pending = { kind: 'read', name: file.name, text };
   renderImport(host, into);
+  focusOutcome(into);
+}
+
+/**
+ * Puts the focus on the safe action of whatever the choice produced.
+ *
+ * The migration section's treatment, applied to the surface that had been
+ * leaving it on `<body>` since before that section existed: the re-render
+ * destroys the focused chooser, the OS picker has just closed, and the
+ * focus falls nowhere unless something takes it. Cancel rather than
+ * confirm, for the restore confirmation's reason — Enter one keystroke
+ * from replacing every setting is the destructive reading of a report the
+ * user has only just started reading. And the one outcome with *neither*
+ * button — the file that could not be read, announced and gone — lands on
+ * the chooser, where the next attempt starts.
+ */
+function focusOutcome(into: HTMLElement): void {
+  if (focusIn(into, '.import-cancel')) return;
+  if (focusIn(into, '.import-dismiss')) return;
+  focusIn(into, '.import-file');
 }
 
 /**

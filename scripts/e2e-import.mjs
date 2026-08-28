@@ -20,7 +20,7 @@
  *   CHROME_PATH=…  override the browser binary
  *   HEADFUL=1      show the window
  */
-import { existsSync, mkdtempSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -277,6 +277,10 @@ try {
   await choose('round-trip.json', exported);
   await waitFor(`document.querySelector('#import .import-plan') !== null`, 'no preview for the liveness pass');
 
+  check('the preview opens focused on the safe action, not on <body> (WCAG 2.4.3)',
+    (await inPage(`document.activeElement?.matches('.import-cancel') ?? false`)) === true,
+    `focused=${JSON.stringify(String(await inPage(`document.activeElement?.className ?? String(document.activeElement)`)))}`);
+
   const beforeEdit = await textOf('#import .import-summary');
   check('the preview names the current side it will replace (BR-026-5)',
     beforeEdit.includes('1 rule(s)'), `summary=${JSON.stringify(beforeEdit)}`);
@@ -379,8 +383,23 @@ try {
     [
       'A5 · nothing in it is ours',
       'other-tool.json',
-      JSON.stringify({ fields: [{ type: 'text', name: 'email' }], ignoredFields: ['captcha'] }),
+      JSON.stringify({ hello: 'world', from: 'somewhere else entirely' }),
       'Nothing in that file',
+    ],
+    // UC-027's owed pointer, sharpened in the change that built the
+    // converter: a Fake Filler backup is the one foreign file with a name
+    // and a destination, and the importer says both rather than the
+    // generic nothing-is-ours. Recognised on the reference's documented
+    // keys — which is why this case's file is exactly such a backup.
+    [
+      'A5 · a Fake Filler backup, refused with its destination',
+      'fake-filler.txt',
+      Buffer.from(JSON.stringify({
+        version: 1,
+        fields: [{ type: 'text', name: 'email', match: ['email'] }],
+        ignoredFields: ['captcha'],
+      }), 'utf8').toString('base64'),
+      'Fake Filler backup',
     ],
     // A9, and the only refusal here that the unit tests cannot reach: this one
     // is decided from `File.size` before `text()` is called at all, so what is
@@ -434,6 +453,38 @@ try {
         canonicalState(await stored()) === canonicalState(OTHER),
       'the refusal stayed on screen after dismissing it, or something was written');
   }
+
+  // ── The unreadable file: the one outcome with no action button ────────────
+  // Same path the migrate harness drives, on this section's own chooser: the
+  // failure is announced rather than rendered, so neither of focusOutcome's
+  // first two destinations exists, and until the chooser became the last
+  // resort the focus fell to <body>. A dangling symlink for the unreadable
+  // file, for the reason the migrate harness states: ENOENT fails for root
+  // too, and a chmod-000 file reads fine under a root CI runner's Chromium.
+  await openOptions();
+  const unreadableReal = join(filesDir, 'no-permissions.real');
+  const unreadableLink = join(filesDir, 'no-permissions.json');
+  writeFileSync(unreadableReal, '{ "version": 1 }');
+  symlinkSync(unreadableReal, unreadableLink);
+  rmSync(unreadableReal);
+  {
+    const { root } = await cdp.send('DOM.getDocument', {}, page);
+    const { nodeId } = await cdp.send(
+      'DOM.querySelector',
+      { nodeId: root.nodeId, selector: '#import .import-file' },
+      page,
+    );
+    await cdp.send('DOM.setFileInputFiles', { files: [unreadableLink], nodeId }, page);
+  }
+  await sleep(500);
+
+  check('a file the browser cannot read is announced as that, and nothing is written',
+    (await textOf('#announcements')).toLowerCase().includes('could not be read') &&
+      canonicalState(await stored()) === canonicalState(OTHER),
+    `announcement=${JSON.stringify(await textOf('#announcements'))}`);
+  check('and the focus lands on the chooser, not on <body>',
+    (await inPage(`document.activeElement?.matches('#import .import-file') ?? false`)) === true,
+    `focused=${JSON.stringify(String(await inPage(`document.activeElement?.className ?? String(document.activeElement)`)))}`);
 
   // A2 names both versions, which is what tells the user the fix is an update.
   await openOptions();
