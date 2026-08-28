@@ -14,7 +14,7 @@ import {
 } from '@/lib/persona/persona';
 import { generateBatch, tokenRandom } from '@/lib/generators/batch';
 import type { BehaviourDefaults } from '@/lib/generators/default-generator';
-import { compileRules, type CompiledRule } from '@/lib/rules/match';
+import { compileRules, slowRules, type CompiledRule } from '@/lib/rules/match';
 import { activeProfile, profileName, rulesFor } from '@/lib/profiles';
 import { excludedBy } from '@/lib/page/scope';
 import {
@@ -141,6 +141,16 @@ type Operation = {
   readonly profile: string | undefined;
   /** Rules that could not run, by label, so the user is told (DD-005). */
   readonly skippedRules: Set<string>;
+  /**
+   * What matching has cost this fill, rule by rule (NFR-032).
+   *
+   * Summed across every frame and every pass, because that is the scale the
+   * bound is stated at: one batch of a 500-control page is one frame's share of
+   * one pass, and a rule that is slow is slow in all of them.
+   */
+  readonly matchCostMs: Map<string, number>;
+  /** The same, for field-exclusion patterns, which are measured in the agent (NFR-032). */
+  readonly excludeCostMs: Map<string, number>;
   /**
    * Exclusions this fill did not send to the page, by pattern (NFR-009).
    *
@@ -423,6 +433,8 @@ async function startFill(target: Target, scope: FillScope, trigger: FillTrigger)
         maxLengths: settings.behaviour.maxLengths,
       },
       skippedRules: new Set(),
+      matchCostMs: new Map(),
+      excludeCostMs: new Map(),
       // Decided once, here, rather than asked again when the report is built:
       // the settings could have changed under a fill that is still running, and
       // what the report has to name is what *this* fill declined to send.
@@ -681,6 +693,8 @@ function complete(operationId: OperationId): void {
     capped: operation.capped,
     stale: operation.stale,
     skippedRules: [...operation.skippedRules],
+    slowRules: slowRules(operation.matchCostMs),
+    slowExclusions: slowRules(operation.excludeCostMs),
     skippedExclusions: operation.skippedExclusions,
     refused: operation.refused,
     scopeRule: operation.scopeRule,
@@ -955,8 +969,17 @@ export default defineBackground(() => {
         // used to get.
         randomFor: (token) =>
           token === undefined ? operation.random : tokenRandom(operation.seed, token),
+        // NFR-032's measurement. `Date.now()` rather than `performance.now()`
+        // because this is elapsed time and nothing else — the same call the
+        // operation timeout and the badge already use, and the numbers it
+        // produces are compared against a 100 ms bound where a millisecond of
+        // resolution is noise.
+        now: Date.now,
       });
       for (const note of batch.skippedRules) operation.skippedRules.add(note);
+      for (const [label, spent] of batch.matchCostMs) {
+        operation.matchCostMs.set(label, (operation.matchCostMs.get(label) ?? 0) + spent);
+      }
       sendResponse({
         kind: 'values',
         operationId: raw.operationId,
@@ -980,6 +1003,9 @@ export default defineBackground(() => {
     // First refusal wins, as the first cap does: a page-scope fill broadcasts to
     // every frame and only the narrow scopes can refuse, so at most one frame
     // ever sets this.
+    for (const [pattern, spent] of Object.entries(raw.report.excludeCostMs ?? {})) {
+      operation.excludeCostMs.set(pattern, (operation.excludeCostMs.get(pattern) ?? 0) + spent);
+    }
     operation.refused ??= raw.report.refused;
     operation.scopeRule ??= raw.report.scopeRule;
 

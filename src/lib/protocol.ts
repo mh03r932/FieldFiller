@@ -338,6 +338,15 @@ export type FrameReport = {
   /** For the log and the report only; never used for identity. */
   readonly frameUrl: string;
   readonly outcomes: readonly FieldOutcome[];
+  /**
+   * What field-exclusion matching cost this frame, by pattern source, in
+   * milliseconds (NFR-032). Absent from an agent that predates it, and from a
+   * frame whose scope refused before any control was classified.
+   *
+   * A plain object, never a `Map`: this crosses `runtime.sendMessage`, which
+   * serialises as JSON, and a `Map` would arrive as `{}` without complaint.
+   */
+  readonly excludeCostMs?: Readonly<Record<string, number>>;
   /** How many passes the frame made. Absent means one — see the module note. */
   readonly passes?: number;
   /** Present only when the frame stopped at a bound rather than settling. */
@@ -415,6 +424,26 @@ export type FillReport = {
   readonly stale: number;
   /** Rules that could not run, by label and reason (DD-005). */
   readonly skippedRules: readonly string[];
+  /**
+   * Rules whose matching cost more than NFR-032's bound across this fill, worst
+   * first, as `label: ms`.
+   *
+   * A property of the *configuration* rather than of any field, which is why it
+   * sits here beside `skippedRules` and not in a field's row: a slow pattern is
+   * slow against every control, so five hundred identical rows would bury the
+   * one rule worth deleting. Empty on every ordinary fill.
+   */
+  readonly slowRules: readonly string[];
+  /**
+   * Field-exclusion patterns whose matching cost more than NFR-032's bound
+   * across this fill, worst first, as `pattern: ms`.
+   *
+   * Separate from `slowRules` because the consequence is the sharper one. A slow
+   * rule holds up a background worker; a slow exclusion holds up the page agent,
+   * which is the user's tab — and exclusions are tested against every control
+   * before any rule is. Empty on every ordinary fill.
+   */
+  readonly slowExclusions: readonly string[];
   /**
    * Field exclusions the fill declined to evaluate, by pattern (NFR-009).
    *

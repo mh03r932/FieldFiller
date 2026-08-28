@@ -135,6 +135,34 @@
       }
     }
   },
+  "resultRulesSlow": {
+    "message": "$COUNT$ rule(s) took a long time to match and slowed this fill down: $RULES$. Every field they matched was filled correctly — the pattern is what is slow. Simplifying or removing it will speed up every fill.",
+    "description": "NFR-032. Names rules whose pattern matching exceeded the declared bound across a fill. It attributes rather than warns: nothing was lost and no field failed, which is why it says so — a running regular expression cannot be interrupted, so naming the cost afterwards is all this can offer.",
+    "placeholders": {
+      "count": {
+        "content": "$1",
+        "example": "1"
+      },
+      "rules": {
+        "content": "$2",
+        "example": "Postcode: 4210 ms"
+      }
+    }
+  },
+  "resultExclusionsSlow": {
+    "message": "$COUNT$ field exclusion pattern(s) took a long time to match and slowed this page down: $PATTERNS$. Nothing was filled wrongly — the pattern is what is slow. Simplifying or removing it will speed up every page you fill.",
+    "description": "NFR-032. Names field-exclusion patterns whose matching exceeded the declared bound across a fill. Kept separate from the rule sentence because the consequence is sharper: exclusions are matched in the page agent, against every control, so a slow one holds up the user's tab rather than a background worker.",
+    "placeholders": {
+      "count": {
+        "content": "$1",
+        "example": "1"
+      },
+      "patterns": {
+        "content": "$2",
+        "example": "^(\\\\s[\\\\w-]+)+$: 8300 ms"
+      }
+    }
+  },
   "reportHeading": {
     "message": "Last fill",
     "description": "Heading of the fill report on the options page (DD-006)."

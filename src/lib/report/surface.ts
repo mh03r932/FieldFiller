@@ -168,6 +168,8 @@ export type ResultMessageKey =
   | 'resultCapTimeBudget'
   | 'resultCapValuesUnavailable'
   | 'resultRulesSkipped'
+  | 'resultRulesSlow'
+  | 'resultExclusionsSlow'
   | 'resultExclusionsSkipped'
   | 'resultRefusedNoForm'
   | 'resultRefusedNoAnchor'
@@ -229,6 +231,27 @@ export function resultSentence(report: FillReport, translate: Translate): string
       translate('resultRulesSkipped', [
         String(report.skippedRules.length),
         report.skippedRules.join('; '),
+      ]),
+    );
+  }
+
+  // NFR-032, and its own sentence for the reason the two below have theirs: a
+  // rule that could not run and a rule that ran too slowly are different things
+  // to do about. This one names a rule that *worked* — every field it matched is
+  // filled correctly — and cost the fill a measurable amount of time doing it.
+  // Nothing was lost, so the sentence does not warn; it attributes, which is the
+  // whole of what NFR-032 can offer once a running pattern cannot be interrupted.
+  if (report.slowRules.length > 0) {
+    notes.push(translate('resultRulesSlow', [String(report.slowRules.length), report.slowRules.join('; ')]));
+  }
+
+  // The sharper of the two slow sentences, and its own for that reason: a slow
+  // rule holds up a background worker, a slow exclusion holds up the tab.
+  if (report.slowExclusions.length > 0) {
+    notes.push(
+      translate('resultExclusionsSlow', [
+        String(report.slowExclusions.length),
+        report.slowExclusions.join('; '),
       ]),
     );
   }

@@ -163,6 +163,24 @@ export type FillLoopOptions = {
 export type FillLoopResult = {
   readonly outcomes: readonly FieldOutcome[];
   readonly passes: number;
+  /**
+   * What field-exclusion matching cost this frame, by pattern source, in
+   * milliseconds (NFR-032).
+   *
+   * A plain object rather than a `Map` because it crosses `runtime.sendMessage`,
+   * which serialises as JSON — a `Map` arrives as `{}`, silently, which is the
+   * shape of bug this project keeps finding at boundaries.
+   *
+   * The cost is divided evenly across the patterns tested rather than measured
+   * per pattern. One clock pair per control instead of one per pattern per
+   * control keeps this out of the hot loop of a size-budgeted module (NFR-003),
+   * and evenly-divided cost still names the right pattern: a catastrophic one is
+   * seconds against every control while its neighbours are microseconds, so its
+   * share dominates long before the bound. It would misattribute only where two
+   * patterns cost about the same, which is the case where the bound does not
+   * fire at all.
+   */
+  readonly excludeCostMs: Readonly<Record<string, number>>;
   /** Absent when the frame settled of its own accord. */
   readonly capped?: CapReason;
   /** Controls the next pass would have worked on, when a bound stopped it. */
@@ -227,6 +245,8 @@ export async function runFill(options: FillLoopOptions): Promise<FillLoopResult>
 
   let capped: CapReason | undefined;
   let passes = 0;
+  /** Fill-scoped, not pass-scoped: NFR-032's bound is stated over a whole fill. */
+  const excludeCostMs: Record<string, number> = {};
 
   try {
     let cascadeStart: number | undefined;
@@ -311,6 +331,7 @@ export async function runFill(options: FillLoopOptions): Promise<FillLoopResult>
     return {
       outcomes: withVanishedAnchor(report()),
       passes,
+      excludeCostMs,
       // Recorded without deciding anything, which is why `collect` is asked not
       // to write outcomes here: this is a count of the work a further pass would
       // have found, not a further pass.
@@ -436,7 +457,21 @@ export async function runFill(options: FillLoopOptions): Promise<FillLoopResult>
 
       if (patterns.length > 0) {
         const sources = Object.values(descriptorFor(entry).sources);
-        if (matchesIgnorePattern(sources, patterns)) {
+        // NFR-032's attribution, at the site where an overrun costs the most.
+        // A slow *rule* holds up a background worker; a slow exclusion holds up
+        // the page agent, which is to say the user's tab — and exclusions run
+        // against every control before any rule does. Charged per pattern
+        // across the whole fill rather than per control, because a pattern that
+        // is slow is slow against all of them and the user deletes a pattern,
+        // not a field.
+        const at = scheduler.now();
+        const ignored = matchesIgnorePattern(sources, patterns);
+        const spent = scheduler.now() - at;
+        for (const pattern of patterns) {
+          excludeCostMs[pattern.source] = (excludeCostMs[pattern.source] ?? 0) + spent / patterns.length;
+        }
+
+        if (ignored) {
           if (record) {
             entry.outcome = { ref: entry.ref, status: 'skipped', reason: 'ignored-pattern' };
           }

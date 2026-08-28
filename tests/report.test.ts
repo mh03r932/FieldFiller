@@ -53,6 +53,8 @@ function report(overrides: Partial<FillReport> = {}): FillReport {
     capped: undefined,
     stale: 0,
     skippedRules: [],
+  slowRules: [],
+  slowExclusions: [],
     skippedExclusions: [],
     refused: undefined,
     profile: undefined,

@@ -584,6 +584,41 @@ describe('what the loop carries through from a single pass', () => {
     expect(result.outcomes).toContainEqual({ ref: 0, status: 'skipped', reason: 'ignored-pattern' });
   });
 
+  /**
+   * NFR-032's attribution at the sharper of its two sites. A slow *rule* holds
+   * up a background worker; a slow exclusion holds up the page agent, which is
+   * the user's tab, and exclusions are matched against every control before any
+   * rule is. What is asserted here is the accounting, not a duration — the
+   * scheduler's clock is the test's, so "slow" is something the test decides
+   * rather than something the machine has to be.
+   */
+  it('accounts for what each ignore pattern cost, by pattern (NFR-032)', async () => {
+    page(`<input name="captcha_answer"><input name="email"><input name="postcode">`);
+
+    const result = await fill(background(), BOUNDS, {
+      ...SETTINGS,
+      ignorePatterns: ['captcha', 'nothing-matches-this'],
+    });
+
+    // Both patterns are charged, because both were tested — a pattern that
+    // matches nothing still costs the time it took to decide that.
+    expect(Object.keys(result.excludeCostMs).sort()).toEqual(['captcha', 'nothing-matches-this']);
+    for (const spent of Object.values(result.excludeCostMs)) {
+      expect(spent).toBeGreaterThanOrEqual(0);
+    }
+  });
+
+  it('reports no exclusion cost when there are no patterns to test', async () => {
+    page(`<input name="email">`);
+
+    const result = await fill(background(), BOUNDS, SETTINGS);
+
+    // Not an empty measurement — no measurement. The clock is never read when
+    // the list is empty, which is what keeps this out of the hot loop on the
+    // overwhelming majority of pages.
+    expect(result.excludeCostMs).toEqual({});
+  });
+
   it('skips an unusable ignore pattern rather than abandoning the fill', async () => {
     page(`<input name="email">`);
     const warnings: unknown[][] = [];
