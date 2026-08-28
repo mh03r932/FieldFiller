@@ -601,7 +601,10 @@ users switch — but it is also the piece most damaged by a moving schema. It st
   a few dozen against eighteen kilobytes of headroom. The lesson is the test's, not the code's:
   the test asserted that both patterns appeared with a non-negative cost, which an accounting
   that cannot tell them apart satisfies perfectly. It now asserts that the costs *differ*, and
-  fails on the old code. Both sites are instrumented — `slowRules` for the background's rule matcher
+  fails on the old code. Reviewed again after that: the new `excludeCostMs` field had reached the background
+  unvalidated while every other optional field on a `FrameReport` was checked, and the two new report
+  sentences had a fixture but no assertions — both fixed, the second with an arity check against the real
+  catalog that `check-messages.mjs` cannot make from the catalog side. Both sites are instrumented — `slowRules` for the background's rule matcher
   and `slowExclusions` for the page agent's field exclusions, the sharper of the two because a
   hang there is the user's tab rather than a worker — and both accumulate across every frame and
   every pass, because the bound is stated over a fill. The clock is injected at both (`BatchSource.now`

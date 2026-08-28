@@ -705,8 +705,30 @@ function isFrameReport(value: unknown): value is FrameReport {
     (candidate['refused'] === undefined ||
       (typeof candidate['refused'] === 'string' && SCOPE_REFUSALS.has(candidate['refused']))) &&
     (candidate['scopeRule'] === undefined ||
-      (typeof candidate['scopeRule'] === 'string' && SCOPE_RULES.has(candidate['scopeRule'])))
+      (typeof candidate['scopeRule'] === 'string' && SCOPE_RULES.has(candidate['scopeRule']))) &&
+    // NFR-032's per-pattern cost, optional on the same terms as everything above
+    // it — and checked to its *values*, not only its shape. The background sums
+    // it into a `Map<string, number>`, where `0 + 'x'` is `'0x'` rather than an
+    // error: a string would install itself in a map typed as numbers and stay
+    // there, and the comparison in `slowRules` would quietly answer `false`
+    // about it forever. Nothing downstream should have to wonder.
+    (candidate['excludeCostMs'] === undefined || isCostRecord(candidate['excludeCostMs']))
   );
+}
+
+/**
+ * A `Record<string, number>` arriving from a page agent, checked to its values.
+ *
+ * `Array.isArray` because an array is an object and its indices are string keys,
+ * so `[1, 2]` would otherwise pass as a cost record whose patterns are `'0'` and
+ * `'1'`. `Number.isFinite` because a `NaN` — which is what a malformed sum
+ * upstream produces — poisons every total it is added to, and a `NaN` total
+ * fails `>= boundMs` silently: the report would then say nothing at all, which
+ * is the one outcome indistinguishable from a fill with no slow pattern in it.
+ */
+function isCostRecord(value: unknown): boolean {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  return Object.values(value).every((spent) => typeof spent === 'number' && Number.isFinite(spent));
 }
 
 /**
