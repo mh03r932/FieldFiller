@@ -5,6 +5,7 @@ import {
   isQuotaFailure,
   planPull,
   planPush,
+  hasUnsentChange,
   readReplica,
   sameConfiguration,
   settingsFingerprint,
@@ -673,6 +674,48 @@ describe('what a queued retry is allowed to say (BR-029-6)', () => {
 
   it('does not rewrite a wait that is already on screen', () => {
     expect(outcomeWhileWaiting({ kind: 'waiting' })).toBeUndefined();
+  });
+});
+
+describe('whether there is anything to send (the adoption echo)', () => {
+  /**
+   * The case the question exists for. Adopting an arrival writes local settings
+   * like any other change, so without asking this the device marked a push
+   * pending over a configuration it had just been *given* — and in the window
+   * where a third device wrote in between, what that push sent was a revert of
+   * that device's change, with a reach set by how far two configurations differ
+   * rather than by the shard size the screen promises.
+   */
+  it('says there is nothing to send about a configuration just adopted', () => {
+    const adopted = withRules(5);
+
+    expect(hasUnsentChange(adopted, prefsOn(adopted))).toBe(false);
+  });
+
+  it('says there is something to send about an edit made here', () => {
+    expect(hasUnsentChange(withRules(6), prefsOn(withRules(5)))).toBe(true);
+  });
+
+  it('says there is something to send on a device that has never agreed with the store', () => {
+    expect(hasUnsentChange(withRules(5), { ...DEFAULT_SYNC_PREFS, enabled: true })).toBe(true);
+  });
+
+  /**
+   * An edit and its exact reversal leave nothing to send, which is right rather
+   * than merely convenient: the store already holds what local now holds.
+   */
+  it('says there is nothing to send when an edit has been undone back to the stored state', () => {
+    const original = withRules(5);
+    const prefs = prefsOn(original);
+
+    expect(hasUnsentChange(withRules(6), prefs)).toBe(true);
+    expect(hasUnsentChange(original, prefs)).toBe(false);
+  });
+
+  it('is indifferent to the key order storage hands back, like every other comparison here', () => {
+    const settings = withRules(4, [profile('a', [rule('pa')])]);
+
+    expect(hasUnsentChange(alphabetised(settings), prefsOn(settings))).toBe(false);
   });
 });
 

@@ -671,6 +671,36 @@ export function sameConfiguration(left: Settings, right: Settings): boolean {
 }
 
 /**
+ * Whether this device is holding a change the store has not seen.
+ *
+ * The push half's entry question, and it exists as its own function because the
+ * answer is not "the settings changed". A settings write can be an *arrival*
+ * being applied — adopting from the store writes local settings like anything
+ * else — and treating that as something to send back produces an echo: a push
+ * whose delta is empty in the ordinary case, and which in the case that matters
+ * writes a **revert** of whatever another device did between the read that fed
+ * the adoption and the echo itself. Its blast radius is set by how far two
+ * configurations differ rather than by the shard size the screen promises
+ * (BR-029-3), which is what makes it worth stopping at the source rather than at
+ * the delta.
+ *
+ * `agreed` already carries the answer: it is the configuration this device knows
+ * reached the replica, and an adoption sets it to what was adopted. So local
+ * matching it means there is nothing to send, by definition, and an echo never
+ * starts.
+ *
+ * **What this does not close**, recorded here because it is the same sentence in
+ * UC-029 A2: an edit made on top of a stale baseline still pushes a delta
+ * computed against the store *as it is now*, so it can revert another device's
+ * concurrent change with a reach larger than one shard. Closing that needs a
+ * per-key generation and a compare-and-set, which is a change to the layout
+ * rather than to this question.
+ */
+export function hasUnsentChange(settings: Settings, prefs: SyncPrefs): boolean {
+  return settingsFingerprint(settings) !== prefs.agreed;
+}
+
+/**
  * A short, stable stand-in for a whole configuration.
  *
  * Kept in the preferences so that the pull half can ask "has local changed since

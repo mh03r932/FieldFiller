@@ -185,8 +185,12 @@ async function mountSettings(): Promise<void> {
    * keystroke wrote the whole stale state back and reverted the other tab.
    */
   browser.storage.onChanged.addListener((changes, areaName) => {
-    // UC-029's preferences, which are local state this page reads and the
-    // background writes (BR-029-1) — a different key, and a different question.
+    // UC-029's preferences, which are local state this page reads (BR-029-1) —
+    // different keys, and a different question. Two of them: the user's half,
+    // which this page owns, and the engine's half, which the background owns and
+    // which is where the status line comes from. Both are watched, because a
+    // status that only updated when the *user* changed something would go stale
+    // in exactly the situation it exists for.
     // The sync section's status line and step-3 counts are computed over a store
     // this page does not own, so unlike every other section it can go stale
     // without anything on the page having changed: the background writes an
@@ -194,7 +198,7 @@ async function mountSettings(): Promise<void> {
     // rather than a render, on the whole registry rather than by name, because
     // that is the contract every section already holds — computed text patched
     // in place, no control rebuilt, safe while the user is typing anywhere.
-    if (areaName === 'local' && 'sync' in changes) {
+    if (areaName === 'local' && ('sync' in changes || 'sync.state' in changes)) {
       for (const [section, into] of sectionHosts()) section.refresh?.(editor, into);
     }
 

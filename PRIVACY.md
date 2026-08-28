@@ -1,7 +1,7 @@
 # Privacy Policy
 
 **FieldFiller browser extension**
-Last updated: 22 August 2026. Applies from the first published release.
+Last updated: 28 August 2026. Applies from the first published release.
 
 ---
 
@@ -135,10 +135,8 @@ the gates above.
 
 ## Contact
 
-<!-- TODO before publishing: both stores require a working contact address on the listing,
-     and a privacy policy without one is a review finding. Substitute the address you want
-     to receive mail at — a personal address here becomes permanently public. -->
+Questions about this policy, or about what the extension does: open an issue at
+**https://github.com/mh03r932/FieldFiller/issues** — it reaches the maintainer directly,
+and the answer lands in public where the next person with the same question finds it.
 
-Questions about this policy, or about what the extension does: **[CONTACT ADDRESS]**
-
-Issues and source: **[REPOSITORY URL]**
+Source: **https://github.com/mh03r932/FieldFiller**

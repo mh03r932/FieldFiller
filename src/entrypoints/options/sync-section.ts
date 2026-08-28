@@ -3,7 +3,7 @@ import type { Settings } from '@/lib/settings';
 import {
   readReplicaItems,
   readSyncPrefs,
-  writeSyncPrefs,
+  writeSyncChoice,
 } from '@/lib/platform/sync-store';
 import {
   readReplica,
@@ -170,14 +170,13 @@ async function enable(host: OptionsHost, into: HTMLElement): Promise<void> {
   const replica = readReplica(read.items);
   const different = replica.state === 'usable' && !sameConfiguration(replica.settings, host.settings());
 
-  prefs = await writeSyncPrefs({
-    enabled: true,
-    choicePending: different,
-    // Seeding is a local change as far as the engine is concerned, so the same
-    // flag carries it. Nothing here writes the replica; the background does,
-    // which keeps one writer over `storage.sync` (BR-029-2).
-    pending: !different,
-  });
+  // Only the user's half. Nothing here writes the replica and nothing here
+  // claims there is something to send: switching the feature on is what the
+  // engine watches for (`wakesEngine`), and the flush it provokes computes the
+  // delta and records `pending` for itself. That division is what leaves each
+  // preferences key with exactly one writer — BR-029-2's discipline, applied to
+  // the local key as well as to the synchronised one.
+  prefs = await writeSyncChoice({ enabled: true, choicePending: different });
   renderSync(host, into);
   host.announce(message(different ? 'syncChoiceNeeded' : 'syncEnabled'));
   if (different) focusIn(into, '.sync-keep-here');
@@ -193,7 +192,7 @@ async function enable(host: OptionsHost, into: HTMLElement): Promise<void> {
  * by a decision made somewhere it cannot see.
  */
 async function disable(host: OptionsHost, into: HTMLElement): Promise<void> {
-  prefs = await writeSyncPrefs({ enabled: false, choicePending: false, pending: false });
+  prefs = await writeSyncChoice({ enabled: false, choicePending: false });
   renderSync(host, into);
   host.announce(message('syncDisabled'));
 }
@@ -249,7 +248,7 @@ function choiceView(host: OptionsHost, into: HTMLElement): HTMLElement {
 
 /** This device wins: the replica is overwritten on the next flush, which the pending flag asks for. */
 async function chooseHere(host: OptionsHost, into: HTMLElement): Promise<void> {
-  prefs = await writeSyncPrefs({ choicePending: false, pending: true });
+  prefs = await writeSyncChoice({ choicePending: false });
   renderSync(host, into);
   host.announce(message('syncChoiceKeptHere'));
   focusIn(into, '.sync-view input[type="checkbox"]');
@@ -269,7 +268,7 @@ async function chooseThere(host: OptionsHost, into: HTMLElement): Promise<void> 
   if (settings === undefined) {
     // The replica stopped being usable while the question was on screen. Nothing
     // is written and the choice is withdrawn rather than answered wrongly.
-    prefs = await writeSyncPrefs({ choicePending: false, pending: true });
+    prefs = await writeSyncChoice({ choicePending: false });
     renderSync(host, into);
     host.announce(message('syncChoiceGone'));
     return;
@@ -283,7 +282,7 @@ async function chooseThere(host: OptionsHost, into: HTMLElement): Promise<void> 
     return;
   }
 
-  prefs = await writeSyncPrefs({ choicePending: false, pending: false });
+  prefs = await writeSyncChoice({ choicePending: false });
   host.redraw();
   host.announce(message('syncChoiceTookThere'));
   focusIn(into, '.sync-view input[type="checkbox"]');

@@ -1,6 +1,7 @@
 import { browser } from 'wxt/browser';
 import {
   DEFAULT_SYNC_PREFS,
+  hasUnsentChange,
   isQuotaFailure,
   outcomeWhileWaiting,
   planPull,
@@ -35,35 +36,95 @@ import { getSettings, saveSettings } from './settings-store';
  * same storage event would produce cannot happen.
  */
 
-/** The preferences key, in local storage beside `settings` and never in it (BR-029-1). */
-const PREFS_KEY = 'sync';
+/**
+ * The preferences, in **two** local keys with exactly one writer each.
+ *
+ * `SyncPrefs` is still one record everywhere it is *read* — the plan functions
+ * take it whole, and the screen renders it whole — but it is stored split,
+ * because the two halves have different owners and merging them into one key
+ * made those owners race.
+ *
+ *   · `sync` is the **user's** half: switched on, and step 3 outstanding. Only
+ *     the options page writes it, in response to a click.
+ *   · `sync.state` is the **engine's** half: what it has sent, when it last
+ *     wrote, and what happened. Only the background writes it, and the engine's
+ *     queue serialises it against itself.
+ *
+ * Held in one key, every write was a read-modify-write over both halves from two
+ * contexts at once, so an engine write that had read the record before a toggle
+ * landed put `enabled: false` back — switching synchronisation off underneath a
+ * user who had just switched it on, with nothing anywhere saying so. Splitting
+ * removes the race rather than narrowing its window, which is the same
+ * single-writer discipline this feature already holds `storage.sync` to
+ * (BR-029-2). Two options pages writing the user's half remains possible and is
+ * the same bargain UC-024 already accepts for the settings themselves.
+ *
+ * **`pending` moved to the engine's half and the page stopped setting it.** It
+ * was never the page's fact: "there is something unsent" is what the *plan*
+ * concludes, so `flush` records it when it defers a write, and the page asks for
+ * a push by flipping the half it does own — which is what `wakesEngine` watches.
+ */
+const CHOICE_KEY = 'sync';
+const STATE_KEY = 'sync.state';
+
+/** The user's half. Off by default, decided per device, never carried (BR-029-1). */
+type SyncChoice = Pick<SyncPrefs, 'enabled' | 'choicePending'>;
+
+/** The engine's half: a record of what it has done, never an instruction from anyone. */
+type SyncState = Pick<SyncPrefs, 'pending' | 'agreed' | 'lastWriteAt' | 'outcome'>;
 
 /**
- * The preferences, or the shipped ones.
+ * Both halves, or the shipped defaults.
  *
  * Tolerant in the same way `parseSettings` is, and for the same reason: a
  * preferences record this build cannot read must not stop the extension, and
  * "synchronisation is off" is the safe reading of an unreadable answer — it
  * writes nothing anywhere until the user turns it on again.
+ *
+ * Safe *to read with*. It is deliberately not what the write path uses — see
+ * `readStrict` below, which is the distinction `settings-store.ts` already draws
+ * between `getSettings` and `readSettings`.
  */
 export async function readSyncPrefs(): Promise<SyncPrefs> {
   try {
-    const stored = await browser.storage.local.get(PREFS_KEY);
-    return parsePrefs(stored[PREFS_KEY]);
+    const stored = await browser.storage.local.get([CHOICE_KEY, STATE_KEY]);
+    return { ...parseChoice(stored[CHOICE_KEY]), ...parseState(stored[STATE_KEY]) };
   } catch {
     return DEFAULT_SYNC_PREFS;
   }
 }
 
-function parsePrefs(stored: unknown): SyncPrefs {
-  if (typeof stored !== 'object' || stored === null) return DEFAULT_SYNC_PREFS;
-  const record = stored as Record<string, unknown>;
+/**
+ * One key, read with no net.
+ *
+ * `readSyncPrefs` answers a failed read with the defaults, and for rendering a
+ * screen that is right. On the *write* path it is the worst thing it could do:
+ * a patch merged onto defaults is written back as a whole record, so a transient
+ * read failure would persist `enabled: false` and switch synchronisation off
+ * silently — the user's own decision discarded by a storage hiccup, with the
+ * screen calmly reporting the state it had just been given. So writes read
+ * through here, where a rejection stays a rejection and the caller does not
+ * write at all.
+ *
+ * The same argument, and the same shape, as `readSettings` beside `getSettings`.
+ */
+async function readStrict<T>(key: string, parse: (stored: unknown) => T): Promise<T> {
+  const stored = await browser.storage.local.get(key);
+  return parse(stored[key]);
+}
+
+function parseChoice(stored: unknown): SyncChoice {
+  const record = typeof stored === 'object' && stored !== null ? (stored as Record<string, unknown>) : {};
+  return { enabled: record['enabled'] === true, choicePending: record['choicePending'] === true };
+}
+
+function parseState(stored: unknown): SyncState {
+  const record = typeof stored === 'object' && stored !== null ? (stored as Record<string, unknown>) : {};
   return {
-    enabled: record['enabled'] === true,
-    choicePending: record['choicePending'] === true,
-    lastWriteAt: typeof record['lastWriteAt'] === 'number' && Number.isFinite(record['lastWriteAt'])
-      ? record['lastWriteAt']
-      : 0,
+    lastWriteAt:
+      typeof record['lastWriteAt'] === 'number' && Number.isFinite(record['lastWriteAt'])
+        ? record['lastWriteAt']
+        : 0,
     pending: record['pending'] === true,
     agreed: typeof record['agreed'] === 'string' ? record['agreed'] : '',
     outcome: parseOutcome(record['outcome']),
@@ -96,11 +157,23 @@ function parseOutcome(stored: unknown): SyncOutcome {
   }
 }
 
-/** Preferences, changed a field at a time. Whole-record writes, like every other store here. */
-export async function writeSyncPrefs(patch: Partial<SyncPrefs>): Promise<SyncPrefs> {
-  const next: SyncPrefs = { ...(await readSyncPrefs()), ...patch };
-  await browser.storage.local.set({ [PREFS_KEY]: next });
-  return next;
+/**
+ * The user's half, written by the options page and by nothing else.
+ *
+ * Returns both halves so a caller can render what it has just decided without a
+ * second read. A failed read of the half being patched propagates rather than
+ * merging onto defaults — see `readStrict`.
+ */
+export async function writeSyncChoice(patch: Partial<SyncChoice>): Promise<SyncPrefs> {
+  const next: SyncChoice = { ...(await readStrict(CHOICE_KEY, parseChoice)), ...patch };
+  await browser.storage.local.set({ [CHOICE_KEY]: next });
+  return { ...next, ...(await readStrict(STATE_KEY, parseState)) };
+}
+
+/** The engine's half, written by the background and by nothing else. */
+async function writeSyncState(patch: Partial<SyncState>): Promise<void> {
+  const next: SyncState = { ...(await readStrict(STATE_KEY, parseState)), ...patch };
+  await browser.storage.local.set({ [STATE_KEY]: next });
 }
 
 /**
@@ -153,7 +226,7 @@ let scheduled: ReturnType<typeof setTimeout> | undefined;
  * that drive them arrive while those awaits are outstanding — a settings change
  * lands during a flush, a sync change lands during a pull, and the engine's own
  * bookkeeping write lands during both. Run concurrently they clobber each
- * other's preferences: two `writeSyncPrefs` calls that each read before either
+ * other's state: two `writeSyncState` calls that each read before either
  * wrote leave whichever finished last in charge of fields it never looked at.
  *
  * Built without this on 2026-08-28 and found by the harness rather than by the
@@ -188,8 +261,8 @@ function enqueue(work: () => Promise<void>): void {
 export function startSyncEngine(): void {
   browser.storage.onChanged.addListener((changes, areaName) => {
     if (areaName === 'local' && 'settings' in changes) enqueue(onSettingsChanged);
-    if (areaName === 'local' && PREFS_KEY in changes) {
-      const change = changes[PREFS_KEY];
+    if (areaName === 'local' && CHOICE_KEY in changes) {
+      const change = changes[CHOICE_KEY];
       if (wakesEngine(change.oldValue, change.newValue)) enqueue(flush);
     }
     if (areaName === 'sync') enqueue(pull);
@@ -212,7 +285,37 @@ export function startSyncEngine(): void {
 async function onSettingsChanged(): Promise<void> {
   const prefs = await readSyncPrefs();
   if (!prefs.enabled || prefs.choicePending) return;
-  await writeSyncPrefs({ pending: true });
+
+  /**
+   * **A settings change that came *from* the store is not something to send back.**
+   *
+   * Adopting an arrival writes local settings, which lands here like any other
+   * change — so this device marked a push pending and flushed, over a
+   * configuration it had just been given. In the ordinary case that push writes
+   * nothing, because the delta against the store is empty, and it looked
+   * harmless for exactly that reason. It is not harmless when the store moved in
+   * between: a third device's write landing between the read that fed the
+   * adoption and this echo makes the echo's delta non-empty, and what it then
+   * writes is a *revert* of that device's change — with a blast radius set by
+   * how far the two configurations differ rather than by the shard size the
+   * screen promises (BR-029-3, A2).
+   *
+   * The fingerprint already knows the answer: `agreed` is the configuration this
+   * device knows is in the replica, so local matching it means there is nothing
+   * to send, by definition. An adoption sets `agreed` to what it adopted, so the
+   * echo stops here rather than at the delta.
+   *
+   * It closes the echo, not the general case. A local edit made on top of a
+   * stale baseline still pushes a delta that can revert another device's
+   * concurrent change, because a delta is computed against the store as it is
+   * now rather than against the state this device last agreed with. That needs a
+   * per-key generation and a compare-and-set; it is recorded as a known
+   * limitation on UC-029 A2 rather than left to be discovered.
+   */
+  const settings = await getSettings();
+  if (!hasUnsentChange(settings, prefs)) return;
+
+  await writeSyncState({ pending: true });
   await flush();
 }
 
@@ -271,7 +374,7 @@ async function flush(): Promise<void> {
         // Spelled out rather than spread conditionally. `exactOptionalPropertyTypes`
         // is on in this project, and a conditional spread is the shape most likely
         // to mean something subtly different from what it reads as.
-        await writeSyncPrefs(
+        await writeSyncState(
           staleRead
             ? { pending: false, agreed, outcome: { kind: 'written' } }
             : { pending: false, agreed },
@@ -286,8 +389,13 @@ async function flush(): Promise<void> {
       // are reached with the change still pending, and all three are things the
       // user has something to do about. `outcomeWhileWaiting` owns that list, so
       // a fourth such outcome is decided once rather than remembered here.
+      // `pending` is recorded here rather than by whoever provoked the flush,
+      // because "there is something unsent" is a conclusion of the plan and not
+      // a fact any caller has. It is also what makes the flag durable across a
+      // stopped worker: the write is deferred, and the next settings change or
+      // the next background start finds the flag and retries.
       const waiting = outcomeWhileWaiting(prefs.outcome);
-      if (waiting !== undefined) await writeSyncPrefs({ outcome: waiting });
+      await writeSyncState(waiting === undefined ? { pending: true } : { pending: true, outcome: waiting });
       if (scheduled !== undefined) clearTimeout(scheduled);
       scheduled = setTimeout(() => {
         scheduled = undefined;
@@ -312,44 +420,71 @@ async function write(
   // write operation exactly as a successful one does — so recording the time
   // only on success would let a store that refuses everything be retried at
   // whatever rate the events arrive.
-  await writeSyncPrefs({ lastWriteAt: Date.now() });
+  await writeSyncState({ lastWriteAt: Date.now() });
 
+  /**
+   * **At most two calls, and now by construction rather than by inspection.**
+   *
+   * NFR-023's bound is arithmetic — two write calls a flush, 72 s apart, 100 an
+   * hour — so the arithmetic is only worth as much as the "two". The shards and
+   * the prune are one each; a review asked what the ceiling path costs, and
+   * separating the two failures below is what makes the answer two on every
+   * path instead of two on every path anyone had thought of.
+   *
+   * The separation is not bookkeeping. A failed `set` and a failed `remove` are
+   * different events and were being reported as the same one: if the shards
+   * landed and only the prune was refused, the configuration *is* carried, and
+   * announcing that synchronisation has stopped would name the wrong thing
+   * entirely — the same defect this feature's previous review round was about,
+   * one layer down. A refused prune leaves stale keys costing quota, the next
+   * flush lists them again, and the write it belongs to stands as written.
+   */
   try {
     if (Object.keys(set).length > 0) await browser.storage.sync.set(set);
-    if (remove.length > 0) await browser.storage.sync.remove([...remove]);
-    // The fingerprint of what was *written*, recorded with the success and never
-    // before it: it is the pull half's evidence that local holds nothing the
-    // store has not seen, and recording it optimistically would make a failed
-    // write look like an agreement and let the next arrival overwrite the change
-    // that never went.
-    await writeSyncPrefs({
-      pending: false,
-      agreed: settingsFingerprint(settings),
-      outcome: { kind: 'written' },
-    });
   } catch (error: unknown) {
     const reason = error instanceof Error ? error.message : String(error);
     if (!isQuotaFailure(reason)) {
       // A4 and everything like it: refused, said, and left pending so the next
       // change or the next start tries again. Nothing about the replica is
       // claimed either way, because nothing about it is known.
-      await writeSyncPrefs({ outcome: { kind: 'refused', reason } });
+      await writeSyncState({ outcome: { kind: 'refused', reason } });
       return;
     }
 
-    // A1. The mark goes out even though the write it belongs to did not, and
-    // it is the only part of this path that must not be skipped: without it
-    // every other device goes on applying the last complete replica as though
-    // it were current. Its own failure is swallowed deliberately — there is
-    // nothing further to try, and the screen on *this* device says what
-    // happened regardless.
+    // A1. The mark goes out even though the write it belongs to did not, and it
+    // is the only part of this path that must not be skipped: without it every
+    // other device goes on applying the last complete replica as though it were
+    // current. This is the second and last call on this path. Its own failure is
+    // swallowed deliberately — there is nothing further to try, and the screen
+    // on *this* device says what happened regardless.
     try {
       await browser.storage.sync.set(stoppedIndex(settings));
     } catch {
       /* The store is refusing writes entirely; this device still reports the stop. */
     }
-    await writeSyncPrefs({ outcome: { kind: 'stopped', rules: settings.rules.length } });
+    await writeSyncState({ outcome: { kind: 'stopped', rules: settings.rules.length } });
+    return;
   }
+
+  // The shards are in. A prune that fails from here does not undo that, so it
+  // does not get to change what this device reports — and it costs no third
+  // call, because the ceiling mark belongs to the branch above.
+  try {
+    if (remove.length > 0) await browser.storage.sync.remove([...remove]);
+  } catch {
+    /* Stale keys stay, costing quota; the next flush lists them again. */
+  }
+
+  // The fingerprint of what was *written*, recorded with the success and never
+  // before it: it is the pull half's evidence that local holds nothing the store
+  // has not seen, and recording it optimistically would make a failed write look
+  // like an agreement and let the next arrival overwrite the change that never
+  // went.
+  await writeSyncState({
+    pending: false,
+    agreed: settingsFingerprint(settings),
+    outcome: { kind: 'written' },
+  });
 }
 
 /**
@@ -384,7 +519,7 @@ async function pull(): Promise<void> {
   try {
     await saveSettings(plan.settings);
   } catch (error: unknown) {
-    await writeSyncPrefs({
+    await writeSyncState({
       outcome: {
         kind: 'arrival-unsaved',
         reason: error instanceof Error ? error.message : String(error),
@@ -401,7 +536,7 @@ async function pull(): Promise<void> {
   // Unguarded on purpose. This is a preferences write, and the queue swallows a
   // rejection; if it fails, `agreed` goes unrecorded and the next pull defers
   // rather than adopting, which is the safe direction.
-  await writeSyncPrefs({
+  await writeSyncState({
     pending: false,
     agreed: settingsFingerprint(plan.settings),
     outcome: { kind: 'adopted' },
@@ -418,5 +553,5 @@ async function pull(): Promise<void> {
  */
 async function recordUnreadable(prefs: SyncPrefs, reason: string): Promise<void> {
   if (prefs.outcome.kind === 'unreadable' && prefs.outcome.reason === reason) return;
-  await writeSyncPrefs({ outcome: { kind: 'unreadable', reason } });
+  await writeSyncState({ outcome: { kind: 'unreadable', reason } });
 }

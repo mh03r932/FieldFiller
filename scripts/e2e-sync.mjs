@@ -176,15 +176,27 @@ try {
   const replica = async () =>
     JSON.parse(String(await inWorker(`chrome.storage.sync.get(null).then((s) => JSON.stringify(s))`)));
 
+  /** Both preference halves as one record — the shape the plans read (BR-029-2's split). */
   const prefs = async () =>
     JSON.parse(String(await inWorker(
-      `chrome.storage.local.get('sync').then((s) => JSON.stringify(s.sync ?? null))`,
+      `chrome.storage.local.get(['sync', 'sync.state']).then((s) =>
+        JSON.stringify({ ...(s['sync'] ?? {}), ...(s['sync.state'] ?? {}) }))`,
     )));
 
   const seed = async (settings) =>
     inWorker(`chrome.storage.local.set({ settings: ${JSON.stringify(settings)} }).then(() => true)`);
 
   const clearSync = async () => inWorker(`chrome.storage.sync.clear().then(() => true)`);
+
+  const editExclusion = async (pattern) =>
+    inPage(`(() => {
+      const input = document.querySelector('#field-exclusions [data-exclusion="0"] input[type="text"]')
+        ?? document.querySelector('#field-exclusions input[type="text"]');
+      if (input === null) return false;
+      input.value = ${JSON.stringify(pattern)};
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      return true;
+    })()`);
 
   const textOf = async (selector) =>
     String(await inPage(`document.querySelector(${JSON.stringify(selector)})?.textContent ?? ''`));
@@ -209,8 +221,9 @@ try {
    */
   const openGate = async () => {
     await inWorker(`(async () => {
-      const { sync } = await chrome.storage.local.get('sync');
-      await chrome.storage.local.set({ sync: { ...(sync ?? {}), lastWriteAt: 0 } });
+      const stored = await chrome.storage.local.get('sync.state');
+      const state = stored['sync.state'] ?? {};
+      await chrome.storage.local.set({ 'sync.state': { ...state, lastWriteAt: 0 } });
       return true;
     })()`);
   };
@@ -255,6 +268,18 @@ try {
   check('every other section is one key of its own, in the canonical shape',
     seeded.passwords?.length === 20 && seeded.locale === 'de-CH' && seeded.exclusions?.domains?.[0] === '*.bank.example',
     `keys=${JSON.stringify(Object.keys(seeded).sort())}`);
+
+  const halves = JSON.parse(String(await inWorker(
+    `chrome.storage.local.get(['sync', 'sync.state']).then((s) => JSON.stringify({
+      choice: Object.keys(s['sync'] ?? {}).sort(),
+      state: Object.keys(s['sync.state'] ?? {}).sort(),
+    }))`,
+  )));
+  check('the preferences are split by owner, one writer each (BR-029-2)',
+    JSON.stringify(halves.choice) === JSON.stringify(['choicePending', 'enabled']) &&
+      halves.state.includes('agreed') && halves.state.includes('lastWriteAt') &&
+      halves.state.includes('outcome') && !halves.state.includes('enabled'),
+    `halves=${JSON.stringify(halves)}`);
 
   check('the toggle is not in the replica — it never travels (BR-029-1)',
     JSON.stringify(seeded).includes('choicePending') === false && seeded.sync === undefined,
@@ -362,6 +387,47 @@ try {
     marked.index?.stopped === true,
     `index=${JSON.stringify(marked.index)}`);
 
+  // NFR-023's bound is arithmetic — at most two write calls a flush, 72 s apart,
+  // 100 an hour — so the arithmetic is worth exactly as much as the "two". A
+  // review asked what the *ceiling* path costs, where a failed write is followed
+  // by the mark that tells other devices to stop trusting the replica. Counted
+  // here rather than reasoned about, over one whole flush.
+  await inWorker(`(() => {
+    const set = chrome.storage.sync.set.bind(chrome.storage.sync);
+    const remove = chrome.storage.sync.remove.bind(chrome.storage.sync);
+    globalThis.__ffCalls = 0;
+    globalThis.__ffRestore = () => {
+      chrome.storage.sync.set = set;
+      chrome.storage.sync.remove = remove;
+    };
+    globalThis.__ffFault = true;
+    chrome.storage.sync.set = (...args) => { globalThis.__ffCalls++; return set(...args); };
+    chrome.storage.sync.remove = (...args) => { globalThis.__ffCalls++; return remove(...args); };
+    return true;
+  })()`);
+  await openGate();
+  await inWorker(`(async () => {
+    const stored = await chrome.storage.local.get('sync.state');
+    await chrome.storage.local.set({ 'sync.state': { ...(stored['sync.state'] ?? {}), outcome: { kind: 'idle' } } });
+    return true;
+  })()`);
+  await editExclusion('over-the-ceiling');
+  await waitFor(
+    `/stopped/i.test(document.querySelector('#sync .sync-status')?.textContent ?? '')`,
+    'the ceiling was not reported on the counted flush',
+  );
+
+  const ceilingCalls = Number(await inWorker(`globalThis.__ffCalls`));
+  await inWorker(`(() => {
+    if (globalThis.__ffRestore) { globalThis.__ffRestore(); delete globalThis.__ffRestore; }
+    delete globalThis.__ffFault;
+    delete globalThis.__ffCalls;
+    return true;
+  })()`);
+  check('the ceiling path costs at most the two write calls NFR-023 is budgeted for',
+    ceilingCalls > 0 && ceilingCalls <= 2,
+    `calls=${ceilingCalls} (the refused write, then the mark that stops other devices)`);
+
   // ── A5: turning it off leaves the other devices alone ─────────────────────
   // The gate is opened *before* the seed, and the order is not incidental: a
   // settings change is what asks for a flush, and asking with the gate still
@@ -435,15 +501,6 @@ try {
   // one machine. What is worth watching here is the behaviour that arithmetic
   // rests on: a change made straight after a write does not produce a second
   // one. The gate is deliberately *not* wound back for this check.
-  const editExclusion = async (pattern) =>
-    inPage(`(() => {
-      const input = document.querySelector('#field-exclusions [data-exclusion="0"] input[type="text"]')
-        ?? document.querySelector('#field-exclusions input[type="text"]');
-      if (input === null) return false;
-      input.value = ${JSON.stringify(pattern)};
-      input.dispatchEvent(new Event('input', { bubbles: true }));
-      return true;
-    })()`);
 
   // A first edit, to close the gate. Taking the store's configuration wrote
   // nothing — the store already held it, which is what `unchanged` is for — so
@@ -662,6 +719,35 @@ try {
     `status=${JSON.stringify(unsaved)}`);
 
   await clearFault();
+
+  // 3. A local *read* failure on the write path must not switch the feature off.
+  //    The engine writes its own half of the preferences by reading it and
+  //    merging a patch. Read tolerantly, a transient failure hands back the
+  //    shipped defaults — synchronisation off — and the merge then persists that
+  //    as the whole record: the user's decision discarded by a storage hiccup,
+  //    with the screen calmly reporting the state it had just been given. The
+  //    strict read on that path turns the same hiccup into a write that does not
+  //    happen, which is the outcome a queued retry already knows how to survive.
+  await inWorker(`(() => {
+    const real = chrome.storage.local.get.bind(chrome.storage.local);
+    globalThis.__ffRestore = () => { chrome.storage.local.set = chrome.storage.local.set; chrome.storage.local.get = real; };
+    globalThis.__ffFault = true;
+    chrome.storage.local.get = (keys, ...rest) =>
+      keys === 'sync.state'
+        ? Promise.reject(new Error('injected: preferences read failed'))
+        : real(keys, ...rest);
+    return true;
+  })()`);
+  await editExclusion('prefs-read-fault');
+  await sleep(2000);
+  const survived = JSON.parse(String(await inWorker(
+    `chrome.storage.local.get('sync').then((s) => JSON.stringify(s.sync ?? null))`,
+  )));
+  await clearFault();
+
+  check('a failed preferences read cannot switch synchronisation off behind the user',
+    survived?.enabled === true,
+    `the user's half became ${JSON.stringify(survived)}`);
 } catch (error) {
   failures.push(error instanceof Error ? error.message : String(error));
 } finally {
