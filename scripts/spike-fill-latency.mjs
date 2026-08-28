@@ -21,11 +21,17 @@
  * write dispatches. The fixture is deliberately static — nothing on the page
  * reacts to being filled — so there is no cascade to confuse it with.
  *
- * **Cold and warm are reported separately, because the requirement does not say
- * which it means.** An MV3 background is started by the event it handles, so the
- * first fill after a browser start pays a worker start-up that no later fill
- * pays; NFR-027..029 bound that separately and `spike-coldstart.mjs` measures
- * it. Folding the two together would produce one number that describes neither.
+ * **The first fill is reported separately, and it is not a cold start.** The
+ * harness attaches to the service worker before any run and `waitForAgent`
+ * evaluates in that worker session before every trigger, so the worker is
+ * running long before the first one — as is its corpus, which is parsed inside
+ * its start-up. What run 0 measures is the first fill in a *fresh browser* with
+ * a warm worker: the first `getSettings()` read, an empty operation map, nothing
+ * JIT-compiled yet. That is worth reporting on its own line, because it is
+ * reliably the slowest run, and it is not the figure NFR-027..029 bound — a
+ * genuine cold start needs the worker evicted first, which is
+ * `spike-coldstart.mjs`'s measurement and not this one's. Labelling it "cold"
+ * here claimed a mechanism this harness cannot produce.
  *
  * Usage: pnpm run build && node scripts/spike-fill-latency.mjs
  *   CHROME_PATH=…  override the browser binary
@@ -272,17 +278,19 @@ try {
   const runs = [];
   for (let run = 0; run < RUNS; run++) runs.push(await measure());
 
+  // Not a cold start — see the module note. The name is kept for the shape of
+  // the report: run 0 is the one that pays what a fresh browser costs.
   const cold = runs[0];
   const warm = runs.slice(1);
   const sorted = [...warm.map((r) => r.ms)].sort((a, b) => a - b);
   const median = sorted.length === 0 ? Number.NaN : sorted[Math.floor(sorted.length / 2)];
   const worst = sorted.length === 0 ? Number.NaN : sorted[sorted.length - 1];
 
-  console.log(`  · cold  (first fill, worker started by the trigger)   ${String(Math.round(cold.ms)).padStart(5)} ms` +
+  console.log(`  · first (fresh browser, worker already warm)          ${String(Math.round(cold.ms)).padStart(5)} ms` +
     `   ${cold.written} written + ${cold.unticked} boxes left unticked = ${cold.controls}`);
-  console.log(`  · warm  median of ${String(warm.length).padStart(2)}                              ` +
+  console.log(`  · later median of ${String(warm.length).padStart(2)}                              ` +
     `${String(Math.round(median)).padStart(5)} ms`);
-  console.log(`  · warm  worst of  ${String(warm.length).padStart(2)}                              ` +
+  console.log(`  · later worst of  ${String(warm.length).padStart(2)}                              ` +
     `${String(Math.round(worst)).padStart(5)} ms`);
   console.log(`\n  Every run: ${runs.map((r) => Math.round(r.ms)).join(', ')} ms`);
   console.log(`  Coverage:  ${runs.map((r) => `${r.written}+${r.unticked}/${r.controls}`).join(', ')}` +
@@ -296,9 +304,9 @@ try {
     console.log('    the time to do less than the requirement asks. Treat it as not measured.\n');
     process.exitCode = 1;
   } else if (worst <= BUDGET) {
-    console.log(`  ✔ ${CONTROLS} controls stay inside the ${BUDGET} ms budget on every warm run\n`);
+    console.log(`  ✔ ${CONTROLS} controls stay inside the ${BUDGET} ms budget on every run after the first\n`);
   } else {
-    console.log(`  ✖ the warm worst case is ${Math.round(worst)} ms against a ${BUDGET} ms budget\n`);
+    console.log(`  ✖ the worst of the later runs is ${Math.round(worst)} ms against a ${BUDGET} ms budget\n`);
   }
 } catch (error) {
   console.error(`\n✖ fill-latency spike failed: ${error.message}\n`);

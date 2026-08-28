@@ -589,13 +589,25 @@ users switch — but it is also the piece most damaged by a moving schema. It st
   being filled, so the report would have asserted the opposite of what happened; and a
   catastrophic pattern is slow against *every* control, so a per-field line would repeat itself
   five hundred times over one deletable rule. Slow matching is a property of the configuration,
-  not of a field. Both sites are instrumented — `slowRules` for the background's rule matcher
+  not of a field. **And the build corrected itself again, on review.** The exclusions side had
+  taken one clock pair around the whole of `matchesIgnorePattern` and divided the cost evenly
+  across the pattern list, to keep the extra clock reads out of a size-budgeted module. An even
+  division gives every pattern an identical total *by construction* — so the report could name
+  all of the patterns or none of them, never the one that overran, which is the entire claim the
+  requirement makes. On the case this feature exists for it named all of them, under a sentence
+  telling the user that deleting any one would speed up every page they fill. It also charged
+  patterns the matcher had already returned before reaching. Both are fixed by giving
+  `matchesIgnorePattern` the accumulator `selectRule` already had; the bytes it was avoiding were
+  a few dozen against eighteen kilobytes of headroom. The lesson is the test's, not the code's:
+  the test asserted that both patterns appeared with a non-negative cost, which an accounting
+  that cannot tell them apart satisfies perfectly. It now asserts that the costs *differ*, and
+  fails on the old code. Both sites are instrumented — `slowRules` for the background's rule matcher
   and `slowExclusions` for the page agent's field exclusions, the sharper of the two because a
   hang there is the user's tab rather than a worker — and both accumulate across every frame and
   every pass, because the bound is stated over a fill. The clock is injected at both (`BatchSource.now`
   beside `randomFor`, and the fill loop's existing `scheduler.now`), which is what lets the bound
   be asserted against a clock the test controls rather than against a machine that has to
-  genuinely be slow. The page agent grew 140 bytes, to 21.82 KB of 40.
+  genuinely be slow. The page agent grew 226 bytes, to 21.90 KB of 40 (Chromium; 21.82 KB for Firefox).
 
 ---
 

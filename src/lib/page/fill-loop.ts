@@ -7,7 +7,13 @@ import type {
   FieldValue,
 } from '../protocol';
 import { collectCandidates } from './walk';
-import { classifyStructural, matchesIgnorePattern, radioGroup, type StructuralContext } from './exclude';
+import {
+  classifyStructural,
+  matchesIgnorePattern,
+  radioGroup,
+  type PatternCost,
+  type StructuralContext,
+} from './exclude';
 import { describe } from './identify';
 import { applyValue, verifyWrite } from './apply';
 import { driveCombobox, stillAnswered } from './combobox';
@@ -171,14 +177,16 @@ export type FillLoopResult = {
    * which serialises as JSON — a `Map` arrives as `{}`, silently, which is the
    * shape of bug this project keeps finding at boundaries.
    *
-   * The cost is divided evenly across the patterns tested rather than measured
-   * per pattern. One clock pair per control instead of one per pattern per
-   * control keeps this out of the hot loop of a size-budgeted module (NFR-003),
-   * and evenly-divided cost still names the right pattern: a catastrophic one is
-   * seconds against every control while its neighbours are microseconds, so its
-   * share dominates long before the bound. It would misattribute only where two
-   * patterns cost about the same, which is the case where the bound does not
-   * fire at all.
+   * Measured per pattern, in `matchesIgnorePattern` itself. Until 2026-08-28 it
+   * was one clock pair around the whole call, divided evenly across the pattern
+   * list to save the extra reads in a size-budgeted module (NFR-003) — which
+   * cost more than it saved, because an even division gives every pattern an
+   * identical total by construction. The report could then only name all of the
+   * patterns or none of them, and it named all of them: one catastrophic pattern
+   * put every innocent one beside it over the bound, under a sentence telling
+   * the user that deleting it would speed up every page they fill. The saving
+   * was a few dozen bytes of an eighteen-kilobyte headroom, against the whole of
+   * what this requirement is for.
    */
   readonly excludeCostMs: Readonly<Record<string, number>>;
   /** Absent when the frame settled of its own accord. */
@@ -247,6 +255,13 @@ export async function runFill(options: FillLoopOptions): Promise<FillLoopResult>
   let passes = 0;
   /** Fill-scoped, not pass-scoped: NFR-032's bound is stated over a whole fill. */
   const excludeCostMs: Record<string, number> = {};
+  /**
+   * Built once for the fill rather than per control. `now` is wrapped rather
+   * than passed by reference because the scheduler is injected and a test's may
+   * hold state on itself; a bound method would be one more thing that works
+   * until someone writes a fake with a `this`.
+   */
+  const excludeCost: PatternCost = { now: () => scheduler.now(), ms: excludeCostMs };
 
   try {
     let cascadeStart: number | undefined;
@@ -460,16 +475,11 @@ export async function runFill(options: FillLoopOptions): Promise<FillLoopResult>
         // NFR-032's attribution, at the site where an overrun costs the most.
         // A slow *rule* holds up a background worker; a slow exclusion holds up
         // the page agent, which is to say the user's tab — and exclusions run
-        // against every control before any rule does. Charged per pattern
-        // across the whole fill rather than per control, because a pattern that
-        // is slow is slow against all of them and the user deletes a pattern,
-        // not a field.
-        const at = scheduler.now();
-        const ignored = matchesIgnorePattern(sources, patterns);
-        const spent = scheduler.now() - at;
-        for (const pattern of patterns) {
-          excludeCostMs[pattern.source] = (excludeCostMs[pattern.source] ?? 0) + spent / patterns.length;
-        }
+        // against every control before any rule does. Accumulated across the
+        // whole fill rather than reported per control, because a pattern that is
+        // slow is slow against all of them and the user deletes a pattern, not a
+        // field.
+        const ignored = matchesIgnorePattern(sources, patterns, excludeCost);
 
         if (ignored) {
           if (record) {

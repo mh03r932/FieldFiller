@@ -73,6 +73,20 @@ async function fill(
   });
 }
 
+/**
+ * `realScheduler` with a counted clock (NFR-032).
+ *
+ * Real timers and a real `MutationObserver`, as everything else in this file
+ * uses — only `now` is replaced, and it advances one unit per read rather than
+ * tracking wall time. That turns a duration into a count of clock pairs, which
+ * is what lets a cost attribution be asserted exactly instead of being asserted
+ * as "greater than zero" on a machine that would have to genuinely be slow.
+ */
+function stepping(): Scheduler {
+  let ticks = 0;
+  return { ...realScheduler, now: () => ticks++ };
+}
+
 function page(html: string, script?: () => void): void {
   document.body.innerHTML = html;
   script?.();
@@ -588,24 +602,57 @@ describe('what the loop carries through from a single pass', () => {
    * NFR-032's attribution at the sharper of its two sites. A slow *rule* holds
    * up a background worker; a slow exclusion holds up the page agent, which is
    * the user's tab, and exclusions are matched against every control before any
-   * rule is. What is asserted here is the accounting, not a duration — the
-   * scheduler's clock is the test's, so "slow" is something the test decides
-   * rather than something the machine has to be.
+   * rule is.
+   *
+   * What is asserted is that the accounting *tells the patterns apart*, which is
+   * the whole of what the requirement buys. Asserting that both patterns appear
+   * with a non-negative number — which is what this test did until 2026-08-28 —
+   * is satisfied by an accounting that charges every pattern the same amount,
+   * and that is exactly what the code did: one clock pair around the whole call,
+   * divided evenly across the list. Every total was then identical by
+   * construction, so the report could only name all of the patterns or none, and
+   * on the one page that matters it named all of them.
+   *
+   * The clock is the test's, so "slow" is something the test decides rather than
+   * something the machine has to be: `now` advances one unit per read, which
+   * makes each pattern's total a count of the times it was actually tested.
    */
-  it('accounts for what each ignore pattern cost, by pattern (NFR-032)', async () => {
+  it('tells one ignore pattern apart from another by cost (NFR-032)', async () => {
     page(`<input name="captcha_answer"><input name="email"><input name="postcode">`);
+
+    const result = await runFill({
+      root: document,
+      settings: { ...SETTINGS, ignorePatterns: ['captcha', 'nothing-matches-this'] },
+      writtenByUs: new WeakSet<Element>(),
+      requestValues: background(),
+      // Generous, because a clock that runs at one unit per read is not
+      // measuring wall time and must not be allowed to trip a wall-time cap.
+      bounds: { ...BOUNDS, cascadeBudgetMs: 1_000_000 },
+      scheduler: stepping(),
+    });
+
+    expect(Object.keys(result.excludeCostMs).sort()).toEqual(['captcha', 'nothing-matches-this']);
+    // `captcha` is tested against every control; `nothing-matches-this` only
+    // against those the first did not already match. The costs must differ, and
+    // in that direction.
+    expect(result.excludeCostMs['captcha']).toBeGreaterThan(
+      result.excludeCostMs['nothing-matches-this'] ?? 0,
+    );
+  });
+
+  it('charges no ignore pattern for a control an earlier one already matched (NFR-032)', async () => {
+    page(`<input name="captcha_answer">`);
 
     const result = await fill(background(), BOUNDS, {
       ...SETTINGS,
-      ignorePatterns: ['captcha', 'nothing-matches-this'],
+      ignorePatterns: ['captcha', 'never-reached'],
     });
 
-    // Both patterns are charged, because both were tested — a pattern that
-    // matches nothing still costs the time it took to decide that.
-    expect(Object.keys(result.excludeCostMs).sort()).toEqual(['captcha', 'nothing-matches-this']);
-    for (const spent of Object.values(result.excludeCostMs)) {
-      expect(spent).toBeGreaterThanOrEqual(0);
-    }
+    // `matchesIgnorePattern` returns on the first match, so the second pattern
+    // costs nothing on this page and must be charged nothing. Charging it would
+    // put an innocent pattern in a report that tells the user deleting it will
+    // speed up every page they fill.
+    expect(Object.keys(result.excludeCostMs)).toEqual(['captcha']);
   });
 
   it('reports no exclusion cost when there are no patterns to test', async () => {
