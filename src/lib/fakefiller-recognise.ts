@@ -6,11 +6,11 @@
  * The importer refuses such a file and points here (UC-026 A5); a backup
  * the importer called Fake Filler's that the migration then refused to
  * recognise would be two screens sending the user to each other — so the
- * key set lives once, in the smallest module either of them can import
+ * recognition lives once, in the smallest module either of them can import
  * without a cycle.
  *
  * **The key set is the reference's documented schema, read from
- * `FAKEFILLER_RESEARCH.md` §2.2 (commit `36daf90`, the research BR-027-2
+ * `docs/FAKEFILLER_RESEARCH.md` §2.2 (commit `36daf90`, the research BR-027-2
  * names), not recalled from memory.** That is the whole of BR-027-2's
  * second paragraph: a converter written from memory guesses at key names,
  * and a guessed key name is inert when the guess is wrong and worse than
@@ -40,13 +40,6 @@ const UNAMBIGUOUS_KEYS: ReadonlySet<string> = new Set([
   'ignoreHiddenFields',
   'passwordSettings',
   'triggerClickEvents',
-]);
-
-/** Every root key the reference's documented schema carries, shared names included. */
-export const FAKEFILLER_KEYS: ReadonlySet<string> = new Set([
-  'version',
-  'profiles',
-  ...UNAMBIGUOUS_KEYS,
 ]);
 
 /**

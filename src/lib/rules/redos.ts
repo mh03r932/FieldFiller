@@ -27,7 +27,7 @@
  * The three shapes below are the ones that cause essentially every real ReDoS.
  */
 
-export type PatternProblem = {
+type PatternProblem = {
   readonly shape: 'nested-quantifier' | 'nullable-repetition' | 'overlapping-alternation';
   readonly detail: string;
 };

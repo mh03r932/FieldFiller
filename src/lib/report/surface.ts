@@ -6,7 +6,7 @@ import type {
   FieldReportEntry,
   FillReport,
   FillScope,
-  FrameId,
+  FrameToken,
   FrameReport,
   OutcomeCounts,
   ScopeRule,
@@ -47,7 +47,6 @@ import type {
  * It produces structure; the background and the options page do the wording.
  */
 
-
 /**
  * What the background remembers about the controls a frame has described.
  *
@@ -57,7 +56,7 @@ import type {
  */
 export type FieldNotes = Map<string, { identity: string; kind: ControlKind }>;
 
-export function noteKey(frame: FrameId, ref: number): string {
+function noteKey(frame: FrameToken, ref: number): string {
   return `${frame}#${String(ref)}`;
 }
 
@@ -70,7 +69,7 @@ export function noteKey(frame: FrameId, ref: number): string {
  */
 export function noteDescriptors(
   notes: FieldNotes,
-  frame: FrameId,
+  frame: FrameToken,
   descriptors: readonly FieldDescriptor[],
 ): void {
   for (const descriptor of descriptors) {
@@ -183,7 +182,7 @@ export type ResultMessageKey =
   | 'resultRuleWholePage'
   | 'resultRuleAnchorControl';
 
-export type Translate = (key: ResultMessageKey, substitutions?: readonly string[]) => string;
+type Translate = (key: ResultMessageKey, substitutions?: readonly string[]) => string;
 
 /**
  * The whole sentence the tooltip carries (DD-006).

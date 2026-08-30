@@ -17,18 +17,45 @@
 
 /** A labelled control with an optional hint beneath it. */
 export function field(label: string, control: HTMLElement, hint?: string): HTMLElement {
-  const wrapper = document.createElement('label');
+  const wrapper = document.createElement('div');
   wrapper.className = 'field';
-  const text = document.createElement('span');
+
+  // The label points at the control by id rather than wrapping it, and the hint
+  // sits outside the label and is pointed at with `aria-describedby`. When the
+  // label wrapped everything, a multi-sentence hint was part of the control's
+  // accessible *name* — read out in full every time a screen-reader user
+  // reached the control, and never the one-line name the sighted reader sees
+  // (WCAG 2.5.3, NFR-019). The grid is unchanged: label row, control row,
+  // hint row.
+  const text = document.createElement('label');
   text.textContent = label;
+  if (control instanceof HTMLElement && 'labels' in control) {
+    control.id = nextId('ff-control');
+    text.htmlFor = control.id;
+  }
   wrapper.append(text, control);
+
   if (hint !== undefined) {
     const help = document.createElement('span');
     help.className = 'hint';
     help.textContent = hint;
+    help.id = nextId('ff-hint');
     wrapper.append(help);
+    describeWith(control, help.id);
   }
   return wrapper;
+}
+
+/** Appends to `aria-describedby` rather than overwriting, in case a caller set one. */
+function describeWith(control: HTMLElement, id: string): void {
+  const existing = control.getAttribute('aria-describedby');
+  control.setAttribute('aria-describedby', existing === null ? id : `${existing} ${id}`);
+}
+
+let idCounter = 0;
+function nextId(prefix: string): string {
+  idCounter += 1;
+  return `${prefix}-${String(idCounter)}`;
 }
 
 export function textInput(value: string, onChange: (value: string) => void): HTMLInputElement {
@@ -53,9 +80,11 @@ export function textInput(value: string, onChange: (value: string) => void): HTM
  * fill used the stored length, until the page was reloaded.
  *
  * Anything outside the bounds is ignored rather than clamped as it is typed.
- * Clamping fights the caret — a box on its way to `12` passes through `1` — and
- * the element's own `min`/`max` already mark the entry invalid on screen, which
- * is the same treatment `optionalNumberInput` gives and for the same reason.
+ * Clamping fights the caret — a box on its way to `12` passes through `1` — so
+ * the refusal is stated instead of corrected: `aria-invalid` here and
+ * `:user-invalid` styling in `options.css` mark the entry, which is the same
+ * treatment `optionalNumberInput` gives and for the same reason. Without a
+ * visible side the box would show a number the settings will silently ignore.
  */
 export function numberInput(
   value: number,
@@ -68,8 +97,16 @@ export function numberInput(
   input.max = String(max);
   input.value = String(value);
   input.addEventListener('input', () => {
+    // An empty box is on its way somewhere, not wrong: the browser's own
+    // constraint validation does not flag it either (the input is optional).
+    if (input.value.trim() === '') {
+      markValidity(input, true);
+      return;
+    }
     const parsed = Number(input.value);
-    if (Number.isInteger(parsed) && parsed >= min && parsed <= max) onChange(parsed);
+    const ok = Number.isInteger(parsed) && parsed >= min && parsed <= max;
+    markValidity(input, ok);
+    if (ok) onChange(parsed);
   });
   return input;
 }
@@ -84,7 +121,9 @@ export function numberInput(
  *
  * `min` is applied by the caller through the DOM attribute for the browser's own
  * validation; the guard here is what actually keeps a nonsense value out of
- * storage, because typing is not the only way a value arrives.
+ * storage, because typing is not the only way a value arrives. A refused value
+ * is marked (`aria-invalid`, and `:user-invalid` styling) rather than silently
+ * dropped, as in `numberInput`.
  */
 export function optionalNumberInput(
   value: number | undefined,
@@ -97,13 +136,22 @@ export function optionalNumberInput(
   input.value = value === undefined ? '' : String(value);
   input.addEventListener('input', () => {
     if (input.value.trim() === '') {
+      markValidity(input, true);
       onChange(undefined);
       return;
     }
     const parsed = Number(input.value);
-    if (Number.isInteger(parsed) && parsed >= min) onChange(parsed);
+    const ok = Number.isInteger(parsed) && parsed >= min;
+    markValidity(input, ok);
+    if (ok) onChange(parsed);
   });
   return input;
+}
+
+/** Marks a refused numeric entry, and clears the mark once it is remedied. */
+function markValidity(input: HTMLInputElement, ok: boolean): void {
+  if (ok) input.removeAttribute('aria-invalid');
+  else input.setAttribute('aria-invalid', 'true');
 }
 
 export function textArea(value: string, onChange: (value: string) => void): HTMLTextAreaElement {
@@ -120,18 +168,25 @@ export function checkbox(
   onChange: (value: boolean) => void,
   hint?: string,
 ): HTMLElement {
-  const wrapper = document.createElement('label');
+  const wrapper = document.createElement('div');
   wrapper.className = 'field check';
+  // The box and its text on one line, the hint on the next and outside the
+  // label, so it describes the control without becoming part of its name
+  // (`field` above does the same and for the same reason).
+  const line = document.createElement('label');
   const box = document.createElement('input');
   box.type = 'checkbox';
   box.checked = checked;
   box.addEventListener('change', () => onChange(box.checked));
-  wrapper.append(box, document.createTextNode(` ${label}`));
+  line.append(box, document.createTextNode(` ${label}`));
+  wrapper.append(line);
   if (hint !== undefined) {
     const help = document.createElement('span');
     help.className = 'hint';
     help.textContent = hint;
+    help.id = nextId('ff-hint');
     wrapper.append(help);
+    describeWith(box, help.id);
   }
   return wrapper;
 }

@@ -129,8 +129,8 @@ try {
   /** Types into a labelled control inside a scope, the way a user would. */
   const type = async (scope, labelText, value, occurrence = 0) => {
     await inPage(`(() => {
-      const fields = [...document.querySelectorAll(${JSON.stringify(scope)} + ' label.field')]
-        .filter((label) => label.querySelector('span')?.textContent === ${JSON.stringify(labelText)});
+      const fields = [...document.querySelectorAll(${JSON.stringify(scope)} + ' .field')]
+        .filter((field) => field.querySelector('label')?.textContent === ${JSON.stringify(labelText)});
       const field = fields[${String(occurrence)}];
       if (field === undefined) throw new Error('no field labelled ' + ${JSON.stringify(labelText)});
       const input = field.querySelector('input, textarea');

@@ -1,5 +1,6 @@
 import { browser } from 'wxt/browser';
 import { DEFAULT_SETTINGS, parseSettings, type Settings } from '../settings';
+import { reason } from '../reason';
 
 /**
  * Reads settings from storage and keeps them in memory (UC-024, ND-17, NFR-026).
@@ -53,10 +54,17 @@ export async function getSettings(): Promise<Settings> {
 
   try {
     cached = await readSettings();
-  } catch {
+  } catch (error) {
     // Storage being unavailable must not stop a fill. Defaults are a complete,
     // self-consistent state, and refusing to fill because a preference could not
     // be read would fail the user over something they never configured.
+    //
+    // Loudly, though, because this used to be indistinguishable from "the user
+    // changed nothing": someone whose storage read rejects gets a defaults fill
+    // with no record anywhere that anything was refused (NFR-020 — a failure
+    // should name its own cause). A `warn` rather than a trace because it asks
+    // the one person reading the console to act.
+    console.warn(`[fieldfiller] settings could not be read; using defaults (${reason(error)})`);
     cached = DEFAULT_SETTINGS;
   }
   return cached;

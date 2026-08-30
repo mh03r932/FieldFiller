@@ -69,7 +69,7 @@ function nativeValueSetter(element: ValueElement): ValueWriter | undefined {
   return NATIVE_SETTERS.get(prototype);
 }
 
-export type ApplyOptions = {
+type ApplyOptions = {
   /** UC-004 A8: the user may write values without any interaction sequence. */
   readonly dispatchEvents: boolean;
 };
@@ -217,7 +217,7 @@ function isValueElement(element: Element): element is ValueElement {
 }
 
 /** Whether a write survived the page's reaction to it (FR-076, BR-034-4). */
-export type WriteVerification =
+type WriteVerification =
   | { readonly landed: true }
   | { readonly landed: false; readonly reason: string };
 

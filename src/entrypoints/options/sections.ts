@@ -11,7 +11,8 @@ import { LOCALES } from '@/lib/persona/corpus/corpus';
 import { createPersona, seededRandom } from '@/lib/persona/persona';
 import { appendAt, newExclusion, removeAt, replaceAt } from '@/lib/exclusions';
 import { validateDomainPattern, validateMatcher } from '@/lib/rules/validate';
-import { problemText } from './problems';
+import { problemText, reconcileProblems } from './problems';
+import { SOURCE_LABELS } from './labels';
 import type { ControlKind } from '@/lib/protocol';
 import {
   checkbox,
@@ -64,7 +65,7 @@ import { rowAt, rowMovedUnderYou } from './rows';
  * leaving them to test it — resolution happens in the background against
  * `getUILanguage`, which this page can read for display but does not decide.
  */
-export function renderGeneral(host: OptionsHost, into: HTMLElement): void {
+function renderGeneral(host: OptionsHost, into: HTMLElement): void {
   const settings = host.settings();
   into.replaceChildren(
     select(
@@ -88,23 +89,8 @@ export function renderGeneral(host: OptionsHost, into: HTMLElement): void {
 
 /* ------------------------------------------------------------------- sources */
 
-/**
- * What each identity source is called, for a reader (NFR-018).
- *
- * The same table the rule editor uses, and deliberately the same strings: a
- * source called "CSS class" in one section and `className` in another reads as
- * two different settings. Declared as a total record so an eighth source is a
- * compile error here rather than a raw identifier on screen.
- */
-const SOURCE_LABELS: Record<MatchSource, MessageKey> = {
-  name: 'sourceName',
-  id: 'sourceId',
-  testId: 'sourceTestId',
-  className: 'sourceClassName',
-  label: 'sourceLabel',
-  placeholder: 'sourcePlaceholder',
-  ariaLabel: 'sourceAriaLabel',
-};
+// The source name table is `labels.ts`'s, shared with the rule editor so the
+// two cannot drift.
 
 /**
  * The sources whose name does not say what is read.
@@ -142,7 +128,7 @@ const SOURCE_HINTS: Partial<Record<MatchSource, MessageKey>> = {
  * off, everything else as it was. The count beneath the boxes is what makes it
  * visible instead of something the user infers from rules that stopped working.
  */
-export function renderSources(host: OptionsHost, into: HTMLElement): void {
+function renderSources(host: OptionsHost, into: HTMLElement): void {
   const settings = host.settings();
 
   const group = document.createElement('fieldset');
@@ -285,8 +271,10 @@ function fieldExclusionRow(
     saveFields(host, replaceAt(host.settings().exclusions.fields, index, next));
     slot.wrote(next);
     // Only the problem line, never the fields: rebuilding them on every
-    // keystroke takes the caret with it.
-    row.querySelector('.problems')?.replaceWith(matcherProblems(next));
+    // keystroke takes the caret with it. Reconciled in place — a replaced box
+    // announces its content afresh on every keystroke (`reconcileProblems`).
+    const box = row.querySelector('.problems');
+    matcherProblems(box instanceof HTMLElement ? box : null, next);
   };
 
   const mode = select(
@@ -308,7 +296,7 @@ function fieldExclusionRow(
 
   const remove = document.createElement('button');
   remove.type = 'button';
-  remove.className = 'exclusion-delete';
+  remove.className = 'secondary exclusion-delete';
   remove.textContent = message('exclusionRemove');
   // The pattern, not the position: "remove exclusion 3" tells a screen-reader
   // user nothing about what they are removing.
@@ -335,7 +323,7 @@ function fieldExclusionRow(
   const controls = document.createElement('div');
   controls.className = 'row';
   controls.append(mode, pattern, remove);
-  row.append(controls, matcherProblems(matcher));
+  row.append(controls, matcherProblems(null, matcher));
   return row;
 }
 
@@ -349,17 +337,13 @@ function fieldExclusionRow(
  * (UC-005 A5). Refusing to store it would lose the half-typed pattern on every
  * keystroke that made it briefly invalid.
  */
-function matcherProblems(matcher: Matcher): HTMLElement {
-  const box = document.createElement('div');
-  box.className = 'problems';
-  box.setAttribute('role', 'alert');
-  for (const problem of validateMatcher(matcher)) {
-    const line = document.createElement('p');
-    line.className = 'problem';
-    line.textContent = problemText(problem);
-    box.append(line);
-  }
-  return box;
+function matcherProblems(existing: HTMLElement | null, matcher: Matcher): HTMLElement {
+  return reconcileProblems(
+    existing,
+    'problems',
+    validateMatcher(matcher).map(problemText),
+    matcher.pattern === '',
+  );
 }
 
 /* --------------------------------------------------------- domain exclusions */
@@ -430,7 +414,8 @@ function domainRow(
     }
     saveDomains(host, replaceAt(host.settings().exclusions.domains, index, value));
     slot.wrote(value);
-    row.querySelector('.problems')?.replaceWith(domainProblem(value));
+    const box = row.querySelector('.problems');
+    domainProblem(box instanceof HTMLElement ? box : null, value);
   };
 
   const input = field(
@@ -441,7 +426,7 @@ function domainRow(
 
   const remove = document.createElement('button');
   remove.type = 'button';
-  remove.className = 'exclusion-delete';
+  remove.className = 'secondary exclusion-delete';
   remove.textContent = message('exclusionRemove');
   remove.setAttribute(
     'aria-label',
@@ -463,23 +448,18 @@ function domainRow(
   const controls = document.createElement('div');
   controls.className = 'row';
   controls.append(input, remove);
-  row.append(controls, domainProblem(pattern));
+  row.append(controls, domainProblem(null, pattern));
   return row;
 }
 
-function domainProblem(pattern: string): HTMLElement {
-  const box = document.createElement('div');
-  box.className = 'problems';
-  box.setAttribute('role', 'alert');
-
+function domainProblem(existing: HTMLElement | null, pattern: string): HTMLElement {
   const problem = validateDomainPattern(pattern);
-  if (problem !== undefined) {
-    const line = document.createElement('p');
-    line.className = 'problem';
-    line.textContent = message(problem);
-    box.append(line);
-  }
-  return box;
+  return reconcileProblems(
+    existing,
+    'problems',
+    problem === undefined ? [] : [message(problem)],
+    pattern === '',
+  );
 }
 
 /* ----------------------------------------------------------------- behaviour */
@@ -508,7 +488,7 @@ const CAPPED_KINDS: ReadonlyArray<readonly [ControlKind, MessageKey]> = [
  * change what a fill *does* to a control it has decided to fill, as opposed to
  * which controls it picks.
  */
-export function renderBehaviour(host: OptionsHost, into: HTMLElement): void {
+function renderBehaviour(host: OptionsHost, into: HTMLElement): void {
   const { behaviour } = host.settings();
 
   const lengths = document.createElement('fieldset');
@@ -598,7 +578,7 @@ function lines(value: string): readonly string[] {
  * It is drawn from the same generator a fill uses, so it cannot drift into
  * showing something the engine would not make.
  */
-export function renderPasswords(host: OptionsHost, into: HTMLElement): void {
+function renderPasswords(host: OptionsHost, into: HTMLElement): void {
   const policy = host.settings().passwords;
 
   const update = (patch: Partial<Settings['passwords']>): void => {
@@ -702,7 +682,7 @@ const SHORTCUT_ADDRESS =
  *   · the **context menu** is the one real setting, and turning it off leaves the
  *     other two untouched (BR-023-3).
  */
-export function renderTriggers(host: OptionsHost, into: HTMLElement): void {
+function renderTriggers(host: OptionsHost, into: HTMLElement): void {
   const { triggers } = host.settings();
 
   const toolbar = document.createElement('p');

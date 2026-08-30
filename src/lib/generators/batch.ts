@@ -28,7 +28,7 @@ import { applyToControl, generateRuleText } from '../rules/generate';
  * membership through the owning form — two forms may use the same `name` for
  * unrelated groups (BR-005-3).
  */
-export type BatchSource = {
+type BatchSource = {
   readonly persona: Persona;
   /**
    * The random source for one control, keyed by its token (FR-080).
@@ -69,7 +69,7 @@ export type BatchSource = {
   readonly defaults?: BehaviourDefaults | undefined;
 };
 
-export type BatchResult = {
+type BatchResult = {
   readonly values: readonly FieldValue[];
   /**
    * Rules that could not run, by label, with the reason.

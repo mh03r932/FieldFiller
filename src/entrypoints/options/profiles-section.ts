@@ -6,6 +6,7 @@ import { validateDomainPattern } from '@/lib/rules/validate';
 import { checkbox, field, focusIn, textInput } from './controls';
 import type { OptionsHost } from './host';
 import { rowAt, rowMovedUnderYou } from './rows';
+import { reconcileProblems } from './problems';
 import { closeRuleIn, markOff, profileRules, renderRules } from './rules';
 
 /**
@@ -289,7 +290,7 @@ function ordering(
 function remove(host: OptionsHost, profile: Profile, into: HTMLElement): HTMLElement {
   const button = document.createElement('button');
   button.type = 'button';
-  button.className = 'rule-delete profile-delete';
+  button.className = 'secondary rule-delete profile-delete';
   button.textContent = message('profileDelete');
   button.setAttribute('aria-label', `${message('profileDelete')}: ${nameOf(profile)}`);
   button.addEventListener('click', () => {
@@ -386,7 +387,11 @@ function editor(host: OptionsHost, profile: Profile, into: HTMLElement): HTMLEle
     if (problem === undefined) {
       flag?.remove();
     } else if (flag instanceof HTMLElement) {
+      // Both surfaces of the sentence, or the next save leaves one telling the
+      // truth and the other the last problem it had.
       flag.title = problem;
+      const said = flag.querySelector('.visually-hidden');
+      if (said !== null) said.textContent = message('ruleInvalid', [problem]);
     } else if (name instanceof HTMLElement) {
       name.append(flagFor(problem));
     }
@@ -498,16 +503,14 @@ function urls(
     };
 
     const problems = document.createElement('div');
-    problems.className = 'problems';
-    problems.setAttribute('role', 'alert');
     const showProblem = (value: string): void => {
-      problems.replaceChildren();
       const code = validateDomainPattern(value);
-      if (code === undefined) return;
-      const line = document.createElement('p');
-      line.className = 'problem';
-      line.textContent = message(code);
-      problems.append(line);
+      reconcileProblems(
+        problems,
+        'problems',
+        code === undefined ? [] : [message(code)],
+        value === '',
+      );
     };
     showProblem(pattern);
 
@@ -526,7 +529,7 @@ function urls(
 
     const drop = document.createElement('button');
     drop.type = 'button';
-    drop.className = 'exclusion-delete';
+    drop.className = 'secondary exclusion-delete';
     drop.textContent = message('exclusionRemove');
     drop.setAttribute(
       'aria-label',
@@ -548,7 +551,7 @@ function urls(
 
   const add = document.createElement('button');
   add.type = 'button';
-  add.className = 'profile-add-url';
+  add.className = 'secondary profile-add-url';
   add.textContent = message('profileAddUrl');
   add.addEventListener('click', () => {
     const at = live().urls.length;
@@ -563,17 +566,28 @@ function urls(
 /**
  * The `!` beside a profile's name.
  *
- * The word is in the `title` rather than beside the mark, which is DD-006's
- * known weakness restated: the flag alone carries the fact in a glyph and a
- * colour. It is the rule editor's existing treatment and is kept identical
- * rather than improved here, so the two lists do not speak differently about
- * the same thing.
+ * The sentence is in the DOM, not only in a `title`. A `title` on a
+ * non-interactive span is announced by almost nothing and is unreachable by
+ * keyboard, so the bare glyph was the whole of what a screen reader got — the
+ * one reader that could act on "this profile is not being saved" (NFR-019).
+ * The `title` stays as the pointer affordance, and the visible treatment is
+ * the rule editor's (`markInvalid` in rules.ts) kept identical, so the two
+ * lists do not speak differently about the same thing.
  */
 function flagFor(problem: string): HTMLElement {
   const flag = document.createElement('span');
   flag.className = 'rule-flag';
-  flag.textContent = '!';
   flag.title = problem;
+
+  const mark = document.createElement('span');
+  mark.textContent = '!';
+  mark.setAttribute('aria-hidden', 'true');
+
+  const said = document.createElement('span');
+  said.className = 'visually-hidden';
+  said.textContent = message('ruleInvalid', [problem]);
+
+  flag.append(mark, said);
   return flag;
 }
 

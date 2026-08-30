@@ -27,7 +27,7 @@ import type { Random } from '../persona/persona';
  * control characters.
  */
 
-export type RegexNode =
+type RegexNode =
   | { readonly kind: 'literal'; readonly text: string }
   | { readonly kind: 'set'; readonly chars: string }
   | { readonly kind: 'seq'; readonly nodes: readonly RegexNode[] }
@@ -35,7 +35,7 @@ export type RegexNode =
   | { readonly kind: 'repeat'; readonly node: RegexNode; readonly min: number; readonly max: number }
   | { readonly kind: 'empty' };
 
-export type ParseResult =
+type ParseResult =
   | { readonly ok: true; readonly node: RegexNode }
   | { readonly ok: false; readonly problem: string };
 

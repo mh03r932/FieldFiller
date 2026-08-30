@@ -35,7 +35,7 @@ const ALPHABETS: Record<string, string> = {
   symbol: '!@#$%&*?-_',
 };
 
-export const TEMPLATE_TOKENS: readonly string[] = Object.keys(ALPHABETS);
+const TEMPLATE_TOKENS: readonly string[] = Object.keys(ALPHABETS);
 
 /** No single placeholder may expand beyond this, so one template cannot run away. */
 const MAX_COUNT = 64;
@@ -44,7 +44,7 @@ type Part =
   | { readonly kind: 'literal'; readonly text: string }
   | { readonly kind: 'draw'; readonly alphabet: string; readonly count: number };
 
-export type TemplateResult =
+type TemplateResult =
   | { readonly ok: true; readonly parts: readonly Part[] }
   | { readonly ok: false; readonly problem: string };
 

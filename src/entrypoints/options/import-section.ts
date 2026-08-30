@@ -12,7 +12,7 @@ import {
 import type { OptionsHost } from './host';
 import { focusIn } from './controls';
 import { problemText } from './problems';
-import { reason } from './reason';
+import { reason } from '@/lib/reason';
 
 /**
  * UC-026 — a configuration read back in from a file.
@@ -190,7 +190,7 @@ function refusalView(
 
   const dismiss = document.createElement('button');
   dismiss.type = 'button';
-  dismiss.className = 'import-dismiss';
+  dismiss.className = 'secondary import-dismiss';
   dismiss.textContent = message('importDismiss');
   dismiss.addEventListener('click', () => {
     discard(host, into, 'importDismissed');
@@ -279,7 +279,7 @@ function planView(host: OptionsHost, into: HTMLElement, name: string, plan: Impo
 
   const cancel = document.createElement('button');
   cancel.type = 'button';
-  cancel.className = 'import-cancel';
+  cancel.className = 'secondary import-cancel';
   cancel.textContent = message('importCancel');
   cancel.addEventListener('click', () => {
     discard(host, into, 'importCancelled');

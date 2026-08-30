@@ -246,21 +246,27 @@ export type FieldValue = {
    */
   | { readonly as: 'pick'; readonly at: number }
   /** UC-004 A3.6: nothing selectable, so the control is left untouched. */
-  | { readonly as: 'skip'; readonly reason: ExclusionReason }
+  | { readonly as: 'skip'; readonly reason: SkipReason }
 );
 
 /** What happened to one control. Exactly one outcome each (FR-009, ND-14). */
 export type FieldOutcome =
   | { readonly ref: number; readonly status: 'filled'; readonly provenance: string }
-  | { readonly ref: number; readonly status: 'skipped'; readonly reason: ExclusionReason }
+  | { readonly ref: number; readonly status: 'skipped'; readonly reason: SkipReason }
   | { readonly ref: number; readonly status: 'failed'; readonly cause: string };
 
 /**
  * Why a control was left alone. Machine-readable, and exactly one per control
  * — the first rule to fire wins, so a user debugging a skipped field gets one
  * answer rather than a set (BR-005-6, BR-005-8).
+ *
+ * Named `SkipReason`, not `ExclusionReason`: in this extension's vocabulary an
+ * *exclusion* is a user-configured pattern (a domain or a field matcher), while
+ * these are the page's own facts — disabled, hidden, touched — plus the one
+ * case that is an exclusion in that sense (`ignored-pattern`). The type wore
+ * the broader word for a long time before the split was pointed out.
  */
-export type ExclusionReason =
+export type SkipReason =
   | 'not-fillable-kind'
   | 'disabled'
   | 'readonly'
@@ -325,7 +331,7 @@ export type CapReason =
  *
  * Carries no information about the page — it is a random token, not an address.
  */
-export type FrameId = string;
+export type FrameToken = string;
 
 /**
  * One frame's account of a fill. Frames report independently (BR-001-5).
@@ -334,7 +340,7 @@ export type FrameId = string;
  * pass. One outcome per control, decided last (BR-034-2).
  */
 export type FrameReport = {
-  readonly frame: FrameId;
+  readonly frame: FrameToken;
   /** For the log and the report only; never used for identity. */
   readonly frameUrl: string;
   readonly outcomes: readonly FieldOutcome[];
@@ -401,15 +407,23 @@ export type ScopeRefusal = 'no-form-around-anchor' | 'no-anchor';
  * a value was chosen, not what it was.
  */
 export type FieldReportEntry = {
-  readonly frame: FrameId;
+  readonly frame: FrameToken;
   readonly ref: number;
   /** How the user would name this field — its label, or the nearest thing to one. */
   readonly identity: string;
   readonly kind: ControlKind;
-  readonly status: 'filled' | 'skipped' | 'failed';
+  readonly status: OutcomeStatus;
   /** Provenance for a filled control, the reason or cause otherwise (FR-069). */
   readonly detail: string;
 };
+
+/**
+ * The three ways a control's fill can end. One union, named once: the runtime
+ * guard's `Set` and the report row's `status` both derive from it below, so a
+ * fourth outcome cannot be added to one and forgotten in the other — the two
+ * definitions *were* separate, and nothing tied them together but a reader.
+ */
+export type OutcomeStatus = 'filled' | 'skipped' | 'failed';
 
 export type OutcomeCounts = { filled: number; skipped: number; failed: number };
 
@@ -508,7 +522,7 @@ export type FromAgentMessage =
    * the same on Firefox or in a later Chrome. Acknowledging turns "did anything
    * receive this?" from an inference into an answer.
    */
-  | { readonly kind: 'accepted'; readonly frame: FrameId }
+  | { readonly kind: 'accepted'; readonly frame: FrameToken }
   /**
    * Sent by every frame that takes up a fill, immediately and once.
    *
@@ -524,7 +538,7 @@ export type FromAgentMessage =
    * one's outcomes. Frames still cannot see each other; each simply says that it
    * is participating.
    */
-  | { readonly kind: 'joined'; readonly operationId: OperationId; readonly frame: FrameId }
+  | { readonly kind: 'joined'; readonly operationId: OperationId; readonly frame: FrameToken }
   /** The descriptor batch — the request half of the single round trip. */
   | {
       readonly kind: 'descriptors';
@@ -538,7 +552,7 @@ export type FromAgentMessage =
        * agent that does not identify itself cannot be joined to a name, and
        * those rows say so rather than guessing.
        */
-      readonly frame?: FrameId;
+      readonly frame?: FrameToken;
       readonly descriptors: readonly FieldDescriptor[];
     }
   | { readonly kind: 'report'; readonly operationId: OperationId; readonly report: FrameReport };
@@ -602,8 +616,6 @@ export type AgentSettings = {
   readonly ignorePatterns: readonly string[];
 };
 
-export const PING: ToAgentMessage = { kind: 'ping' };
-
 /**
  * Narrows an untrusted `unknown` from the messaging channel.
  *
@@ -611,7 +623,7 @@ export const PING: ToAgentMessage = { kind: 'ping' };
  * agent left over from a previous extension version can — so neither side may
  * assume the other is the same build.
  */
-export function isFillTrigger(value: unknown): value is FillTrigger {
+function isFillTrigger(value: unknown): value is FillTrigger {
   return typeof value === 'string' && (FILL_TRIGGERS as readonly string[]).includes(value);
 }
 
@@ -649,7 +661,17 @@ function isDescriptor(value: unknown): value is FieldDescriptor {
   );
 }
 
-const OUTCOME_STATUSES = new Set(['filled', 'skipped', 'failed']);
+/**
+ * Derived from `OutcomeStatus`: a `Record` over the union must list every
+ * member, so adding a fourth outcome is a compile error here rather than a
+ * status the guard silently refuses.
+ */
+const OUTCOME_STATUS_TABLE: Record<OutcomeStatus, true> = {
+  filled: true,
+  skipped: true,
+  failed: true,
+};
+const OUTCOME_STATUSES = new Set<string>(Object.keys(OUTCOME_STATUS_TABLE));
 
 function isOutcome(value: unknown): value is FieldOutcome {
   if (typeof value !== 'object' || value === null) return false;

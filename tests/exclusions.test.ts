@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { appendAt, newExclusion, removeAt, replaceAt } from '@/lib/exclusions';
 import { validateDomainPattern, validateMatcher } from '@/lib/rules/validate';
-import { excludedBy } from '@/lib/page/scope';
+import { excludedBy } from '@/lib/globs';
 import { parseSettings, type Matcher } from '@/lib/settings';
 
 /**

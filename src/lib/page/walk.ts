@@ -29,7 +29,7 @@ const CANDIDATE_SELECTOR =
   'input, textarea, select, [contenteditable=""], [contenteditable="true"], ' +
   '[role="combobox"], [role="listbox"], [aria-haspopup="listbox"]';
 
-export type FillableElement = HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement | HTMLElement;
+type FillableElement = HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement | HTMLElement;
 
 /**
  * Every candidate under `root`, including inside open shadow roots.

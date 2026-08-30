@@ -10,8 +10,10 @@ import {
 } from './settings';
 import { validateMatcher, validateRule, type RuleProblem } from './rules/validate';
 import { isIsoDate, withoutDateTokens } from './rules/dates';
-import { MAX_IMPORT_SIZE, oversizeRefusal, kindOf, type Counts } from './settings-import';
+import { MAX_IMPORT_SIZE, oversizeRefusal, valueKind, type Counts } from './settings-import';
 import { decodeBackupTransport, looksLikeFakeFiller } from './fakefiller-recognise';
+import { listAt, recordOf } from './coerce';
+import { reason } from './reason';
 
 /**
  * UC-027 — a Fake Filler backup, translated into this extension's schema
@@ -32,7 +34,7 @@ import { decodeBackupTransport, looksLikeFakeFiller } from './fakefiller-recogni
  *
  * **The translation is written against the published schema** — the
  * `IFakeFillerOptions`/`ICustomField`/`IProfile` shapes recorded in
- * `FAKEFILLER_RESEARCH.md` §2.2 from commit `36daf90` (BR-027-2). The
+ * `docs/FAKEFILLER_RESEARCH.md` §2.2 from commit `36daf90` (BR-027-2). The
  * published extension is known to run ahead of that source (§4 of the
  * research), which is why the report leads with the version the file
  * claims when it is not the documented one (A2) rather than refusing: the
@@ -254,12 +256,12 @@ export function analyseMigration(text: string, current: Settings): MigrationOutc
     // reference, or stop pointing this at a Fake Filler backup at all.
     const decoded = decodeBackupTransport(text.trim());
     if (decoded === undefined) {
-      return refuse('migrateRefusedNotJson', [reasonOf(error)]);
+      return refuse('migrateRefusedNotJson', [reason(error)]);
     }
     try {
       parsed = JSON.parse(decoded);
     } catch (decodedError) {
-      return refuse('migrateRefusedNotJson', [reasonOf(decodedError)]);
+      return refuse('migrateRefusedNotJson', [reason(decodedError)]);
     }
   }
 
@@ -285,9 +287,6 @@ function refuse(code: MigrationRefusal['code'], params: readonly string[]): Migr
   return { ok: false, refusal: { code, params } };
 }
 
-function reasonOf(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
 
 /**
  * Whether a file looks like *our* export (A1 step 2).
@@ -385,7 +384,7 @@ function translate(file: Record<string, unknown>, current: Settings): MigrationP
     // `asRecord` tolerance below used to turn it into an empty disabled
     // profile with a urlMatch note, which is a thing the backup never
     // carried wearing a successful translation's face.
-    if (kindOf(entry) !== 'object') {
+    if (valueKind(entry) !== 'object') {
       dropped.push({ code: 'migrateDroppedProfile', params: [`#${String(index + 1)}`] });
       droppedProfiles.add(index);
       continue;
@@ -459,7 +458,7 @@ function translate(file: Record<string, unknown>, current: Settings): MigrationP
 
   const behaviour = translateBehaviour(file, dropped, noted);
   const passwords = translatePasswords(file, dropped, noted);
-  const sources = translateSources(asRecord(file['fieldMatchSettings']), dropped, noted);
+  const sources = translateSources(recordOf(file['fieldMatchSettings']), dropped, noted);
 
   // The reference's ignored-field patterns, carried as `regex`-mode
   // exclusions and *named* when they carry a fault — the importer's
@@ -543,7 +542,7 @@ function translate(file: Record<string, unknown>, current: Settings): MigrationP
   // would double-report.
   for (const [section, known] of SECTION_KEYS) {
     const value = file[section];
-    if (kindOf(value) !== 'object') continue;
+    if (valueKind(value) !== 'object') continue;
     for (const key of Object.keys(value as Record<string, unknown>)) {
       if (!known.has(key)) {
         dropped.push({ code: 'migrateDroppedKey', params: [`${section}.${key}`] });
@@ -629,7 +628,7 @@ function mistypedRoots(file: Record<string, unknown>): readonly MigrationDrop[] 
   const drops: MigrationDrop[] = [];
   for (const [key, kind] of FAKEFILLER_KEY_KINDS) {
     if (!(key in file)) continue;
-    if (kindOf(file[key]) === kind) continue;
+    if (valueKind(file[key]) === kind) continue;
     drops.push({ code: 'migrateDroppedShape', params: [key] });
   }
   return drops;
@@ -766,7 +765,7 @@ function unknownEntryKeys(
   const drops: MigrationDrop[] = [];
 
   const scanField = (entry: unknown, index: number, prefix: string): void => {
-    const record = asRecord(entry);
+    const record = recordOf(entry);
     const known = FIELD_KEYS.get(typeof record['type'] === 'string' ? record['type'] : '');
     if (known === undefined) return; // an unknown type is already a drop of its own
     for (const key of Object.keys(record)) {
@@ -793,10 +792,10 @@ function unknownEntryKeys(
     if (reported.profiles.has(index)) continue;
     // An empty-but-object profile is named for its own shape, not picked
     // through; a garbage one is dropped whole by the caller.
-    if (kindOf(entry) !== 'object') continue;
+    if (valueKind(entry) !== 'object') continue;
     const record = entry as Record<string, unknown>;
 
-    if ('fields' in record && kindOf(record['fields']) !== 'list') {
+    if ('fields' in record && valueKind(record['fields']) !== 'list') {
       drops.push({ code: 'migrateDroppedShape', params: [`profiles[${index}].fields`] });
     }
 
@@ -939,7 +938,7 @@ function asProfileDrops(drop: FieldDrop, profile: string): readonly MigrationDro
  * storage coerces rather than refuses — this is the last boundary.
  */
 function translateField(entry: unknown, index: number, id: string, path: string): FieldOutcome {
-  const record = asRecord(entry);
+  const record = recordOf(entry);
   const name = stringOf(record['name'], `#${String(index + 1)}`);
 
   // The entry-level shape check, before any tolerant reader runs: every
@@ -953,7 +952,7 @@ function translateField(entry: unknown, index: number, id: string, path: string)
   const type = typeof record['type'] === 'string' ? record['type'] : undefined;
   for (const [key, kind] of ENTRY_KEY_KINDS) {
     if (!(key in record)) continue;
-    if (kindOf(record[key]) !== kind) {
+    if (valueKind(record[key]) !== kind) {
       shapeFaults.push(`${path}.${key}`);
       continue;
     }
@@ -1513,15 +1512,6 @@ function translateBehaviour(
 }
 
 /**
- * The keyword lists, split on commas.
- *
- * The reference stores these as arrays whose entries may themselves be
- * comma-joined — its UI parses a CSV box into the array, and hand-edited
- * backups carry both shapes — so each entry is split again, which is exact
- * for the documented shape and tolerant of the other without ever
- * inventing a keyword.
- */
-/**
  * A keyword list, split on commas, with the total-loss case made visible.
  *
  * Three readings, and the boundary between the last two is the whole fix:
@@ -1582,7 +1572,7 @@ function translatePasswords(
   dropped: MigrationDrop[],
   noted: MigrationNote[],
 ): Settings['passwords'] {
-  const settings = asRecord(file['passwordSettings']);
+  const settings = recordOf(file['passwordSettings']);
   const mode = settings['mode'];
 
   if (mode === 'random') {
@@ -1731,15 +1721,4 @@ function stringsOf(stored: unknown): readonly string[] {
 
 function stringOf(value: unknown, fallback: string): string {
   return typeof value === 'string' && value.trim() !== '' ? value : fallback;
-}
-
-function asRecord(value: unknown): Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
-}
-
-function listAt(value: Record<string, unknown>, key: string): readonly unknown[] {
-  const list = value[key];
-  return Array.isArray(list) ? list : [];
 }

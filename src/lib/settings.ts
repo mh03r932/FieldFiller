@@ -5,6 +5,7 @@ import type {AgentSettings, ControlKind} from './protocol';
 // in the page agent imports this file, which is what keeps `redos.ts` out of the
 // content script (ND-4, and `scripts/check-imports.mjs` enforces it).
 import {validateMatcher, type RuleProblem} from './rules/validate';
+import {recordOf} from './coerce';
 
 /**
  * The settings state, its defaults, and the coercion that reads it back.
@@ -39,7 +40,7 @@ import {validateMatcher, type RuleProblem} from './rules/validate';
  * user picked is the mode that runs, which is what makes UC-013's preview
  * trustworthy.
  */
-export type MatchMode = 'contains' | 'exact' | 'regex';
+type MatchMode = 'contains' | 'exact' | 'regex';
 
 /**
  * The identity sources a pattern may be compared against (FR-027, FR-028).
@@ -127,7 +128,7 @@ export type Generator =
   | { readonly type: 'list'; readonly items: readonly string[] }
   | { readonly type: 'constant'; readonly value: string };
 
-export type NamePart = 'full' | 'first' | 'last';
+type NamePart = 'full' | 'first' | 'last';
 
 /** The generator types that have a persona counterpart to draw from. */
 export const PERSONA_BACKED: ReadonlySet<Generator['type']> = new Set([
@@ -193,7 +194,7 @@ export type Profile = {
 
 /* ---------------------------------------------------------------- exclusions */
 
-export type Exclusions = {
+type Exclusions = {
   /** UC-005 step 5, UC-020. Carries the same match modes rules do. */
   readonly fields: readonly Matcher[];
   /** UC-008, UC-021, FR-074. Glob patterns, as profiles use. */
@@ -271,7 +272,7 @@ export type Behaviour = {
  * because no extension can set them — only the browser can, and UC-023's surface
  * routes there rather than pretending otherwise (BR-023-1).
  */
-export type Triggers = {
+type Triggers = {
   readonly contextMenu: boolean;
 };
 
@@ -423,7 +424,7 @@ export const DEFAULT_CONFIRMATION_KEYWORDS: readonly string[] = [
   'again',
 ];
 
-export const DEFAULT_TRIGGERS: Triggers = {
+const DEFAULT_TRIGGERS: Triggers = {
   // On, because the context menu is the only channel that can reach the narrower
   // scopes with a cursor to derive them from (BR-001-6). Shipping it off would
   // make two of the three scopes unreachable until the user found this screen.
@@ -475,7 +476,7 @@ export function agentSettings(settings: Settings): AgentSettings {
 }
 
 /** A field exclusion that will not be sent to a page, and the fault that stopped it. */
-export type RefusedExclusion = { readonly pattern: string; readonly problem: RuleProblem };
+type RefusedExclusion = { readonly pattern: string; readonly problem: RuleProblem };
 
 /**
  * Which field exclusions a page may evaluate, and which this build will not ask
@@ -581,10 +582,10 @@ export function parseSettings(stored: unknown): Settings {
   if (typeof stored !== 'object' || stored === null) return DEFAULT_SETTINGS;
 
   const candidate = stored as Record<string, unknown>;
-  const behaviour = record(candidate['behaviour']);
-  const exclusions = record(candidate['exclusions']);
-  const passwords = record(candidate['passwords']);
-  const sources = record(candidate['sources']);
+  const behaviour = recordOf(candidate['behaviour']);
+  const exclusions = recordOf(candidate['exclusions']);
+  const passwords = recordOf(candidate['passwords']);
+  const sources = recordOf(candidate['sources']);
 
   return {
     version: 1,
@@ -638,7 +639,7 @@ export function parseSettings(stored: unknown): Settings {
     },
     sources: parseSources(sources),
     triggers: {
-      contextMenu: boolean(record(candidate['triggers'])['contextMenu'], DEFAULT_TRIGGERS.contextMenu),
+      contextMenu: boolean(recordOf(candidate['triggers'])['contextMenu'], DEFAULT_TRIGGERS.contextMenu),
     },
   };
 }
@@ -935,8 +936,4 @@ function strings(value: unknown, fallback: readonly string[]): readonly string[]
  */
 function globs(value: unknown, fallback: readonly string[]): readonly string[] {
   return strings(value, fallback).filter((pattern) => pattern !== '');
-}
-
-function record(value: unknown): Record<string, unknown> {
-  return typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : {};
 }

@@ -22,7 +22,7 @@ const LOREM_WORDS = [
   'enim', 'minim', 'veniam', 'quis', 'nostrud', 'ullamco', 'laboris', 'aliquip',
 ];
 
-export type RuleValue = {
+type RuleValue = {
   /** The text the rule produced, before any control-shaped interpretation. */
   readonly text: string;
   readonly provenance: string;
