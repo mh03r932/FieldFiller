@@ -2252,7 +2252,7 @@
     "description": "Label for the list of links to each section of the settings page. Read by screen readers as the list's name; not shown as a heading."
   },
   "generalIntro": {
-    "message": "Settings that are not about one screen: the language samples and fills are written in, and the button that resets everything.",
-    "description": "Intro line under the General heading. States what belongs here rather than in the feature sections below; 'the language' refers to the Data locale setting, which chooses the corpus behind sample data (en-US or de-CH today)."
+    "message": "This setting decides which country's data every fill draws from.",
+    "description": "Intro line under the General heading. The section's only control is the Data locale (ND-1), so the intro states its scope rather than listing controls. The reset action named by the previous text belongs to Restore, not here."
   }
 }
