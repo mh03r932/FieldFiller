@@ -560,16 +560,57 @@ users switch — but it is also the piece most damaged by a moving schema. It st
 - **UC-030** Review Keyboard Shortcuts · **UC-031** Review the Changelog
 - Attribution and licence surface (FR-062, C-009)
 - Store listings, privacy disclosures, screenshots — all original (C-010, C-011)
-- Full NFR verification pass: latency, bundle size, zero-network, accessibility, coverage
-- **NFR-032's evaluation bound**, narrowed on 2026-08-24 from "unbuilt" to "still owed". The hole
-  it was the only guard against is closed: a field exclusion whose pattern `validateMatcher`
-  refuses is no longer sent to the page, and the fill report names it (UC-005 A5) — which matters
-  because an exclusion is stored while faulty on purpose and imported the same way, so authoring
-  was never going to be where it was contained. What the requirement itself asks for is not built:
-  identity truncated to 1,024 characters and a 250 ms budget, in both `selectRule` and
-  `matchesIgnorePattern`. Neither half is what closed the hole, and the measurements say why —
-  the patterns that hang the tab do it at 40 to 86 characters, an order of magnitude under the
-  truncation bound, and a running regex cannot be interrupted to enforce a budget
+- ~~Full NFR verification pass~~ — **the three unmeasured budgets were measured on 2026-08-28** and all three pass with
+  room: NFR-001 at **97 ms median / 102 ms worst** for 500 controls against 500 ms (`spike:filllatency`); NFR-005 at
+  **+2.2 ms** against 15 ms and NFR-004 at **+248 KB** against 2 MB (`spike:pagecost`). Nothing needed rewriting, which
+  is the answer measuring first was for: these prescribed an *outcome* rather than a mechanism, and the code met it.
+  **The measurement did overturn something, and it was not one of the three.** NFR-003's 40 KB page-agent budget cited
+  a derivation from NFR-005 at "~0.1 ms/KB for parse and compile"; parse and compile cost **0.014 ms/KB**, so that
+  argument would permit several hundred kilobytes. Most of the agent's +2.2 ms is the fixed cost of injecting a content
+  script at all, which does not grow with the bundle. The gate is unchanged and stays in CI — what changed is which
+  argument it answers to: G6's differentiator rather than a load-impact derivation nobody had checked. It was the one
+  number in the performance chain with nothing behind it, and it was wrong by 7×
+- **NFR-032, rewritten 2026-08-28 rather than built as written** — the second requirement this
+  project has rewritten against a measurement rather than implemented (after FR-044), and for a
+  sharper reason: it prescribed a *mechanism*, and both halves of the mechanism were measured
+  and neither works. Truncating pattern input to 1,024 characters bounds nothing — the patterns
+  that hang a tab do it at 40 to 86 characters, an order of magnitude below the bound, and the
+  linear cost it might have bounded instead is 0.4 ms for a safe pattern over a **10 MB**
+  identity. A 250 ms evaluation budget cannot be enforced at all, which the old text conceded in
+  its own closing sentence and then required anyway. What contains the threat is refusal at the
+  boundary, and that half is already true (NFR-009, BR-026-8, and UC-005 A5's no-send-to-page
+  since 2026-08-24). **What is still owed is the half worth having:** matching timed per control
+  — tens of microseconds against a 97 ms fill — and a control that overran reported as failed
+  with the patterns that were tested named. That cannot save the tab in the 55 s case, where the
+  operation timeout ends the fill; it turns the 287 ms case from an unexplained slow fill into a
+  named pattern the user can delete. **Built the same day, and the build corrected the rewrite.**
+  The first draft of the new requirement had inherited "the affected field reported as failed"
+  from the old text, and that is untrue twice over: matching slowly does not stop a control
+  being filled, so the report would have asserted the opposite of what happened; and a
+  catastrophic pattern is slow against *every* control, so a per-field line would repeat itself
+  five hundred times over one deletable rule. Slow matching is a property of the configuration,
+  not of a field. **And the build corrected itself again, on review.** The exclusions side had
+  taken one clock pair around the whole of `matchesIgnorePattern` and divided the cost evenly
+  across the pattern list, to keep the extra clock reads out of a size-budgeted module. An even
+  division gives every pattern an identical total *by construction* — so the report could name
+  all of the patterns or none of them, never the one that overran, which is the entire claim the
+  requirement makes. On the case this feature exists for it named all of them, under a sentence
+  telling the user that deleting any one would speed up every page they fill. It also charged
+  patterns the matcher had already returned before reaching. Both are fixed by giving
+  `matchesIgnorePattern` the accumulator `selectRule` already had; the bytes it was avoiding were
+  a few dozen against eighteen kilobytes of headroom. The lesson is the test's, not the code's:
+  the test asserted that both patterns appeared with a non-negative cost, which an accounting
+  that cannot tell them apart satisfies perfectly. It now asserts that the costs *differ*, and
+  fails on the old code. Reviewed again after that: the new `excludeCostMs` field had reached the background
+  unvalidated while every other optional field on a `FrameReport` was checked, and the two new report
+  sentences had a fixture but no assertions — both fixed, the second with an arity check against the real
+  catalog that `check-messages.mjs` cannot make from the catalog side. Both sites are instrumented — `slowRules` for the background's rule matcher
+  and `slowExclusions` for the page agent's field exclusions, the sharper of the two because a
+  hang there is the user's tab rather than a worker — and both accumulate across every frame and
+  every pass, because the bound is stated over a fill. The clock is injected at both (`BatchSource.now`
+  beside `randomFor`, and the fill loop's existing `scheduler.now`), which is what lets the bound
+  be asserted against a clock the test controls rather than against a machine that has to
+  genuinely be slow. The page agent grew 226 bytes, to 21.90 KB of 40 (Chromium; 21.82 KB for Firefox).
 
 ---
 

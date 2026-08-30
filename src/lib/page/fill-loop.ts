@@ -7,7 +7,13 @@ import type {
   FieldValue,
 } from '../protocol';
 import { collectCandidates } from './walk';
-import { classifyStructural, matchesIgnorePattern, radioGroup, type StructuralContext } from './exclude';
+import {
+  classifyStructural,
+  matchesIgnorePattern,
+  radioGroup,
+  type PatternCost,
+  type StructuralContext,
+} from './exclude';
 import { describe } from './identify';
 import { applyValue, verifyWrite } from './apply';
 import { driveCombobox, stillAnswered } from './combobox';
@@ -163,6 +169,26 @@ export type FillLoopOptions = {
 export type FillLoopResult = {
   readonly outcomes: readonly FieldOutcome[];
   readonly passes: number;
+  /**
+   * What field-exclusion matching cost this frame, by pattern source, in
+   * milliseconds (NFR-032).
+   *
+   * A plain object rather than a `Map` because it crosses `runtime.sendMessage`,
+   * which serialises as JSON — a `Map` arrives as `{}`, silently, which is the
+   * shape of bug this project keeps finding at boundaries.
+   *
+   * Measured per pattern, in `matchesIgnorePattern` itself. Until 2026-08-28 it
+   * was one clock pair around the whole call, divided evenly across the pattern
+   * list to save the extra reads in a size-budgeted module (NFR-003) — which
+   * cost more than it saved, because an even division gives every pattern an
+   * identical total by construction. The report could then only name all of the
+   * patterns or none of them, and it named all of them: one catastrophic pattern
+   * put every innocent one beside it over the bound, under a sentence telling
+   * the user that deleting it would speed up every page they fill. The saving
+   * was a few dozen bytes of an eighteen-kilobyte headroom, against the whole of
+   * what this requirement is for.
+   */
+  readonly excludeCostMs: Readonly<Record<string, number>>;
   /** Absent when the frame settled of its own accord. */
   readonly capped?: CapReason;
   /** Controls the next pass would have worked on, when a bound stopped it. */
@@ -227,6 +253,15 @@ export async function runFill(options: FillLoopOptions): Promise<FillLoopResult>
 
   let capped: CapReason | undefined;
   let passes = 0;
+  /** Fill-scoped, not pass-scoped: NFR-032's bound is stated over a whole fill. */
+  const excludeCostMs: Record<string, number> = {};
+  /**
+   * Built once for the fill rather than per control. `now` is wrapped rather
+   * than passed by reference because the scheduler is injected and a test's may
+   * hold state on itself; a bound method would be one more thing that works
+   * until someone writes a fake with a `this`.
+   */
+  const excludeCost: PatternCost = { now: () => scheduler.now(), ms: excludeCostMs };
 
   try {
     let cascadeStart: number | undefined;
@@ -311,6 +346,7 @@ export async function runFill(options: FillLoopOptions): Promise<FillLoopResult>
     return {
       outcomes: withVanishedAnchor(report()),
       passes,
+      excludeCostMs,
       // Recorded without deciding anything, which is why `collect` is asked not
       // to write outcomes here: this is a count of the work a further pass would
       // have found, not a further pass.
@@ -436,7 +472,16 @@ export async function runFill(options: FillLoopOptions): Promise<FillLoopResult>
 
       if (patterns.length > 0) {
         const sources = Object.values(descriptorFor(entry).sources);
-        if (matchesIgnorePattern(sources, patterns)) {
+        // NFR-032's attribution, at the site where an overrun costs the most.
+        // A slow *rule* holds up a background worker; a slow exclusion holds up
+        // the page agent, which is to say the user's tab — and exclusions run
+        // against every control before any rule does. Accumulated across the
+        // whole fill rather than reported per control, because a pattern that is
+        // slow is slow against all of them and the user deletes a pattern, not a
+        // field.
+        const ignored = matchesIgnorePattern(sources, patterns, excludeCost);
+
+        if (ignored) {
           if (record) {
             entry.outcome = { ref: entry.ref, status: 'skipped', reason: 'ignored-pattern' };
           }

@@ -14,7 +14,14 @@ import {
   type Settings,
   type SourceToggles,
 } from '@/lib/settings';
-import { compileRules, effectiveSources, selectRule } from '@/lib/rules/match';
+import {
+  compileRules,
+  effectiveSources,
+  selectRule,
+  slowRules,
+  MATCH_RULE_MS,
+  type MatchCost,
+} from '@/lib/rules/match';
 import { validateMatcher, validateRule, type RuleProblemCode } from '@/lib/rules/validate';
 import { analysePattern } from '@/lib/rules/redos';
 import { generateFromRegex, parseRegex } from '@/lib/rules/regex-subset';
@@ -140,6 +147,97 @@ describe('the settings schema (DD-005)', () => {
 
     // `a.b` was a literal, so its dot must not survive as "any character".
     expect(agentSettings(settings).ignorePatterns).toEqual(['a\\.b', '^csrf$', '^tok']);
+  });
+});
+
+/**
+ * NFR-032's attribution half.
+ *
+ * The requirement used to prescribe truncating pattern input to 1,024 characters
+ * and enforcing a 250 ms budget; both were measured on 2026-08-28 and neither
+ * bounds anything — the patterns that hang a tab do it at 40 to 86 characters,
+ * and a running regular expression cannot be interrupted at all. What is left is
+ * attribution: say which rule cost the time, so the user can go and delete it.
+ *
+ * **Tested against a fake clock, which is the point of injecting one.** The
+ * alternative is a test that has to make a machine genuinely slow — which is
+ * either a catastrophic pattern in the suite (seconds per run, on every run) or
+ * a threshold low enough to fire on a loaded CI runner by accident. A clock the
+ * test controls makes "this rule took four seconds" an assertion rather than a
+ * hope.
+ */
+describe('attributing slow matching (NFR-032)', () => {
+  const descriptor = descriptorFor('<input name="username" id="user_name" class="form-control">');
+
+  /** A clock that advances by `stepMs` every time it is read. */
+  const clockOf = (stepMs: number): MatchCost => {
+    let at = 0;
+    return {
+      now: () => {
+        at += stepMs;
+        return at;
+      },
+      ms: new Map(),
+    };
+  };
+
+  it('charges the time to the rule that spent it', () => {
+    const compiled = compileRules(
+      [
+        rule({ label: 'Never matches', match: { mode: 'contains', pattern: 'zzzz' } }),
+        rule({ label: 'Matches', match: { mode: 'contains', pattern: 'user' } }),
+      ],
+      DEFAULT_SOURCES,
+    );
+    const cost = clockOf(10);
+
+    expect(selectRule(descriptor, compiled, cost).selection?.rule.label).toBe('Matches');
+    // Both are charged: the first was tested and did not match, which cost time
+    // just as the second's match did.
+    expect([...cost.ms.keys()].sort()).toEqual(['Matches', 'Never matches']);
+  });
+
+  it('accumulates across controls, because a fill is more than one', () => {
+    const compiled = compileRules(
+      [rule({ label: 'Slow', match: { mode: 'contains', pattern: 'zzzz' } })],
+      DEFAULT_SOURCES,
+    );
+    const cost = clockOf(10);
+
+    for (let control = 0; control < 5; control++) selectRule(descriptor, compiled, cost);
+
+    // Five controls at 10 ms of clock each. One control's cost would be under
+    // the bound and five is over it, which is the whole reason the budget is
+    // stated over a fill rather than over a control.
+    expect(cost.ms.get('Slow')).toBe(50);
+  });
+
+  it('names nothing on an ordinary fill', () => {
+    const ms = new Map([['Postcode', 0.4], ['Email', 1.2]]);
+
+    expect(slowRules(ms)).toEqual([]);
+  });
+
+  it('names the rules that overran, worst first, with what they cost', () => {
+    const ms = new Map([['Quick', 3], ['Slow', 4210], ['Slower', 9001]]);
+
+    expect(slowRules(ms)).toEqual(['Slower: 9001 ms', 'Slow: 4210 ms']);
+  });
+
+  it('states a bound far above an ordinary rule and far below the pattern it exists for', () => {
+    // 500 controls against an ordinary rule is well under a millisecond in
+    // total; the pattern that prompted the requirement costs 287 ms against
+    // *one*. The bound has to sit between those two and touch neither.
+    expect(MATCH_RULE_MS).toBeGreaterThan(1);
+    expect(MATCH_RULE_MS).toBeLessThan(287);
+  });
+
+  it('measures nothing when no clock was supplied, which is what every other test wants', () => {
+    const compiled = compileRules([rule({ match: { mode: 'contains', pattern: 'user' } })], DEFAULT_SOURCES);
+
+    // The signature stays usable without an accumulator: several hundred calls
+    // in this suite ask what a rule matched, not what it cost.
+    expect(selectRule(descriptor, compiled).selection?.source).toBe('name');
   });
 });
 

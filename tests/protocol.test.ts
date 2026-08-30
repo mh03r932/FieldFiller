@@ -213,3 +213,35 @@ describe('validating the DD-008 fields at the boundary', () => {
     expect(isFromAgentMessage(frame({ [field]: value }))).toBe(false);
   });
 });
+
+describe('validating NFR-032’s pattern costs at the boundary', () => {
+  const frame = (extra: Record<string, unknown>): unknown => ({
+    kind: 'report',
+    operationId: 'op-1',
+    report: { frame: 'top', frameUrl: 'https://x.test/', outcomes: [], ...extra },
+  });
+
+  it('accepts a report from an agent that predates the measurement', () => {
+    expect(isFromAgentMessage(frame({}))).toBe(true);
+    expect(isFromAgentMessage(frame({ excludeCostMs: {} }))).toBe(true);
+    expect(isFromAgentMessage(frame({ excludeCostMs: { 'captcha': 4, '(a+)+b': 0 } }))).toBe(true);
+  });
+
+  it.each([
+    ['a string cost', { captcha: '4' }],
+    ['a null cost', { captcha: null }],
+    ['a nested object', { captcha: { ms: 4 } }],
+    ['NaN', { captcha: Number.NaN }],
+    ['an infinity', { captcha: Number.POSITIVE_INFINITY }],
+    ['an array', [1, 2]],
+    ['a bare number', 4],
+  ])('rejects %s', (_label, cost) => {
+    // The background sums these into a `Map<string, number>` with `+`, which
+    // does not throw on any of them: a string concatenates, a `NaN` propagates,
+    // and an array's indices arrive as the pattern names `'0'` and `'1'`. Each
+    // one installs a value the map's own type says cannot be there, and the
+    // `>= boundMs` comparison downstream then answers `false` about it without
+    // a word — which is exactly what a fill with no slow pattern looks like.
+    expect(isFromAgentMessage(frame({ excludeCostMs: cost }))).toBe(false);
+  });
+});

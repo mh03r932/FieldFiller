@@ -144,6 +144,7 @@ async function fill(request: Extract<ToAgentMessage, { kind: 'fill' }>): Promise
   await report(operationId, {
     outcomes: result.outcomes,
     passes: result.passes,
+    excludeCostMs: result.excludeCostMs,
     scopeRule: scope.rule,
     ...(result.capped === undefined ? {} : { capped: result.capped, stale: result.stale }),
   });

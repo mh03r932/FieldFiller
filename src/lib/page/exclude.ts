@@ -95,20 +95,56 @@ export function classifyStructural(element: Element, context: StructuralContext)
 }
 
 /**
+ * Where a fill's exclusion matching goes, pattern by pattern (NFR-032).
+ *
+ * The shape `MatchCost` has on the rules side, and deliberately so — the two
+ * sites answer the same requirement and there is no reason for them to disagree
+ * about how. It is declared here rather than imported from `rules/match.ts`
+ * because a value import from that module would pull the whole rule matcher into
+ * the page agent's bundle (NFR-003), and this is a record of four lines.
+ *
+ * A plain object rather than a `Map` because the fill loop's is the one that
+ * crosses `runtime.sendMessage`, and one shape all the way through is one fewer
+ * conversion to get wrong.
+ */
+export type PatternCost = {
+  readonly now: () => number;
+  readonly ms: Record<string, number>;
+};
+
+function charge(cost: PatternCost, source: string, at: number): void {
+  cost.ms[source] = (cost.ms[source] ?? 0) + (cost.now() - at);
+}
+
+/**
  * Step 5, once identity exists.
  *
  * `lastIndex` is reset per test because a pattern compiled with /g would
  * otherwise carry state between fields and match every other one.
+ *
+ * One clock pair per *pattern*, and only when an accumulator is supplied —
+ * `selectRule`'s arrangement, for `selectRule`'s reasons. The pattern is what
+ * the user can delete, so the pattern is what the cost has to be charged to; a
+ * figure for the call as a whole would say a fill was slow without saying which
+ * of the patterns to look at. Charging only what the loop actually reaches
+ * matters here in a way it does not there: this returns on the first match, so
+ * a pattern after that match cost nothing and must be charged nothing.
  */
 export function matchesIgnorePattern(
   identity: readonly string[],
   patterns: readonly RegExp[],
+  cost?: PatternCost,
 ): boolean {
   for (const pattern of patterns) {
+    const at = cost?.now();
     for (const source of identity) {
       pattern.lastIndex = 0;
-      if (pattern.test(source)) return true;
+      if (pattern.test(source)) {
+        if (cost !== undefined && at !== undefined) charge(cost, pattern.source, at);
+        return true;
+      }
     }
+    if (cost !== undefined && at !== undefined) charge(cost, pattern.source, at);
   }
   return false;
 }

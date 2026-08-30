@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { collectCandidates } from '@/lib/page/walk';
 import { classifyStructural } from '@/lib/page/exclude';
@@ -45,6 +46,42 @@ function descriptorFor(html: string, ref = 0): FieldDescriptor {
 const echo = (key: ResultMessageKey, substitutions?: readonly string[]): string =>
   substitutions === undefined ? `[${key}]` : `[${key}:${substitutions.join('|')}]`;
 
+type CatalogEntry = {
+  readonly message: string;
+  readonly placeholders?: Record<string, { readonly content: string }>;
+};
+
+const CATALOG = JSON.parse(
+  readFileSync('public/_locales/en/messages.json', 'utf8'),
+) as Record<string, CatalogEntry | undefined>;
+
+/**
+ * Chrome's own substitution, against the real catalog, in the two steps Chrome
+ * takes: `$NAME$` names a placeholder whose `content` is a positional `$N`, and
+ * `N` indexes the array the call site passed.
+ *
+ * `echo` above is the right translate for asserting *structure* — which key,
+ * which substitutions, in which order — and it is deliberately blind to whether
+ * the catalog can render what it is handed. `scripts/check-messages.mjs` holds
+ * the other half, that every `$NAME$` is declared and every `content` is a
+ * contiguous `$N`. Neither can see the **call site**, which is where the arity
+ * lives: a sentence passing two substitutions to a message that declares three
+ * renders with a hole in it, and nothing in the key union notices, because the
+ * key is right. This throws instead.
+ */
+function chromeLike(key: ResultMessageKey, substitutions: readonly string[] = []): string {
+  const entry = CATALOG[key];
+  if (entry === undefined) throw new Error(`no catalog entry: ${key}`);
+  return entry.message.replaceAll(/\$([A-Za-z_]+)\$/g, (_, name: string) => {
+    const placeholder = entry.placeholders?.[name.toLowerCase()];
+    if (placeholder === undefined) throw new Error(`${key}: undeclared placeholder $${name}$`);
+    const position = Number(placeholder.content.slice(1));
+    const value = substitutions[position - 1];
+    if (value === undefined) throw new Error(`${key}: nothing passed for $${name}$ at position ${position}`);
+    return value;
+  });
+}
+
 function report(overrides: Partial<FillReport> = {}): FillReport {
   return {
     scope: 'all-inputs',
@@ -53,6 +90,8 @@ function report(overrides: Partial<FillReport> = {}): FillReport {
     capped: undefined,
     stale: 0,
     skippedRules: [],
+    slowRules: [],
+    slowExclusions: [],
     skippedExclusions: [],
     refused: undefined,
     profile: undefined,
@@ -388,5 +427,91 @@ describe('an exclusion that could not run', () => {
   it('names every pattern that was not applied', () => {
     const sentence = resultSentence(report({ skippedExclusions: ['(a+)+b', '(x+)+y'] }), echo);
     expect(sentence).toContain('[resultExclusionsSkipped:2|(a+)+b; (x+)+y]');
+  });
+});
+
+/**
+ * NFR-032's two sentences.
+ *
+ * Distinct from the two above in the one way that matters to whoever reads the
+ * report: a pattern that could not run cost the user an outcome, and a pattern
+ * that ran slowly cost them time and nothing else. Every field a slow rule
+ * matched is filled, and filled correctly — so these sentences attribute rather
+ * than warn, and asserting that they do is the point of the assertions here.
+ * The wording they attribute *with* went wrong once already in this feature's
+ * first draft, which said the affected field had failed.
+ */
+describe('a pattern that ran too slowly (NFR-032)', () => {
+  it('says nothing at all when nothing overran', () => {
+    // The overwhelming majority of fills. A sentence about matching cost on a
+    // fill that had none is noise in the one surface the user reads to find out
+    // what happened.
+    expect(resultSentence(report(), echo)).toBe('[resultSettled:6|[resultScopeAllInputs]]');
+  });
+
+  it('counts the rules and names them in the order it was given', () => {
+    // `slowRules` in `lib/rules/match.ts` owns worst-first, and pins it there.
+    // What is pinned here is that this layer preserves the order it is handed
+    // rather than imposing one of its own — the two halves of "the worst one is
+    // named first", which is the only reason the list is ordered at all.
+    const sentence = resultSentence(
+      report({ slowRules: ['Postcode: 4210 ms', 'Phone: 190 ms'] }),
+      echo,
+    );
+    expect(sentence).toContain('[resultRulesSlow:2|Postcode: 4210 ms; Phone: 190 ms]');
+  });
+
+  it('counts the exclusion patterns and names them, in its own sentence', () => {
+    const sentence = resultSentence(
+      report({ slowExclusions: ['^(\\s[\\w-]+)+$: 8300 ms'] }),
+      echo,
+    );
+    expect(sentence).toContain('[resultExclusionsSlow:1|^(\\s[\\w-]+)+$: 8300 ms]');
+  });
+
+  it('keeps the two apart, and both apart from the two that could not run', () => {
+    // Four notes that must not collapse into one another. A slow rule holds up a
+    // background worker; a slow exclusion holds up the tab; a skipped rule left a
+    // default value; a skipped exclusion left a field filled the user had asked
+    // to be left alone. The order is the order of the sentences in the source,
+    // and this is what would catch a note appended to the wrong branch.
+    expect(
+      resultSentence(
+        report({
+          skippedRules: ['postcode: invalid pattern'],
+          slowRules: ['Phone: 190 ms'],
+          slowExclusions: ['(a+)+b: 900 ms'],
+          skippedExclusions: ['(x+)+y'],
+        }),
+        echo,
+      ),
+    ).toBe(
+      '[resultSettled:6|[resultScopeAllInputs]]' +
+        ' [resultRulesSkipped:1|postcode: invalid pattern]' +
+        ' [resultRulesSlow:1|Phone: 190 ms]' +
+        ' [resultExclusionsSlow:1|(a+)+b: 900 ms]' +
+        ' [resultExclusionsSkipped:1|(x+)+y]',
+    );
+  });
+
+  it('passes the catalog everything its placeholders ask for', () => {
+    // The arity check `echo` cannot make and `check-messages.mjs` cannot see:
+    // both entries declare two placeholders, and `chromeLike` throws if either
+    // goes unfilled. Asserting on the rendered English as well, because a
+    // sentence that renders with a `$COUNT$` still in it is one Chrome would
+    // show to a user exactly like that.
+    const rendered = resultSentence(
+      report({ slowRules: ['Postcode: 4210 ms'], slowExclusions: ['(a+)+b: 8300 ms'] }),
+      chromeLike,
+    );
+
+    expect(rendered).not.toMatch(/\$[A-Za-z_]+\$/);
+    expect(rendered).toContain('1 rule(s) took a long time to match');
+    expect(rendered).toContain('Postcode: 4210 ms');
+    expect(rendered).toContain('1 field exclusion pattern(s) took a long time to match');
+    expect(rendered).toContain('(a+)+b: 8300 ms');
+    // Attribution, not a warning: nothing failed, and the sentences say so.
+    expect(rendered).toContain('filled correctly');
+    expect(rendered).toContain('Nothing was filled wrongly');
   });
 });

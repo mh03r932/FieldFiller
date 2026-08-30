@@ -89,6 +89,7 @@ export function effectiveSources(rule: Rule, toggles: SourceToggles): readonly M
 export function selectRule(
   descriptor: FieldDescriptor,
   compiled: readonly CompiledRule[],
+  cost?: MatchCost,
 ): { readonly selection: Selection | undefined; readonly skipped: readonly CompiledRule[] } {
   const skipped: CompiledRule[] = [];
 
@@ -99,16 +100,76 @@ export function selectRule(
       continue;
     }
 
+    // One clock pair per rule per control, and only when an accumulator was
+    // supplied. Per *rule* rather than per control, because the rule is what the
+    // user can delete; per control would say a fill was slow without saying
+    // which of twenty rules to look at. Per *source* would be seven times the
+    // clock calls to attribute something no one can act on differently.
+    const at = cost?.now();
+
     for (const source of entry.sources) {
       const text = descriptor.sources[source];
       if (text === undefined || text === '') continue;
 
       entry.regex.lastIndex = 0;
       if (entry.regex.test(text)) {
+        if (cost !== undefined && at !== undefined) charge(cost, entry.rule.label, at);
         return { selection: { rule: entry.rule, source, text }, skipped };
       }
     }
+
+    if (cost !== undefined && at !== undefined) charge(cost, entry.rule.label, at);
   }
 
   return { selection: undefined, skipped };
+}
+
+/**
+ * Where a fill's matching time goes, rule by rule (NFR-032).
+ *
+ * An accumulator passed in rather than a value returned, for the reason the
+ * `skipped` map in `generateBatch` is: this is a fact about the *fill*, and a
+ * per-control return would be five hundred allocations to be summed by whoever
+ * received them. The clock is injected for the same reason `randomFor` is —
+ * a pure module does not reach for a host — and it makes the bound testable
+ * against a fake clock rather than against a machine that has to actually be
+ * slow.
+ *
+ * Optional at the call site because the cost of measuring is not always worth
+ * paying: `tests/rules.test.ts` asks `selectRule` what it matched, not what it
+ * cost, and threading an accumulator through every such call would be noise.
+ */
+export type MatchCost = {
+  readonly now: () => number;
+  readonly ms: Map<string, number>;
+};
+
+function charge(cost: MatchCost, label: string, at: number): void {
+  cost.ms.set(label, (cost.ms.get(label) ?? 0) + (cost.now() - at));
+}
+
+/**
+ * How long one rule may spend matching across a whole fill before the report
+ * names it (NFR-032).
+ *
+ * A budget over the *fill* rather than over one control, because that is the
+ * scale at which the number means something: 500 controls against an ordinary
+ * rule is well under a millisecond in total, and the pattern that prompted this
+ * requirement costs 287 ms **per control**. Anything between those is a rule
+ * worth looking at, and 100 ms is far enough above the first to never fire on
+ * it and far enough below the second to always fire on that.
+ *
+ * It bounds nothing. A running regular expression cannot be interrupted, so
+ * this only decides what the report says afterwards — which is the whole of what
+ * NFR-032 asks for after the mechanism it used to prescribe was measured and
+ * found to bound nothing either.
+ */
+export const MATCH_RULE_MS = 100;
+
+/** The rules that overran, worst first, as `label: ms` — the report's own shape. */
+export function slowRules(ms: ReadonlyMap<string, number>, boundMs = MATCH_RULE_MS): readonly string[] {
+  return [...ms]
+    .filter(([, spent]) => spent >= boundMs)
+    .sort((left, right) => right[1] - left[1])
+    .map(([label, spent]) => `${label}: ${Math.round(spent)} ms`);
 }

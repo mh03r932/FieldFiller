@@ -338,6 +338,15 @@ export type FrameReport = {
   /** For the log and the report only; never used for identity. */
   readonly frameUrl: string;
   readonly outcomes: readonly FieldOutcome[];
+  /**
+   * What field-exclusion matching cost this frame, by pattern source, in
+   * milliseconds (NFR-032). Absent from an agent that predates it, and from a
+   * frame whose scope refused before any control was classified.
+   *
+   * A plain object, never a `Map`: this crosses `runtime.sendMessage`, which
+   * serialises as JSON, and a `Map` would arrive as `{}` without complaint.
+   */
+  readonly excludeCostMs?: Readonly<Record<string, number>>;
   /** How many passes the frame made. Absent means one — see the module note. */
   readonly passes?: number;
   /** Present only when the frame stopped at a bound rather than settling. */
@@ -415,6 +424,26 @@ export type FillReport = {
   readonly stale: number;
   /** Rules that could not run, by label and reason (DD-005). */
   readonly skippedRules: readonly string[];
+  /**
+   * Rules whose matching cost more than NFR-032's bound across this fill, worst
+   * first, as `label: ms`.
+   *
+   * A property of the *configuration* rather than of any field, which is why it
+   * sits here beside `skippedRules` and not in a field's row: a slow pattern is
+   * slow against every control, so five hundred identical rows would bury the
+   * one rule worth deleting. Empty on every ordinary fill.
+   */
+  readonly slowRules: readonly string[];
+  /**
+   * Field-exclusion patterns whose matching cost more than NFR-032's bound
+   * across this fill, worst first, as `pattern: ms`.
+   *
+   * Separate from `slowRules` because the consequence is the sharper one. A slow
+   * rule holds up a background worker; a slow exclusion holds up the page agent,
+   * which is the user's tab — and exclusions are tested against every control
+   * before any rule is. Empty on every ordinary fill.
+   */
+  readonly slowExclusions: readonly string[];
   /**
    * Field exclusions the fill declined to evaluate, by pattern (NFR-009).
    *
@@ -676,8 +705,30 @@ function isFrameReport(value: unknown): value is FrameReport {
     (candidate['refused'] === undefined ||
       (typeof candidate['refused'] === 'string' && SCOPE_REFUSALS.has(candidate['refused']))) &&
     (candidate['scopeRule'] === undefined ||
-      (typeof candidate['scopeRule'] === 'string' && SCOPE_RULES.has(candidate['scopeRule'])))
+      (typeof candidate['scopeRule'] === 'string' && SCOPE_RULES.has(candidate['scopeRule']))) &&
+    // NFR-032's per-pattern cost, optional on the same terms as everything above
+    // it — and checked to its *values*, not only its shape. The background sums
+    // it into a `Map<string, number>`, where `0 + 'x'` is `'0x'` rather than an
+    // error: a string would install itself in a map typed as numbers and stay
+    // there, and the comparison in `slowRules` would quietly answer `false`
+    // about it forever. Nothing downstream should have to wonder.
+    (candidate['excludeCostMs'] === undefined || isCostRecord(candidate['excludeCostMs']))
   );
+}
+
+/**
+ * A `Record<string, number>` arriving from a page agent, checked to its values.
+ *
+ * `Array.isArray` because an array is an object and its indices are string keys,
+ * so `[1, 2]` would otherwise pass as a cost record whose patterns are `'0'` and
+ * `'1'`. `Number.isFinite` because a `NaN` — which is what a malformed sum
+ * upstream produces — poisons every total it is added to, and a `NaN` total
+ * fails `>= boundMs` silently: the report would then say nothing at all, which
+ * is the one outcome indistinguishable from a fill with no slow pattern in it.
+ */
+function isCostRecord(value: unknown): boolean {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  return Object.values(value).every((spent) => typeof spent === 'number' && Number.isFinite(spent));
 }
 
 /**

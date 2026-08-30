@@ -6,7 +6,7 @@ import {
   mirrorsAnotherField,
   type BehaviourDefaults,
 } from './default-generator';
-import { selectRule, type CompiledRule } from '../rules/match';
+import { selectRule, type CompiledRule, type MatchCost } from '../rules/match';
 import { applyToControl, generateRuleText } from '../rules/generate';
 
 /**
@@ -50,6 +50,17 @@ export type BatchSource = {
    */
   readonly rules?: readonly CompiledRule[] | undefined;
   /**
+   * A clock, where the caller wants matching measured (NFR-032).
+   *
+   * Injected rather than reached for, exactly as `randomFor` is: this module is
+   * testable without a host (NFR-015), and the bound is then testable against a
+   * fake clock rather than against a machine that has to genuinely be slow.
+   * Absent means no measuring and no cost — which is what the unit suite wants
+   * of the several hundred calls that ask what a rule matched rather than what
+   * it cost.
+   */
+  readonly now?: (() => number) | undefined;
+  /**
    * The configurable behaviour defaults (UC-022).
    *
    * Optional, so a test that cares about rules or grouping says nothing about
@@ -69,6 +80,25 @@ export type BatchResult = {
    * the defects this project names.
    */
   readonly skippedRules: readonly string[];
+  /**
+   * What this batch's matching cost, rule by rule, in milliseconds (NFR-032).
+   *
+   * Beside `skippedRules` and for the same reason: both are facts about the
+   * *configuration* that only a whole fill can see, and both name a rule the
+   * user can go and fix. A slow rule is slow against every control, so this is
+   * emphatically not a per-field report — five hundred identical lines about one
+   * deletable rule would bury the one thing worth reading.
+   *
+   * Empty on every ordinary fill. Matching 500 controls against an ordinary rule
+   * is well under a millisecond in total; the pattern this exists for costs
+   * 287 ms against *one*.
+   *
+   * Milliseconds rather than the finished sentences, because a fill is more than
+   * one batch: every frame and every pass produces one, and only their sum is
+   * the fill's cost. Collapsing to `label: ms` here would leave the background
+   * adding up strings.
+   */
+  readonly matchCostMs: ReadonlyMap<string, number>;
 };
 
 export function generateBatch(
@@ -78,10 +108,18 @@ export function generateBatch(
   const byGroup = new Map<string, FieldValue>();
   const skipped = new Map<string, string>();
 
+  // Measured only where a clock was supplied. `BatchSource` carries its
+  // randomness the same way, and for the same reason: this module is testable
+  // without a host (NFR-015), so it is handed its capabilities rather than
+  // reaching for them — which is also what lets the bound be tested against a
+  // fake clock instead of against a machine that has to really be slow.
+  const cost: MatchCost | undefined =
+    source.now === undefined ? undefined : { now: source.now, ms: new Map() };
+
   const values = descriptors.map((descriptor) => {
     const group = descriptor.group;
     if (group === undefined) {
-      return valueFor(descriptor, source, source.randomFor(descriptor.token), skipped);
+      return valueFor(descriptor, source, source.randomFor(descriptor.token), skipped, cost);
     }
 
     const decided = byGroup.get(group);
@@ -89,7 +127,7 @@ export function generateBatch(
     // only if it holds the chosen value, so exactly one does. Seeded from the
     // group's token rather than any one member's, so the group keeps its answer
     // across passes for the same reason a single control keeps its value.
-    const value = decided ?? valueFor(descriptor, source, source.randomFor(group), skipped);
+    const value = decided ?? valueFor(descriptor, source, source.randomFor(group), skipped, cost);
     if (decided === undefined) byGroup.set(group, value);
 
     return { ...value, ref: descriptor.ref };
@@ -98,6 +136,7 @@ export function generateBatch(
   return {
     values,
     skippedRules: [...skipped].map(([label, reason]) => `${label}: ${reason}`),
+    matchCostMs: cost?.ms ?? new Map(),
   };
 }
 
@@ -115,6 +154,7 @@ function valueFor(
   source: BatchSource,
   random: Random,
   skipped: Map<string, string>,
+  cost: MatchCost | undefined,
 ): FieldValue {
   const defaults = source.defaults;
   const fallback = (): FieldValue => generateValue(descriptor, source.persona, random, defaults);
@@ -122,7 +162,7 @@ function valueFor(
   const rules = source.rules ?? [];
   if (rules.length === 0) return fallback();
 
-  const { selection, skipped: unusable } = selectRule(descriptor, rules);
+  const { selection, skipped: unusable } = selectRule(descriptor, rules, cost);
   for (const entry of unusable) {
     if (entry.problem !== undefined) skipped.set(entry.rule.label, entry.problem);
   }
