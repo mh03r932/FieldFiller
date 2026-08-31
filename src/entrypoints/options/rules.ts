@@ -1,5 +1,5 @@
 import { message, type MessageKey } from '@/lib/platform/i18n';
-import { GENERATOR_BOUNDS, MATCH_SOURCES, type Generator, type MatchSource, type Rule, type Settings } from '@/lib/settings';
+import { GENERATOR_BOUNDS, MATCH_SOURCES, type Generator, type Rule, type Settings } from '@/lib/settings';
 import {
   addRule,
   changeGeneratorType,
@@ -10,7 +10,8 @@ import {
   sampleRule,
 } from '@/lib/rules/editing';
 import { validateRule, type RuleProblem } from '@/lib/rules/validate';
-import { problemText } from './problems';
+import { problemText, reconcileProblems } from './problems';
+import { SOURCE_LABELS } from './labels';
 import { checkbox, field, focusIn, numberInput, select, textArea, textInput } from './controls';
 import type { OptionsHost } from './host';
 import type { Locale } from '@/lib/persona/persona';
@@ -503,7 +504,7 @@ function remove(
 ): HTMLElement {
   const button = document.createElement('button');
   button.type = 'button';
-  button.className = 'rule-delete';
+  button.className = 'secondary rule-delete';
   button.textContent = message('ruleDelete');
   button.setAttribute('aria-label', `${message('ruleDelete')}: ${nameOf(rule)}`);
   button.addEventListener('click', () => {
@@ -615,12 +616,12 @@ function editor(
     field(message('ruleLabel'), textInput(rule.label, (value) => update({ ...live(), label: value })), message('ruleLabelHint')),
     groupHeading('ruleMatchHeading'),
     matcher(live, update),
-    problemList('match', problems, rule),
+    problemList(null, 'match', problems, rule),
     sources(live, update),
-    problemList('sources', problems, rule),
+    problemList(null, 'sources', problems, rule),
     groupHeading('ruleGeneratorHeading'),
     generatorFields(live, update),
-    problemList('generator', problems, rule),
+    problemList(null, 'generator', problems, rule),
     groupHeading('ruleOptionsHeading'),
     checkbox(message('ruleEnabled'), rule.enabled, (value) => update({ ...live(), enabled: value })),
     checkbox(message('ruleFromPersona'), rule.fromPersona, (value) => update({ ...live(), fromPersona: value }), message('ruleFromPersonaHint')),
@@ -648,7 +649,6 @@ function pair(first: HTMLElement, second: HTMLElement): HTMLElement {
   return row;
 }
 
-export { markOff };
 
 /** A group heading inside the open rule's editor (UC-009). */
 function groupHeading(key: MessageKey): HTMLElement {
@@ -699,18 +699,9 @@ function matcher(live: () => Rule, update: (rule: Rule) => void): HTMLElement {
  * is showing an identifier to somebody who never wrote one, in the one control
  * FR-067 exists for, and it could not be translated because it was not a string.
  *
- * Declared as a total record rather than a lookup with a fallback, so adding an
- * eighth source is a compile error here instead of a raw identifier on screen.
+ * The table itself is `labels.ts`'s, shared with the sources section so the two
+ * cannot drift.
  */
-const SOURCE_LABELS: Record<MatchSource, MessageKey> = {
-  name: 'sourceName',
-  id: 'sourceId',
-  testId: 'sourceTestId',
-  className: 'sourceClassName',
-  label: 'sourceLabel',
-  placeholder: 'sourcePlaceholder',
-  ariaLabel: 'sourceAriaLabel',
-};
 
 /**
  * The rule's own source scoping (FR-067).
@@ -951,27 +942,24 @@ function preview(rule: Rule, locale: Locale): HTMLElement {
  * the import preview also use; only the frame around it belongs to this screen.
  */
 function problemList(
+  existing: HTMLElement | null,
   part: RuleProblem['field'],
   problems: ReturnType<typeof validateRule>,
   rule: Rule,
 ): HTMLElement {
-  const box = document.createElement('div');
-  box.className = `problems problems-${part}`;
-
   // Quiet, and not a live region, while the rule is still blank: nothing has
   // gone wrong yet, and an alert firing as the editor opens announces the user's
-  // own click back at them as a failure (see `untouched`).
-  const pending = untouched(rule);
-  if (!pending) box.setAttribute('role', 'alert');
-
-  for (const problem of problems) {
-    if (problem.field !== part) continue;
-    const line = document.createElement('p');
-    line.className = pending ? 'hint' : 'problem';
-    line.textContent = message('ruleInvalid', [problemText(problem)]);
-    box.append(line);
-  }
-  return box;
+  // own click back at them as a failure (see `untouched`). Reconciled onto the
+  // existing box rather than replaced, so a keystroke that changes nothing
+  // announces nothing (`reconcileProblems`).
+  return reconcileProblems(
+    existing,
+    `problems problems-${part}`,
+    problems
+      .filter((problem) => problem.field === part)
+      .map((problem) => message('ruleInvalid', [problemText(problem)])),
+    untouched(rule),
+  );
 }
 /* ------------------------------------------------------------ small builders */
 
@@ -1058,7 +1046,7 @@ function generatorSummary(generator: Generator): string {
  * under 4.5:1, the failure `.report-scope-rule` already carries a comment about
  * (WCAG 1.4.3). A word costs nothing and anyone can read it.
  */
-function markOff(disclose: HTMLElement, rule: { readonly enabled: boolean }): void {
+export function markOff(disclose: HTMLElement, rule: { readonly enabled: boolean }): void {
   disclose.querySelector('.rule-off')?.remove();
   if (rule.enabled) return;
   const off = document.createElement('span');
@@ -1147,7 +1135,11 @@ function rerenderBody(host: RuleEditorHost, rule: Rule, item: HTMLElement): void
   const problems = validateRule(rule);
   body.querySelector('.preview')?.replaceWith(preview(rule, previewLocale(host)));
   for (const part of ['match', 'sources', 'generator'] as const) {
-    body.querySelector(`.problems-${part}`)?.replaceWith(problemList(part, problems, rule));
+    // Reconciled in place, never replaced: the box is an alert once the rule is
+    // no longer blank, and a replaced alert announces its whole content afresh
+    // on every keystroke.
+    const box = body.querySelector(`.problems-${part}`);
+    problemList(box instanceof HTMLElement ? box : null, part, problems, rule);
   }
 
   const name = item.querySelector('.rule-name');

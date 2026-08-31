@@ -40,6 +40,24 @@ export default defineConfig({
        */
       thresholds: {
         'src/lib/page/**': { lines: 90, functions: 90 },
+        // URL globs (FR-037, FR-074), extracted from `lib/page/scope.ts`
+        // 2026-08-30 because the page never matches one — both callers are
+        // background-side. Held to the page floor it was written under: the
+        // matcher decides which pages are excluded and which profile runs, and
+        // both of those fail open — a pattern that matches nothing looks
+        // exactly like a page nobody excluded.
+        'src/lib/globs.ts': { lines: 90, functions: 90 },
+        // The shared coercions, extracted 2026-08-30 from three drifting
+        // copies. A floor because a coercion's failure is a silence: the wrong
+        // branch returns defaults with their work missing and no error
+        // anywhere — the argument the settings floor below makes, at the
+        // outermost step of the same read.
+        'src/lib/coerce.ts': { lines: 90, functions: 90 },
+        // One line, but gated rather than allowlisted for the same reason the
+        // settings floor exists: this is the sentence a failure is reported
+        // in, and an uncovered branch here is a caught error rendered as
+        // "[object Object]" to the user it happened to.
+        'src/lib/reason.ts': { lines: 90, functions: 90 },
         'src/lib/generators/**': { lines: 90, functions: 90 },
         'src/lib/persona/**': { lines: 90, functions: 90 },
         // The rule model (DD-005). Held to the same floor as the generators it

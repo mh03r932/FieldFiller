@@ -12,7 +12,7 @@ import {
   type RuleEditorHost,
 } from './rules';
 import { focusIn } from './controls';
-import { reason } from './reason';
+import { reason } from '@/lib/reason';
 import { SECTIONS } from './sections';
 import { closeIfProfileGone, isEditingProfile } from './profiles-section';
 import type { FieldReportEntry, FillReport, ReportResponse } from '@/lib/protocol';
@@ -31,8 +31,47 @@ import type { FieldReportEntry, FillReport, ReportResponse } from '@/lib/protoco
  * element, and it must be impossible for it to become one.
  */
 
-document.title = message('extName');
+// `optionsTitle`, not `extName`: among fifteen tabs a settings tab called only
+// "FieldFiller" names nothing, and a screen reader's document list is the same
+// list the tab strip is.
+document.title = message('optionsTitle');
 localise(document);
+buildOutline();
+
+/**
+ * The "On this page" list: one fragment link per section heading.
+ *
+ * The headings are read from the document rather than listed here, so the
+ * outline cannot fall out of step with the sections — a heading added to the
+ * markup appears in the outline without a second edit, and a heading removed
+ * takes its link with it. Written before any section renders, because the
+ * outline is the one part of the page whose value is highest before anything
+ * has loaded.
+ */
+function buildOutline(): void {
+  const nav = document.querySelector('.on-this-page');
+  if (!(nav instanceof HTMLElement)) return;
+  // Named from the catalog, like everything user-facing on this page: the
+  // label is the screen-reader's name for the list, never visible text.
+  nav.setAttribute('aria-label', message('onThisPage'));
+  for (const heading of document.querySelectorAll('h2')) {
+    // `localise` ran before this, so the label is the translated heading; an
+    // h2 without an id is not a section target and gets no link.
+    const label = heading.textContent;
+    if (label === '' || heading.id === '') continue;
+    const link = document.createElement('a');
+    link.href = `#${heading.id}`;
+    link.textContent = label;
+    // Deep links scroll and leave the focus behind (WCAG 2.4.3), and the
+    // report's jump link already proved the fix: give the heading a one-off
+    // focus target so keyboard users arrive rather than get dragged back.
+    link.addEventListener('click', () => {
+      heading.tabIndex = -1;
+      heading.focus();
+    });
+    nav.append(link);
+  }
+}
 
 void render();
 void mountSettings();
@@ -65,7 +104,19 @@ async function mountSettings(): Promise<void> {
   }
 
   const announce = (text: string): void => {
-    if (live instanceof HTMLElement) live.textContent = text;
+    if (!(live instanceof HTMLElement)) return;
+    // Appended rather than replaced. Two announcements made in the same handler
+    // — settings changed elsewhere, then the profile those settings removed —
+    // used to land as one `textContent` write, and only the second was ever
+    // spoken: a live region replaced wholesale announces its new content, not
+    // what it overwrote. Each sentence gets its own node, so the second is an
+    // *addition* the region announces after the first (aria-relevant defaults
+    // to additions text). Kept to the last few, so a long session cannot grow
+    // the region without bound.
+    const said = document.createElement('span');
+    said.textContent = text;
+    live.append(said);
+    while (live.childElementCount > 3) live.firstElementChild?.remove();
   };
 
   const editor: RuleEditorHost = {

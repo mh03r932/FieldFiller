@@ -1,4 +1,4 @@
-import type { ControlKind, ExclusionReason } from '../protocol';
+import type { ControlKind, SkipReason } from '../protocol';
 
 /**
  * Decides whether one control must be left untouched (UC-005).
@@ -11,11 +11,11 @@ import type { ControlKind, ExclusionReason } from '../protocol';
  * field needs one answer, not a set.
  */
 
-export type Classification =
+type Classification =
   | { readonly fillable: true; readonly kind: ControlKind }
-  | { readonly fillable: false; readonly reason: ExclusionReason };
+  | { readonly fillable: false; readonly reason: SkipReason };
 
-export type ExclusionContext = {
+type ExclusionContext = {
   readonly skipHidden: boolean;
   readonly skipPreFilled: boolean;
   /** Compiled once per fill, never per field per pattern (ND-15, NFR-025). */
@@ -168,7 +168,7 @@ export function classify(element: Element, context: ExclusionContext): Classific
   return classifyStructural(element, context);
 }
 
-function excluded(reason: ExclusionReason): Classification {
+function excluded(reason: SkipReason): Classification {
   return { fillable: false, reason };
 }
 
@@ -229,7 +229,7 @@ function isUnavailable(element: Element): boolean {
   );
 }
 
-function unavailabilityReason(element: Element): ExclusionReason {
+function unavailabilityReason(element: Element): SkipReason {
   if ('disabled' in element && element.disabled === true) return 'disabled';
   if ('readOnly' in element && element.readOnly === true) return 'readonly';
   return 'aria-disabled';

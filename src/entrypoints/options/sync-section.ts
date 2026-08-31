@@ -15,7 +15,7 @@ import {
   type SyncPrefs,
 } from '@/lib/sync';
 import { checkbox, focusIn } from './controls';
-import { reason } from './reason';
+import { reason } from '@/lib/reason';
 import type { OptionsHost } from './host';
 
 /**
@@ -227,7 +227,7 @@ function choiceView(host: OptionsHost, into: HTMLElement): HTMLElement {
 
   const keep = document.createElement('button');
   keep.type = 'button';
-  keep.className = 'sync-keep-here';
+  keep.className = 'secondary sync-keep-here';
   keep.textContent = message('syncChoiceKeepHere');
   keep.addEventListener('click', () => {
     void chooseHere(host, into);
@@ -235,7 +235,7 @@ function choiceView(host: OptionsHost, into: HTMLElement): HTMLElement {
 
   const take = document.createElement('button');
   take.type = 'button';
-  take.className = 'sync-take-there';
+  take.className = 'secondary sync-take-there';
   take.textContent = message('syncChoiceTakeThere');
   take.addEventListener('click', () => {
     void chooseThere(host, into);

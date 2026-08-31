@@ -174,8 +174,8 @@ try {
   /** Types into a labelled field the way a user would, and fires what a browser fires. */
   const type = async (labelText, value) => {
     await inPage(`(() => {
-      const field = [...document.querySelectorAll('#rules .rule-body label.field')]
-        .find((label) => label.querySelector('span')?.textContent === ${JSON.stringify(labelText)});
+      const field = [...document.querySelectorAll('#rules .rule-body .field')]
+        .find((field) => field.querySelector('label')?.textContent === ${JSON.stringify(labelText)});
       if (field === undefined) throw new Error('no field labelled ' + ${JSON.stringify(labelText)});
       const input = field.querySelector('input, textarea');
       input.value = ${JSON.stringify(value)};
@@ -187,8 +187,8 @@ try {
 
   const choose = async (labelText, value) => {
     await inPage(`(() => {
-      const field = [...document.querySelectorAll('#rules .rule-body label.field')]
-        .find((label) => label.querySelector('span')?.textContent === ${JSON.stringify(labelText)});
+      const field = [...document.querySelectorAll('#rules .rule-body .field')]
+        .find((field) => field.querySelector('label')?.textContent === ${JSON.stringify(labelText)});
       const select = field.querySelector('select');
       select.value = ${JSON.stringify(value)};
       select.dispatchEvent(new Event('change', { bubbles: true }));
@@ -206,8 +206,8 @@ try {
   // generator on an already-valid rule, which is why it never saw this.
   const selectedGenerator = async () =>
     String(await inPage(`(() => {
-      const field = [...document.querySelectorAll('#rules .rule-body label.field')]
-        .find((label) => label.querySelector('span')?.textContent === 'Generates');
+      const field = [...document.querySelectorAll('#rules .rule-body .field')]
+        .find((field) => field.querySelector('label')?.textContent === 'Generates');
       return field?.querySelector('select')?.value ?? 'none';
     })()`));
 
@@ -216,8 +216,8 @@ try {
     (await selectedGenerator()) === 'date',
     `the select shows ${await selectedGenerator()} — a structural edit was drawn back`);
   check('and the fields belonging to it are the ones on screen',
-    (await inPage(`[...document.querySelectorAll('#rules .rule-body label.field span')]
-       .some((span) => span.textContent === 'Format')`)) === true,
+    (await inPage(`[...document.querySelectorAll('#rules .rule-body .field label')]
+       .some((label) => label.textContent === 'Format')`)) === true,
     'the new type’s own fields never appeared');
 
   // The same question for the other structural control, on the same not-yet-
@@ -240,8 +240,8 @@ try {
   await choose('Generates', 'list');
   check('text typed into an invalid rule survives a structural edit',
     (await inPage(`(() => {
-      const field = [...document.querySelectorAll('#rules .rule-body label.field')]
-        .find((label) => label.querySelector('span')?.textContent === 'Name');
+      const field = [...document.querySelectorAll('#rules .rule-body .field')]
+        .find((field) => field.querySelector('label')?.textContent === 'Name');
       return field?.querySelector('input')?.value ?? '';
     })()`)) === 'Typed before valid',
     'the name was redrawn from the last committed version');
@@ -342,8 +342,8 @@ try {
     // bug.
     const labels = JSON.stringify(edits.map(([label]) => label));
     const shown = await inPage(`(() => {
-      const value = (labelText) => [...document.querySelectorAll('#rules .rule-body label.field')]
-        .find((label) => label.querySelector('span')?.textContent === labelText)
+      const value = (labelText) => [...document.querySelectorAll('#rules .rule-body .field')]
+        .find((field) => field.querySelector('label')?.textContent === labelText)
         ?.querySelector('input')?.value ?? '';
       return JSON.stringify(${labels}.map(value));
     })()`);

@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { excludedBy, matchesGlob, resolveScope, watchAnchor } from '@/lib/page/scope';
+import { resolveScope, watchAnchor } from '@/lib/page/scope';
+import { excludedBy, matchesGlob } from '@/lib/globs';
 import { runFill } from '@/lib/page/fill-loop';
 import { realScheduler } from '@/lib/page/settle';
 import { generateBatch, tokenRandom } from '@/lib/generators/batch';

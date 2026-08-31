@@ -126,7 +126,7 @@ export type Bounds = {
   readonly comboboxPassMs: number;
 };
 
-export const DEFAULT_BOUNDS: Bounds = {
+const DEFAULT_BOUNDS: Bounds = {
   maxPasses: 8,
   quietMs: 400,
   maxQuietWaitMs: 1500,
@@ -136,7 +136,7 @@ export const DEFAULT_BOUNDS: Bounds = {
   comboboxPassMs: 2000,
 };
 
-export type FillLoopOptions = {
+type FillLoopOptions = {
   /**
    * The document being filled. Always the whole document, whatever the scope:
    * it is what the quiescence observer and the user-input watcher attach to,
@@ -166,7 +166,7 @@ export type FillLoopOptions = {
   readonly scheduler?: Scheduler;
 };
 
-export type FillLoopResult = {
+type FillLoopResult = {
   readonly outcomes: readonly FieldOutcome[];
   readonly passes: number;
   /**
@@ -211,6 +211,21 @@ type Tracked = {
   written: FieldValue | undefined;
   attempts: number;
 };
+
+/**
+ * The controls the single-control scope actually covers.
+ *
+ * The anchor alone, unless it is a radio button — in which case the unit is its
+ * group, because one button is not independently answerable and writing the
+ * pointed-at one specifically would mean the user chose the value rather than
+ * the system (UC-003 A4).
+ */
+function radioUnit(anchor: Element): readonly Element[] {
+  if (anchor instanceof HTMLInputElement && anchor.type === 'radio') {
+    return radioGroup(anchor);
+  }
+  return [anchor];
+}
 
 export async function runFill(options: FillLoopOptions): Promise<FillLoopResult> {
   const { root, settings, requestValues, writtenByUs } = options;
@@ -528,22 +543,7 @@ export async function runFill(options: FillLoopOptions): Promise<FillLoopResult>
     return { ref: entry.ref, status: 'filled', provenance: `${provenance} (${result.rung})` };
   }
 
-  /**
- * The controls the single-control scope actually covers.
- *
- * The anchor alone, unless it is a radio button — in which case the unit is its
- * group, because one button is not independently answerable and writing the
- * pointed-at one specifically would mean the user chose the value rather than
- * the system (UC-003 A4).
- */
-function radioUnit(anchor: Element): readonly Element[] {
-  if (anchor instanceof HTMLInputElement && anchor.type === 'radio') {
-    return radioGroup(anchor);
-  }
-  return [anchor];
-}
-
-/** Writes one pass's values, and returns how many controls were acted on. */
+  /** Writes one pass's values, and returns how many controls were acted on. */
   async function apply(entries: readonly Tracked[], values: readonly FieldValue[]): Promise<number> {
     const byRef = new Map(entries.map((entry) => [entry.ref, entry]));
     // Spent across the whole pass, not per control: sixty comboboxes at a
@@ -625,17 +625,6 @@ function radioUnit(anchor: Element): readonly Element[] {
   }
 
   /**
-   * One outcome per control, taken from the state the control was actually in
-   * when the fill ended (BR-034-2).
-   *
-   * A control the page removed is left out rather than reported. Its fate is not
-   * unknown — it is not on the settled page, and this is an account of the page
-   * as it settled. Keeping it would mean claiming a field the user cannot see,
-   * which is the same dishonesty in the count that write verification exists to
-   * remove; the control that replaced it is reported in its own right, filled
-   * with the same value it was given before (UC-034 A7, BR-034-3).
-   */
-  /**
    * UC-003 A5: an anchor the page removed is a failure, not an empty fill.
    *
    * `report` drops any control that is no longer connected, deliberately —
@@ -668,6 +657,17 @@ function radioUnit(anchor: Element): readonly Element[] {
     ];
   }
 
+  /**
+   * One outcome per control, taken from the state the control was actually in
+   * when the fill ended (BR-034-2).
+   *
+   * A control the page removed is left out rather than reported. Its fate is not
+   * unknown — it is not on the settled page, and this is an account of the page
+   * as it settled. Keeping it would mean claiming a field the user cannot see,
+   * which is the same dishonesty in the count that write verification exists to
+   * remove; the control that replaced it is reported in its own right, filled
+   * with the same value it was given before (UC-034 A7, BR-034-3).
+   */
   function report(): FieldOutcome[] {
     const outcomes: FieldOutcome[] = [];
     for (const entry of tracked) {

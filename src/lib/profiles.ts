@@ -1,5 +1,5 @@
 import type { Profile, Rule } from './settings';
-import { matchesGlob } from './page/scope';
+import { matchesGlob } from './globs';
 
 /**
  * Which profile governs a page, and the operations that author one

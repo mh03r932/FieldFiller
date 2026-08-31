@@ -708,8 +708,8 @@ break the invariant restated under DD-003.
 **1 · Element tokens, for identity *and* for value stability.** `ref` is positional per batch
 and meaningless across passes, so each element gets a token for the operation's lifetime,
 held in a `WeakMap`. The report carries one final outcome per token — a control filled in
-pass 1, wiped by the page, refilled in pass 2 counts once. This is the same problem `FrameId`
-solved one level up, and the same answer.
+pass 1, wiped by the page, refilled in pass 2 counts once. This is the same problem the frame
+token (`FrameToken`, in `protocol.ts`) solved one level up, and the same answer.
 
 The token must also reach the background, because generation draws from a stateful PRNG:
 re-describe an element in a later pass and it would otherwise receive a *different* value.

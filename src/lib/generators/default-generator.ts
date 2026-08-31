@@ -1,5 +1,6 @@
 import type { ControlKind, ControlOption, FieldDescriptor, FieldValue } from '../protocol';
 import type { Persona, Random } from '../persona/persona';
+import { pick } from '../persona/corpus/corpus';
 import {
   DEFAULT_CONFIRMATION_KEYWORDS,
   DEFAULT_CONSENT_KEYWORDS,
@@ -646,8 +647,3 @@ function identityOf(descriptor: FieldDescriptor): string {
   return Object.values(descriptor.sources).join(' ').toLowerCase();
 }
 
-function pick<T>(items: readonly T[], random: Random): T {
-  // `Math.floor(random() * length)`, not `* (length - 1)`: the reference's
-  // arithmetic makes the last entry of every array unreachable (D7).
-  return items[Math.floor(random() * items.length)] as T;
-}

@@ -13,7 +13,7 @@ import { radioGroup } from './exclude';
  * impossible, a class attribute can trigger a rule meant for a name, and the
  * report cannot say which source matched.
  */
-export type Identity = {
+type Identity = {
   /** The radio group token, resolved by the caller against real membership. */
   readonly group?: string | undefined;
   /** The control's identity across the passes of one fill (FR-080). */

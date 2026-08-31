@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isFromAgentMessage, isToAgentMessage, isValuesResponse, PING } from '@/lib/protocol';
+import { isFromAgentMessage, isToAgentMessage, isValuesResponse } from '@/lib/protocol';
 
 /**
  * Phase 0's only unit test. Its job is less to prove `isToAgentMessage` correct
@@ -9,7 +9,7 @@ import { isFromAgentMessage, isToAgentMessage, isValuesResponse, PING } from '@/
  */
 describe('isToAgentMessage', () => {
   it('accepts the ping message', () => {
-    expect(isToAgentMessage(PING)).toBe(true);
+    expect(isToAgentMessage({ kind: 'ping' })).toBe(true);
   });
 
   it.each(['menu', 'shortcut', 'toolbar'])('accepts a fill instruction from %s', (trigger) => {

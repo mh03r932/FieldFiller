@@ -25,11 +25,11 @@ import type { Scheduler } from './settle';
  */
 
 /** What the agent needs from the page to drive one control, injected for testing. */
-export type ComboboxResult =
+type ComboboxResult =
   | { readonly driven: true; readonly rung: 'keyboard' | 'pointer' }
   | { readonly driven: false; readonly reason: string };
 
-export type ComboboxOptions = {
+type ComboboxOptions = {
   /** Position in the offered list, in [0, 1). Comes from the background (FR-081). */
   readonly at: number;
   readonly scheduler: Scheduler;

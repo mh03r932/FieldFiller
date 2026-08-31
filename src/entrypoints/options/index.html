@@ -51,6 +51,17 @@
       <p id="report-lede" class="report-lede"></p>
 
       <!--
+        The page's own outline, under the lede. Fifteen sections on one scroll
+        is the deliberate layout — find-in-page and deep links are the reasons
+        it exists — but "Restore default settings" and "Synchronise across
+        devices" sit about ten viewports down with nothing above announcing
+        them. A compact list of fragment links costs one line and keeps every
+        benefit of the single scroll; the browser supplies the scroll, and
+        nothing here is navigation state.
+      -->
+      <nav class="on-this-page"></nav>
+
+      <!--
         Sections on one scrolling page rather than tabs: every setting stays
         findable with the browser's own find-in-page, deep links work, and there
         is no navigation state to keep accessible.
@@ -62,6 +73,7 @@
       -->
       <section aria-labelledby="general-heading">
         <h2 id="general-heading" data-i18n="generalHeading"></h2>
+        <p data-i18n="generalIntro"></p>
         <div id="general"></div>
       </section>
 
@@ -212,11 +224,14 @@
 
         The section exists in the markup so the heading is present for a screen
         reader before the report arrives; main.ts fills #report once the
-        background has answered, or explains why it cannot.
+        background has answered, or explains why it cannot. Not a live region:
+        everything appended to one is announced, and the report is a table
+        measured in viewports — the lede line under the title already carries
+        the one sentence worth announcing, with a link to this section.
       -->
       <section aria-labelledby="report-heading">
         <h2 id="report-heading" data-i18n="reportHeading"></h2>
-        <div id="report" aria-live="polite"></div>
+        <div id="report"></div>
       </section>
 
       <div id="announcements" class="visually-hidden" role="status" aria-live="polite"></div>

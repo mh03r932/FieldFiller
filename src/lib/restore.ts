@@ -20,7 +20,7 @@ import { DEFAULT_SETTINGS, parseSettings, type Settings } from './settings';
  */
 
 /** What a restore discards, in the counts the confirmation names (BR-028-2). */
-export type RestoreLoss = {
+type RestoreLoss = {
   readonly rules: number;
   readonly profiles: number;
   readonly fieldExclusions: number;

@@ -6,7 +6,7 @@ import {
   settingsFileName,
 } from '@/lib/settings-file';
 import type { OptionsHost } from './host';
-import { reason } from './reason';
+import { reason } from '@/lib/reason';
 
 /**
  * UC-025 — the configuration, out to a file.
@@ -48,7 +48,7 @@ export function renderExport(host: OptionsHost, into: HTMLElement): void {
   // message points at it for the failures we *can* see.
   const toClipboard = document.createElement('button');
   toClipboard.type = 'button';
-  toClipboard.className = 'export-clipboard';
+  toClipboard.className = 'secondary export-clipboard';
   toClipboard.textContent = message('exportClipboardButton');
   toClipboard.addEventListener('click', () => {
     void exportToClipboard(host);

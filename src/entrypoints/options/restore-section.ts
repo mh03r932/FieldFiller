@@ -52,7 +52,7 @@ let confirming = false;
 export function renderRestore(host: OptionsHost, into: HTMLElement): void {
   const button = document.createElement('button');
   button.type = 'button';
-  button.className = 'restore-button';
+  button.className = 'primary restore-button';
   button.textContent = message('restoreButton');
   button.addEventListener('click', () => {
     confirming = true;
@@ -114,7 +114,7 @@ function planView(host: OptionsHost, into: HTMLElement): HTMLElement {
 
   const cancel = document.createElement('button');
   cancel.type = 'button';
-  cancel.className = 'restore-cancel';
+  cancel.className = 'secondary restore-cancel';
   cancel.textContent = message('restoreCancel');
   cancel.addEventListener('click', () => {
     // A1: nothing was written and nothing is held — closing the confirmation is

@@ -219,6 +219,17 @@ legend,
 }
 
 /*
+ * The profile line, on the same terms as the scope-rule line above it: two
+ * secondary sentences under the summary, one size, one colour. It had no rule
+ * at all and rendered at full size while its neighbour did not.
+ */
+.report-profile {
+  margin-top: 0.25rem;
+  font-size: 0.875rem;
+  color: var(--ff-muted);
+}
+
+/*
  * The last fill's outcome, under the page title, linking to the report itself
  * (DD-006). Empty and unrendered when there is nothing to report, so it costs
  * the usual visit nothing at all.
@@ -231,6 +242,25 @@ legend,
 
 .report-lede:empty {
   margin-block: 0;
+}
+
+/*
+ * The page's own outline, under the lede. Fifteen sections on one scroll, and
+ * the high-stakes ones (restore, sync) live about ten viewports down; this is
+ * the one line that announces they exist. Inline and wrapping rather than a
+ * column, so it costs two lines at 320px and never pushes the first setting
+ * below a fold of its own making (WCAG 1.4.10).
+ */
+.on-this-page {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.75rem;
+  margin-block: 0.75rem 0;
+}
+
+.on-this-page a {
+  font-size: 0.875rem;
+  color: var(--ff-muted);
 }
 
 /*
@@ -324,12 +354,14 @@ legend,
   color: var(--ff-bad);
 }
 
-.rule-order button,
-.rule-delete,
-.exclusion-delete,
-.export-clipboard,
-.import-cancel,
-.import-dismiss {
+/*
+ * The page's quiet buttons — cancel, dismiss, remove, copy, move. One class so
+ * the language stays one language: for a while seven buttons across migrate,
+ * restore, profiles and sync fell outside the old selector list and rendered as
+ * default browser chrome, which read as if they had arrived from another page.
+ */
+.secondary,
+.rule-order button {
   font: inherit;
   border: 1px solid var(--ff-rule);
   border-radius: 4px;
@@ -397,7 +429,10 @@ button.primary {
 }
 
 .rule-order button:disabled {
-  opacity: 0.4;
+  /* 0.55 rather than 0.4: disabled controls are exempt from the contrast
+     rule, but the first and last rule's arrows were barely visible at 0.4 —
+     visible-disabled is the design, illegible-disabled is not (UC-012 A1). */
+  opacity: 0.55;
   cursor: default;
 }
 
@@ -459,6 +494,27 @@ button.primary {
   display: block;
 }
 
+/*
+ * Stacked boxes need their own air: the checkbox row is a block with no margin
+ * of its own, so two in a row — the match sources, the password characters, a
+ * rule's options — sat edge to edge, each box's hint reading as the next box's
+ * caption. Matches the list rhythm (.exclusion, .rule) rather than inventing a
+ * third spacing value.
+ */
+.field.check + .field.check,
+.field + .field.check {
+  margin-block-start: 0.5rem;
+}
+
+/*
+ * After the section's action button the gap widens: the boxes below "Add an
+ * exclusion" are the behaviour switches, a different concern from the list the
+ * button serves, and 0.5rem read as though the button owned them.
+ */
+button.primary + .field.check {
+  margin-block-start: 0.75rem;
+}
+
 .field input[type='text'],
 .field input[type='number'],
 .field select,
@@ -510,6 +566,19 @@ button.primary {
  */
 .field input[type='number'] {
   max-width: 8rem;
+}
+
+/*
+ * An out-of-bounds number is refused silently by the guard in `numberInput` —
+ * the value never reaches memory — so the refusal needs a visible side or the
+ * box shows a number the settings will ignore (WCAG 3.3.1). `:user-invalid`
+ * rather than `:invalid`: the box is marked only after the user has interacted
+ * with it, so a value loaded from storage is never flagged as though the user
+ * had just typed something wrong. The browser supplies the validity state from
+ * the `min`/`max` attributes; the guard supplies `aria-invalid` to match.
+ */
+.field input:user-invalid {
+  border-color: var(--ff-bad);
 }
 
 .hint,

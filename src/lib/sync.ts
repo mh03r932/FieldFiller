@@ -338,7 +338,7 @@ function shardCount(count: number): number {
  * keeping what this schema recognises and defaulting the rest. The newer device
  * still holds what was dropped; this one does not pretend to.
  */
-export type ReplicaRead =
+type ReplicaRead =
   | { readonly state: 'empty' }
   | { readonly state: 'unreadable' }
   | { readonly state: 'stopped'; readonly rules: number }
@@ -515,7 +515,7 @@ export function isQuotaFailure(reason: string): boolean {
 }
 
 /** What the push half should do, decided before anything touches a store. */
-export type PushPlan =
+type PushPlan =
   | { readonly do: 'nothing'; readonly why: 'disabled' | 'choice-pending' | 'unchanged' }
   | { readonly do: 'wait'; readonly forMs: number }
   | {
@@ -563,7 +563,7 @@ export function planPush(input: {
 }
 
 /** What the pull half should do. `adopt` is the only outcome that writes anything locally. */
-export type PullPlan =
+type PullPlan =
   | {
       readonly do: 'nothing';
       readonly why:
@@ -738,7 +738,7 @@ export function settingsFingerprint(settings: Settings): string {
  * profiles here, 12 rules and 1 profile there" is a decision they can make,
  * where a list of what differs is one they would have to study.
  */
-export type SyncSides = {
+type SyncSides = {
   readonly here: { readonly rules: number; readonly profiles: number };
   readonly there: { readonly rules: number; readonly profiles: number };
 };

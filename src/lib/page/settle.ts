@@ -50,7 +50,7 @@ const ATTRIBUTE_FILTER = [
   'aria-busy',
 ];
 
-export type QuiescenceBounds = {
+type QuiescenceBounds = {
   /** How long without a mutation counts as quiet. */
   readonly quietMs: number;
   /** How long to wait for quiet before giving up on it (UC-034 A8). */
@@ -143,7 +143,7 @@ export function waitForQuiescence(
  * menu are chrome rather than content. So a trusted event arriving during a fill
  * is the user, not the trigger that started it.
  */
-export type UserInputWatch = {
+type UserInputWatch = {
   /** Controls the user has touched since the fill began. Never written to. */
   readonly touched: WeakSet<Element>;
   /** Whether any trusted interaction has arrived, which ends the cascade. */

@@ -125,7 +125,7 @@ try {
   /** Ticks or unticks a checkbox by its visible label, inside one section. */
   const toggle = async (sectionId, labelText, checked) => {
     await inPage(`(() => {
-      const label = [...document.querySelectorAll('#${sectionId} label.check')]
+      const label = [...document.querySelectorAll('#${sectionId} .check label')]
         .find((candidate) => candidate.textContent.trim().startsWith(${JSON.stringify(labelText)}));
       if (label === undefined) throw new Error('no checkbox labelled ' + ${JSON.stringify(labelText)});
       const box = label.querySelector('input[type=checkbox]');
@@ -141,8 +141,8 @@ try {
   /** Types into a labelled text control inside one section. */
   const type = async (sectionId, labelText, value) => {
     await inPage(`(() => {
-      const field = [...document.querySelectorAll('#${sectionId} label.field')]
-        .find((label) => label.querySelector('span')?.textContent === ${JSON.stringify(labelText)});
+      const field = [...document.querySelectorAll('#${sectionId} .field')]
+        .find((field) => field.querySelector('label')?.textContent === ${JSON.stringify(labelText)});
       if (field === undefined) throw new Error('no field labelled ' + ${JSON.stringify(labelText)});
       const input = field.querySelector('input, textarea');
       input.value = ${JSON.stringify(value)};
@@ -262,7 +262,7 @@ try {
   // state the page rendered from. Asking storage what shipped would be asking
   // the one place that does not know.
   check('the class source ships off',
-    (await inPage(`[...document.querySelectorAll('#sources label.check')]
+    (await inPage(`[...document.querySelectorAll('#sources .check label')]
        .find((label) => label.textContent.trim().startsWith('CSS class'))
        ?.querySelector('input').checked`)) === false,
     'the class checkbox is ticked on a fresh profile');
@@ -414,8 +414,13 @@ try {
   check('adding an exclusion puts the focus in its pattern box',
     (await inPage(`document.activeElement?.closest('#field-exclusions') !== null`)) === true,
     'the focus was dropped on the body');
+  // A blank pattern's sentence renders as a quiet hint rather than a `.problem`
+  // — announcing an alert for the user's own Add click was the defect the
+  // pending treatment exists to fix — so the box's line is accepted in either
+  // dress. What is asserted is that the sentence is *shown*: an exclusion that
+  // stores silently is the failure this guards.
   check('a blank exclusion says what is missing rather than storing silently',
-    (await inPage(`(document.querySelector('#field-exclusions .problem')?.textContent ?? '').length > 0`)) === true,
+    (await inPage(`(document.querySelector('#field-exclusions .problems p')?.textContent ?? '').length > 0`)) === true,
     'no problem shown for a blank pattern');
 
   await type('field-exclusions', 'Pattern', 'notes');

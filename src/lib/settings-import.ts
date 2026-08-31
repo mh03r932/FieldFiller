@@ -2,6 +2,7 @@ import { DEFAULT_SETTINGS, MATCH_SOURCES, parseSettings, type Rule, type Setting
 import { validateMatcher, validateRule, type RuleProblem } from './rules/validate';
 import { profileName } from './profiles';
 import { decodeBackupTransport, looksLikeFakeFiller } from './fakefiller-recognise';
+import { listAt, recordOf } from './coerce';
 
 /**
  * Reading a configuration back in (UC-026, FR-053, FR-054, ND-13).
@@ -671,7 +672,7 @@ function droppedEntries(file: Record<string, unknown>): {
     // The profile survives; its own rules go through the same parser and the
     // same validation and can be dropped individually, which the profile's count
     // alone would hide.
-    for (const [at, rule] of listAt(record(entry), 'rules').entries()) {
+    for (const [at, rule] of listAt(recordOf(entry), 'rules').entries()) {
       const rulePath = `${path}rules[${at}].`;
       const verdict = verdictOn(rule, rulePath);
       switch (verdict.kept) {
@@ -784,7 +785,7 @@ function verdictOn(entry: unknown, path: string): RuleVerdict {
  * here.
  */
 function coercedGenerator(entry: unknown, stored: Rule): readonly string[] {
-  const stated = record(record(entry)['generator']);
+  const stated = recordOf(recordOf(entry)['generator']);
   const kept = stored.generator as unknown as Record<string, unknown>;
 
   const changes: string[] = [];
@@ -806,7 +807,7 @@ function coercedGenerator(entry: unknown, stored: Rule): readonly string[] {
  *
  * The tolerant parser answers a wrongly shaped value with the default for that
  * place, and until this existed the report said nothing at all about it:
- * `record(3)` is `{}` and `{}` has no unknown keys in it, so both halves of the
+ * `recordOf(3)` is `{}` and `{}` has no unknown keys in it, so both halves of the
  * analysis looked at an empty shape and found nothing to say. `{"behaviour": 3}`
  * imported as every behaviour setting silently reset, reported as a clean
  * import with an empty drop list — the loss step 5 exists to make visible,
@@ -845,14 +846,14 @@ function mistypedShapes(file: Record<string, unknown>): {
 
   for (const [key, given] of Object.entries(file)) {
     const witness = defaults[key];
-    if (witness === undefined || kindOf(given) === kindOf(witness)) continue;
+    if (witness === undefined || valueKind(given) === valueKind(witness)) continue;
     drops.push({ code: 'importDroppedShape', params: [key] });
     mistyped.add(key);
   }
 
   for (const [section] of SECTION_SHAPES) {
     if (mistyped.has(section)) continue;
-    drops.push(...mistypedFields(file[section], record(defaults[section]), `${section}.`));
+    drops.push(...mistypedFields(file[section], recordOf(defaults[section]), `${section}.`));
   }
 
   return { drops, mistyped };
@@ -880,9 +881,9 @@ function mistypedFields(
   path: string,
 ): readonly ImportDrop[] {
   const drops: ImportDrop[] = [];
-  for (const [key, given] of Object.entries(record(value))) {
+  for (const [key, given] of Object.entries(recordOf(value))) {
     const expected = witness[key];
-    if (expected === undefined || kindOf(given) === kindOf(expected)) continue;
+    if (expected === undefined || valueKind(given) === valueKind(expected)) continue;
     drops.push({ code: 'importDroppedShape', params: [`${path}${key}`] });
   }
   return drops;
@@ -901,7 +902,7 @@ function mistypedFields(
  * "what counts as a list" cannot be answered one way for an import and another
  * for a migration.
  */
-export function kindOf(value: unknown): string {
+export function valueKind(value: unknown): string {
   if (value === null) return 'null';
   if (Array.isArray(value)) return 'list';
   return typeof value;
@@ -924,7 +925,7 @@ function unknownKeys(
   const drops: ImportDrop[] = [];
 
   const scan = (value: unknown, known: ReadonlySet<string>, path: string): void => {
-    for (const key of Object.keys(record(value))) {
+    for (const key of Object.keys(recordOf(value))) {
       if (!known.has(key)) drops.push({ code: 'importDroppedKey', params: [`${path}${key}`] });
     }
   };
@@ -961,7 +962,7 @@ function unknownKeys(
     const path = `profiles[${index}].`;
     if (reported.has(path)) continue;
     scan(profile, PROFILE_KEYS, path);
-    for (const [at, rule] of listAt(record(profile), 'rules').entries()) {
+    for (const [at, rule] of listAt(recordOf(profile), 'rules').entries()) {
       const rulePath = `${path}rules[${at}].`;
       if (reported.has(rulePath)) continue;
       scan(rule, RULE_KEYS, rulePath);
@@ -981,22 +982,12 @@ function unknownKeys(
  * open in front of the user.
  */
 function nameOf(entry: unknown, index: number): string {
-  const candidate = record(entry);
+  const candidate = recordOf(entry);
   const label = candidate['label'];
   if (typeof label === 'string' && label.trim() !== '') return label;
 
-  const pattern = record(candidate['match'])['pattern'];
+  const pattern = recordOf(candidate['match'])['pattern'];
   if (typeof pattern === 'string' && pattern.trim() !== '') return pattern;
 
   return `#${index + 1}`;
-}
-
-function record(value: unknown): Record<string, unknown> {
-  return typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : {};
-}
-
-/** A list-valued key, or an empty list — a file may put anything under any name. */
-function listAt(value: Record<string, unknown>, key: string): readonly unknown[] {
-  const list = value[key];
-  return Array.isArray(list) ? list : [];
 }

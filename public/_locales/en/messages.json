@@ -421,7 +421,7 @@
   },
   "ruleDelete": {
     "message": "Delete",
-    "description": "Deletes a rule (UC-011)."
+    "description": "Deletes a rule (UC-011). \"Delete\" rather than \"Remove\": this page reserves Delete for destroying a composite thing (a rule, a profile) and Remove for taking one entry out of a list (an exclusion, a domain). Keep the distinction when translating."
   },
   "ruleDeleted": {
     "message": "Deleted \"$NAME$\".",
@@ -815,7 +815,7 @@
   },
   "exclusionRemove": {
     "message": "Remove",
-    "description": "Button that deletes one exclusion from a list."
+    "description": "Button that deletes one exclusion from a list. \"Remove\" rather than \"Delete\": reserved for taking one entry out of a list; see the note on ruleDelete."
   },
   "exclusionUnnamed": {
     "message": "this blank exclusion",
@@ -1109,7 +1109,7 @@
   },
   "profileDelete": {
     "message": "Delete",
-    "description": "Button that deletes a whole profile."
+    "description": "Button that deletes a whole profile. \"Delete\" rather than \"Remove\": reserved for destroying a composite thing; see the note on ruleDelete."
   },
   "profileDeleteConfirm": {
     "message": "Delete the profile \"$PROFILE$\" and the $COUNT$ rules in it? This cannot be undone.",
@@ -2246,5 +2246,13 @@
         "example": "8"
       }
     }
+  },
+  "onThisPage": {
+    "message": "On this page",
+    "description": "Label for the list of links to each section of the settings page. Read by screen readers as the list's name; not shown as a heading."
+  },
+  "generalIntro": {
+    "message": "This setting decides which country's data every fill draws from.",
+    "description": "Intro line under the General heading. The section's only control is the Data locale (ND-1), so the intro states its scope rather than listing controls. The reset action named by the previous text belongs to Restore, not here."
   }
 }

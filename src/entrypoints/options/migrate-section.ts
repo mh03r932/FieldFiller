@@ -11,7 +11,7 @@ import { MAX_IMPORT_SIZE, oversizeRefusal } from '@/lib/settings-import';
 import type { OptionsHost } from './host';
 import { focusIn } from './controls';
 import { problemText } from './problems';
-import { reason } from './reason';
+import { reason } from '@/lib/reason';
 
 /**
  * UC-027 — a Fake Filler backup, translated and written, on screen.
@@ -198,7 +198,7 @@ function refusalView(
 
   const dismiss = document.createElement('button');
   dismiss.type = 'button';
-  dismiss.className = 'migrate-dismiss';
+  dismiss.className = 'secondary migrate-dismiss';
   dismiss.textContent = message('migrateDismiss');
   dismiss.addEventListener('click', () => {
     discard(host, into, 'migrateDismissed');
@@ -304,7 +304,7 @@ function planView(
 
   const cancel = document.createElement('button');
   cancel.type = 'button';
-  cancel.className = 'migrate-cancel';
+  cancel.className = 'secondary migrate-cancel';
   cancel.textContent = message('migrateCancel');
   cancel.addEventListener('click', () => {
     discard(host, into, 'migrateCancelled');
