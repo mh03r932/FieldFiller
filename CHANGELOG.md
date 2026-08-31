@@ -15,8 +15,21 @@ artefact, so that a reader can confirm the store package matches the public sour
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.1.1] - 2026-09-01
+
 The first public release. Everything below is new, so this entry describes the product
 rather than a set of changes to it.
+
+**Built from tag `v0.1.1`.** SHA-256 of each published artefact (the sources archive AMO
+requires is built by the same `pnpm zip:all` and reproducible by the same property, but
+its digest necessarily depends on this file's own content, so it is not listed here):
+
+| Artefact | SHA-256 |
+|---|---|
+| `fieldfiller-0.1.1-chrome.zip` | `fdea443065afa89bce4dc68c8f3cebd1fb4bc469499690ab789b757a0e75f101` |
+| `fieldfiller-0.1.1-firefox.zip` | `84f058e5f6d79962dd3d7eeb46e4ec016371313dd7046afef9ff50604853a635` |
 
 ### Added
 
@@ -147,4 +160,5 @@ rather than a set of changes to it.
 
 <!-- TODO before publishing: point this at the public repository, once §Contact in
      PRIVACY.md has settled where that is. -->
-[Unreleased]: [REPOSITORY URL]/compare/main...HEAD
+[Unreleased]: [REPOSITORY URL]/compare/v0.1.1...HEAD
+[0.1.1]: [REPOSITORY URL]/releases/tag/v0.1.1
