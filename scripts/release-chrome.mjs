@@ -11,11 +11,24 @@
  *
  * Credentials (one-time; https://developer.chrome.com/docs/webstore/using-webstore-api):
  *   EXTENSION_ID   the item's 32-letter id
+ *   PUBLISHER_ID   the publishing *account's* id, not the item's — devconsole
+ *                  → Publisher → Settings displays it. It is also the segment
+ *                  after `/devconsole/` in the dashboard URL, but read it from
+ *                  Settings: an account publishing under a group publisher has
+ *                  a publisher id that is not its own account id, and only
+ *                  Settings distinguishes the two. Account-level, like the
+ *                  three below: every item this account publishes shares it.
  *   CLIENT_ID      OAuth client id — a GCP project with the Chrome Web Store
  *                  API enabled, and an OAuth client of type "Desktop app"
  *   CLIENT_SECRET  that client's secret
  *   REFRESH_TOKEN  from the OAuth consent flow against that client, scope
  *                  https://www.googleapis.com/auth/chromewebstore
+ *
+ * PUBLISHER_ID is not optional and not historical: this CLI addresses the v2
+ * API, where an item is named `publishers/<id>/items/<id>` rather than by its
+ * extension id alone. Leaving it unset reaches the store as `Option
+ * "publisherId" is required`, thrown before the first request — which is how
+ * v0.1.3's release ended.
  *
  * The CLI's upload-and-publish is its default — invoking it with no subcommand
  * does both — so the only argument this passes is `--source`, naming the zip.
@@ -40,7 +53,7 @@ if (!existsSync(ZIP)) {
   console.error(`✖ ${ZIP} not found. Run \`pnpm zip\` first.`);
   process.exit(1);
 }
-if (process.env['EXTENSION_ID'] === undefined) {
+if ((process.env['EXTENSION_ID'] ?? '') === '') {
   console.error(
     '✖ EXTENSION_ID is not set.\n' +
       '    If the item does not exist yet, create it once by hand at\n' +
@@ -49,8 +62,12 @@ if (process.env['EXTENSION_ID'] === undefined) {
   );
   process.exit(1);
 }
-for (const name of ['CLIENT_ID', 'CLIENT_SECRET', 'REFRESH_TOKEN']) {
-  if (process.env[name] === undefined) {
+// Empty counts as unset. A workflow that names a secret the repository does
+// not have exports the variable anyway, with an empty value — so a `=== undefined`
+// test would wave the run through to fail inside the CLI instead, one layer
+// further from the secret that is actually missing.
+for (const name of ['PUBLISHER_ID', 'CLIENT_ID', 'CLIENT_SECRET', 'REFRESH_TOKEN']) {
+  if ((process.env[name] ?? '') === '') {
     console.error(
       `✖ ${name} is not set. See the header of this script for the one-time setup.`,
     );

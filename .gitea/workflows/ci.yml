@@ -526,12 +526,12 @@ jobs:
   #
   # Secrets (Settings → Actions → Secrets): WEB_EXT_API_KEY and
   # WEB_EXT_API_SECRET for AMO. For the Chrome Web Store, the account-level
-  # credentials this repository shares with its sibling extension — client,
-  # secret and refresh token are properties of the publishing Google account,
-  # not of an item — plus CHROME_EXTENSION_GWS_FIELDFILLER_ID, the one value
-  # that is per-extension, added after the first manual submission. A missing
-  # AMO key fails loudly rather than skipping, so a release tag can never go
-  # out half-processed in the other direction either.
+  # credentials this repository shares with its sibling extension — publisher
+  # id, client, secret and refresh token are properties of the publishing
+  # Google account, not of an item — plus CHROME_EXTENSION_GWS_FIELDFILLER_ID,
+  # the one value that is per-extension, added after the first manual
+  # submission. A missing AMO key fails loudly rather than skipping, so a
+  # release tag can never go out half-processed in the other direction either.
   release:
     needs: [quality, browser, package]
     if: startsWith(github.ref, 'refs/tags/')
@@ -589,6 +589,7 @@ jobs:
       - name: Upload to the Chrome Web Store
         env:
           EXTENSION_ID: ${{ secrets.CHROME_EXTENSION_GWS_FIELDFILLER_ID }}
+          PUBLISHER_ID: ${{ secrets.CHROME_EXTENSION_GWS_PUBLISHER_ID }}
           CLIENT_ID: ${{ secrets.CHROME_EXTENSION_GWS_CLIENT_ID }}
           CLIENT_SECRET: ${{ secrets.CHROME_EXTENSION_GWS_CLIENT_SECRET }}
           REFRESH_TOKEN: ${{ secrets.CHROME_EXTENSION_GWS_REFRESH_TOKEN }}
@@ -596,7 +597,7 @@ jobs:
           if [ -z "${EXTENSION_ID}" ]; then
             echo '→ skipped: CHROME_EXTENSION_GWS_FIELDFILLER_ID is not set. Create the item once at'
             echo '  https://chromewebstore.google.com/devconsole, then add that one secret — the other'
-            echo '  three are account-level and already exist for this account.'
+            echo '  four are account-level and already exist for this account.'
             exit 0
           fi
           pnpm run release:chrome

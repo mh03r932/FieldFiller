@@ -17,6 +17,33 @@ artefact, so that a reader can confirm the store package matches the public sour
 
 Nothing yet.
 
+## [0.1.4] - 2026-09-02
+
+### Fixed
+
+- The Chrome release automation reaches the store. `chrome-webstore-upload-cli`
+  addresses the Web Store's v2 API, where an item is named
+  `publishers/<publisher>/items/<extension>` rather than by its extension id
+  alone, so a publisher id is required and the release script never asked for
+  one — v0.1.3's pipeline run died as `Option "publisherId" is required`,
+  thrown while constructing the client, before a single request went out. The
+  script now requires `PUBLISHER_ID` alongside the other credentials, and CI
+  passes it from an account-level secret. Credentials are checked for emptiness
+  rather than for being undefined, because a workflow naming a secret the
+  repository does not have exports the variable anyway with an empty value —
+  which would have waved the run through to fail one layer further from the
+  missing secret. No extension behaviour changed; the shipped packages differ
+  from v0.1.3's only in the version they declare.
+
+**Built from tag `v0.1.4`.** SHA-256 of each published artefact (the sources archive AMO
+requires is built by the same `pnpm zip:all` and reproducible by the same property, but
+its digest necessarily depends on this file's own content, so it is not listed here):
+
+| Artefact | SHA-256 |
+|---|---|
+| `fieldfiller-0.1.4-chrome.zip` | `95c082c219ced866599545c1e42b03a15a144dae6bbba28eaf00517d2b4b6c6d` |
+| `fieldfiller-0.1.4-firefox.zip` | `4e6d0cc01640a63b3485fceb29afafafcfaad406662471873548cc6fe9cfb2da` |
+
 ## [0.1.3] - 2026-09-01
 
 ### Fixed
@@ -203,7 +230,8 @@ its digest necessarily depends on this file's own content, so it is not listed h
 
 <!-- TODO before publishing: point this at the public repository, once §Contact in
      PRIVACY.md has settled where that is. -->
-[Unreleased]: [REPOSITORY URL]/compare/v0.1.3...HEAD
+[Unreleased]: [REPOSITORY URL]/compare/v0.1.4...HEAD
+[0.1.4]: [REPOSITORY URL]/compare/v0.1.3...v0.1.4
 [0.1.3]: [REPOSITORY URL]/compare/v0.1.2...v0.1.3
 [0.1.2]: [REPOSITORY URL]/compare/v0.1.1...v0.1.2
 [0.1.1]: [REPOSITORY URL]/releases/tag/v0.1.1
