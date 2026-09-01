@@ -17,6 +17,28 @@ artefact, so that a reader can confirm the store package matches the public sour
 
 Nothing yet.
 
+## [0.1.2] - 2026-09-01
+
+### Fixed
+
+- The Firefox release automation submits again. It was first written against
+  web-ext 8's `submit` command, which web-ext removed when it folded the job
+  into `sign` on its way to version 10 — the version this repo's lockfile
+  carries — so v0.1.1's first pipeline run died at argument parsing before
+  anything was uploaded. The script now signs through `sign`, which drives the
+  same submission API, and states `--approval-timeout 0` so a release means
+  *submitted* rather than *approved*. No extension behaviour changed; the
+  shipped packages differ from v0.1.1's only in the version they declare.
+
+**Built from tag `v0.1.2`.** SHA-256 of each published artefact (the sources archive AMO
+requires is built by the same `pnpm zip:all` and reproducible by the same property, but
+its digest necessarily depends on this file's own content, so it is not listed here):
+
+| Artefact | SHA-256 |
+|---|---|
+| `fieldfiller-0.1.2-chrome.zip` | `3a8870d96ddaa28d8f791c06c1057dfdfed7fe021927b81e79e2b7f409957397` |
+| `fieldfiller-0.1.2-firefox.zip` | `5409513aff549ae079f4e23ae820011cb52a489958faca5ec32c00359e94e591` |
+
 ## [0.1.1] - 2026-09-01
 
 The first public release. Everything below is new, so this entry describes the product
@@ -160,5 +182,6 @@ its digest necessarily depends on this file's own content, so it is not listed h
 
 <!-- TODO before publishing: point this at the public repository, once §Contact in
      PRIVACY.md has settled where that is. -->
-[Unreleased]: [REPOSITORY URL]/compare/v0.1.1...HEAD
+[Unreleased]: [REPOSITORY URL]/compare/v0.1.2...HEAD
+[0.1.2]: [REPOSITORY URL]/compare/v0.1.1...v0.1.2
 [0.1.1]: [REPOSITORY URL]/releases/tag/v0.1.1

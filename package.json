@@ -2,7 +2,7 @@
   "name": "fieldfiller",
   "description": "Fills every form control on a page with plausible dummy data in one action.",
   "private": true,
-  "version": "0.1.1",
+  "version": "0.1.2",
   "license": "MIT",
   "type": "module",
   "packageManager": "pnpm@11.2.0",
