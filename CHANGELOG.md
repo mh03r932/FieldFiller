@@ -17,6 +17,27 @@ artefact, so that a reader can confirm the store package matches the public sour
 
 Nothing yet.
 
+## [0.1.3] - 2026-09-01
+
+### Fixed
+
+- The Chrome release automation uploads again, for the same reason the Firefox
+  one needed fixing in 0.1.2: the script named flags the CLI has never known —
+  `--zip` and `--publish` — and chrome-webstore-upload-cli silently ignored
+  both before dying on the repo root's lack of a manifest.json. It now passes
+  only `--source`, and publishes through the CLI's no-subcommand default. No
+  extension behaviour changed; the shipped packages differ from v0.1.2's only
+  in the version they declare.
+
+**Built from tag `v0.1.3`.** SHA-256 of each published artefact (the sources archive AMO
+requires is built by the same `pnpm zip:all` and reproducible by the same property, but
+its digest necessarily depends on this file's own content, so it is not listed here):
+
+| Artefact | SHA-256 |
+|---|---|
+| `fieldfiller-0.1.3-chrome.zip` | `8265dd9a01e60892c4fad4ee713e3d974d6662cc2c50931c911051775c98185e` |
+| `fieldfiller-0.1.3-firefox.zip` | `85caa70f59c90a2d23b759efcac1ceac0467d05a19a0bb90a16f44911896c18f` |
+
 ## [0.1.2] - 2026-09-01
 
 ### Fixed
@@ -182,6 +203,7 @@ its digest necessarily depends on this file's own content, so it is not listed h
 
 <!-- TODO before publishing: point this at the public repository, once §Contact in
      PRIVACY.md has settled where that is. -->
-[Unreleased]: [REPOSITORY URL]/compare/v0.1.2...HEAD
+[Unreleased]: [REPOSITORY URL]/compare/v0.1.3...HEAD
+[0.1.3]: [REPOSITORY URL]/compare/v0.1.2...v0.1.3
 [0.1.2]: [REPOSITORY URL]/compare/v0.1.1...v0.1.2
 [0.1.1]: [REPOSITORY URL]/releases/tag/v0.1.1

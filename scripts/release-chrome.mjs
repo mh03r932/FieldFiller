@@ -17,6 +17,13 @@
  *   REFRESH_TOKEN  from the OAuth consent flow against that client, scope
  *                  https://www.googleapis.com/auth/chromewebstore
  *
+ * The CLI's upload-and-publish is its default — invoking it with no subcommand
+ * does both — so the only argument this passes is `--source`, naming the zip.
+ * The interface was not always so spare: v0.1.2's pipeline run passed `--zip`
+ * and `--publish`, flags this CLI has never known, and it silently ignored
+ * both before dying looking for a manifest.json in the repo root. Silence on
+ * an unknown flag is why the invocation names nothing it does not need.
+ *
  * Usage: pnpm zip && pnpm release:chrome
  */
 import { spawnSync } from 'node:child_process';
@@ -54,7 +61,7 @@ for (const name of ['CLIENT_ID', 'CLIENT_SECRET', 'REFRESH_TOKEN']) {
 console.log(`Uploading FieldFiller ${version} to the Chrome Web Store and publishing…`);
 const result = spawnSync(
   'pnpm',
-  ['exec', 'chrome-webstore-upload', '--zip', ZIP, '--publish', 'true'],
+  ['exec', 'chrome-webstore-upload', '--source', ZIP],
   { stdio: 'inherit' },
 );
 process.exit(result.status ?? 1);
