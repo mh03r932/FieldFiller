@@ -8,6 +8,20 @@
  * the directory itself), and the sources zip AMO requires for bundled code is
  * the one WXT laid next to it.
  *
+ * The command is `sign`, though the script was first written against `submit`:
+ * web-ext removed `submit` after v8 and folded its job into `sign`, which then
+ * drove the submission API — `--channel` became required, and the sources
+ * archive moved from `--upload-source-file` to `--upload-source-code`. The
+ * lockfile is on web-ext 10, where the old spelling no longer exists, and
+ * release v0.1.1's first pipeline run died on exactly that. `sign` is the
+ * spelling that reads: for a listed add-on it creates the listing or adds the
+ * version, which is what a release is.
+ *
+ * `--approval-timeout 0` keeps this script's contract honest: it submits and
+ * returns, and does not wait out a human review that can take days. The CI job
+ * holding it has fifteen minutes; the review queue lives in the AMO dashboard,
+ * not in a command's exit status.
+ *
  * Credentials (https://addons.mozilla.org/developers/addon/api/key/):
  *   WEB_EXT_API_KEY     the "JWT issuer" key
  *   WEB_EXT_API_SECRET  the "JWT secret"
@@ -47,10 +61,11 @@ console.log(`Submitting FieldFiller ${version} to AMO (listed channel)…`);
 const result = spawnSync(
   'pnpm',
   [
-    'exec', 'web-ext', 'submit',
+    'exec', 'web-ext', 'sign',
     '--source-dir', SOURCE_DIR,
     '--channel', 'listed',
-    '--upload-source-file', SOURCES_ZIP,
+    '--upload-source-code', SOURCES_ZIP,
+    '--approval-timeout', '0',
     '--no-input',
   ],
   { stdio: 'inherit' },
